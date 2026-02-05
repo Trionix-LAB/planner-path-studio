@@ -29,11 +29,6 @@ const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogP
 
   const handleConfirm = () => {
     if (folder.trim()) {
-      // Mock validation
-      if (folder.includes('locked')) {
-        setError('Миссия заблокирована другим процессом');
-        return;
-      }
       onConfirm(folder);
       setFolder('');
       setError(null);

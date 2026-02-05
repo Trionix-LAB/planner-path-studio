@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { FilePlus, FolderOpen, FileText, RotateCcw, Clock, ChevronRight } from 'lucide-react';
+import { platform } from '@/platform';
 
 const recentMissions = [
   { name: 'Миссия_Порт_2024', path: 'C:/Missions/Порт_2024', date: '2024-12-15' },
@@ -11,8 +12,16 @@ const recentMissions = [
 
 const StartScreen = () => {
   const navigate = useNavigate();
-  const [hasDraft] = useState(true);
-  const [hasRecoverableDraft] = useState(true);
+  const [hasRecoverableDraft, setHasRecoverableDraft] = useState(false);
+
+  useEffect(() => {
+    const checkDraft = async () => {
+      const exists = await platform.fileStore.exists('draft/current/mission.json');
+      setHasRecoverableDraft(exists);
+    };
+
+    void checkDraft();
+  }, []);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-8">
@@ -54,19 +63,17 @@ const StartScreen = () => {
             </div>
           </Button>
 
-          {hasDraft && (
-            <Button
-              variant="outline"
-              className="h-auto py-6 px-6 flex flex-col items-center gap-3 bg-card hover:bg-secondary border-border hover:border-primary/50 transition-all"
-              onClick={() => navigate('/map?mode=draft')}
-            >
-              <FileText className="w-8 h-8 text-muted-foreground" />
-              <div>
-                <div className="font-medium text-foreground">Черновик</div>
-                <div className="text-xs text-muted-foreground">Продолжить работу</div>
-              </div>
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            className="h-auto py-6 px-6 flex flex-col items-center gap-3 bg-card hover:bg-secondary border-border hover:border-primary/50 transition-all"
+            onClick={() => navigate('/map?mode=draft')}
+          >
+            <FileText className="w-8 h-8 text-muted-foreground" />
+            <div>
+              <div className="font-medium text-foreground">Черновик</div>
+              <div className="text-xs text-muted-foreground">Продолжить работу</div>
+            </div>
+          </Button>
 
           {hasRecoverableDraft && (
             <Button

@@ -38,6 +38,7 @@ interface MapCanvasProps {
     course: number;
     depth: number;
   };
+  trackSegments: Array<Array<[number, number]>>;
   isFollowing: boolean;
   connectionStatus: 'ok' | 'timeout' | 'error';
   onCursorMove: (pos: { lat: number; lon: number }) => void;
@@ -133,6 +134,7 @@ const MapCanvas = ({
   objects,
   selectedObjectId,
   diverData,
+  trackSegments,
   isFollowing,
   connectionStatus,
   onCursorMove,
@@ -148,16 +150,6 @@ const MapCanvas = ({
 
   const diverPosition: [number, number] = [diverData.lat, diverData.lon];
   const baseStationPosition: [number, number] = [59.935, 30.333];
-
-  // Mock track
-  const trackPositions: [number, number][] = [
-    [59.9340, 30.330],
-    [59.9342, 30.332],
-    [59.9344, 30.333],
-    [59.9346, 30.334],
-    [59.9345, 30.336],
-    [59.9343, 30.335],
-  ];
 
   const handleMapClick = useCallback(
     (latlng: L.LatLng) => {
@@ -266,15 +258,17 @@ const MapCanvas = ({
         <FollowDiver position={diverPosition} isFollowing={isFollowing} />
 
         {/* Track */}
-        {layers.track && (
-          <Polyline
-            positions={trackPositions}
-            pathOptions={{
-              color: "hsl(280, 70%, 60%)",
-              weight: 3,
-            }}
-          />
-        )}
+        {layers.track &&
+          trackSegments.map((segment, index) => (
+            <Polyline
+              key={`track-segment-${index}`}
+              positions={segment}
+              pathOptions={{
+                color: 'hsl(280, 70%, 60%)',
+                weight: 3,
+              }}
+            />
+          ))}
 
         {/* Routes */}
         {layers.routes &&

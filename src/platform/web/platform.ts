@@ -19,6 +19,18 @@ const rememberPath = (key: string, value: string) => {
 
 const DEFAULT_MISSIONS_DIR = "C:/Missions";
 const DEFAULT_EXPORTS_DIR = "C:/Exports";
+const FILE_STORE_PREFIX = "planner.fs:";
+
+const normalizePath = (path: string): string => path.replace(/\\/g, "/").replace(/\/+/g, "/").trim();
+const toStorageKey = (path: string): string => `${FILE_STORE_PREFIX}${normalizePath(path)}`;
+
+const listStoredKeys = (): string[] => {
+  try {
+    return Object.keys(window.localStorage).filter((key) => key.startsWith(FILE_STORE_PREFIX));
+  } catch {
+    return [];
+  }
+};
 
 export const webPlatform: Platform = {
   runtime: {
@@ -52,6 +64,38 @@ export const webPlatform: Platform = {
       }
 
       return normalized;
+    },
+  },
+  fileStore: {
+    exists: async (path) => {
+      try {
+        return window.localStorage.getItem(toStorageKey(path)) !== null;
+      } catch {
+        return false;
+      }
+    },
+    readText: async (path) => {
+      try {
+        return window.localStorage.getItem(toStorageKey(path));
+      } catch {
+        return null;
+      }
+    },
+    writeText: async (path, content) => {
+      window.localStorage.setItem(toStorageKey(path), content);
+    },
+    remove: async (path) => {
+      try {
+        window.localStorage.removeItem(toStorageKey(path));
+      } catch {
+        // ignore
+      }
+    },
+    list: async (prefix) => {
+      const normalizedPrefix = normalizePath(prefix);
+      return listStoredKeys()
+        .map((key) => key.slice(FILE_STORE_PREFIX.length))
+        .filter((path) => path.startsWith(normalizedPrefix));
     },
   },
 };

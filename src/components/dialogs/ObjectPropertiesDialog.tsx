@@ -37,7 +37,9 @@ const ObjectPropertiesDialog = ({ open, onOpenChange, object, onSave }: ObjectPr
   useEffect(() => {
     if (object) {
       setName(object.name);
-      setNote('');
+      setNote(object.note ?? '');
+      setLaneAngle(String(object.laneAngle ?? 0));
+      setLaneWidth(String(object.laneWidth ?? 5));
       setLanesOutdated(false);
     }
   }, [object]);
