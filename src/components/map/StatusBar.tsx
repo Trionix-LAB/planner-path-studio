@@ -1,4 +1,4 @@
-import { Tool } from '@/pages/MapWorkspace';
+import type { Tool } from "@/features/map/model/types";
 
 interface StatusBarProps {
   cursorPosition: { lat: number; lon: number };

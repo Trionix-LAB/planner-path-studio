@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FolderOpen, AlertTriangle, Clock, ChevronRight } from 'lucide-react';
+import { platform } from "@/platform";
 
 interface OpenMissionDialogProps {
   open: boolean;
@@ -23,7 +24,7 @@ const recentMissions = [
 ];
 
 const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogProps) => {
-  const [folder, setFolder] = useState('');
+  const [folder, setFolder] = useState(platform.paths.defaultMissionsDir());
   const [error, setError] = useState<string | null>(null);
 
   const handleConfirm = () => {
@@ -43,6 +44,17 @@ const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogP
     onConfirm(path);
     setFolder('');
     setError(null);
+  };
+
+  const handlePickFolder = async () => {
+    const picked = await platform.fs.pickDirectory({
+      title: "Папка миссии",
+      defaultPath: folder,
+    });
+    if (picked) {
+      setFolder(picked);
+      setError(null);
+    }
   };
 
   return (
@@ -65,7 +77,7 @@ const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogP
                 placeholder="Выберите папку с mission.json"
                 className="font-mono text-sm"
               />
-              <Button variant="outline" size="icon">
+              <Button type="button" variant="outline" size="icon" onClick={handlePickFolder}>
                 <FolderOpen className="w-4 h-4" />
               </Button>
             </div>

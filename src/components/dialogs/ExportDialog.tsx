@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { FolderOpen } from 'lucide-react';
+import { platform } from "@/platform";
 
 interface ExportDialogProps {
   open: boolean;
@@ -31,12 +32,20 @@ const ExportDialog = ({ open, onOpenChange }: ExportDialogProps) => {
   const [trackFormat, setTrackFormat] = useState('gpx');
   const [routeFormat, setRouteFormat] = useState('gpx');
   const [markerFormat, setMarkerFormat] = useState('csv');
-  const [exportPath, setExportPath] = useState('C:/Exports');
+  const [exportPath, setExportPath] = useState(platform.paths.defaultExportsDir());
 
   const handleExport = () => {
     // Mock export
     console.log('Exporting...');
     onOpenChange(false);
+  };
+
+  const handlePickExportPath = async () => {
+    const picked = await platform.fs.pickDirectory({
+      title: "Папка экспорта",
+      defaultPath: exportPath,
+    });
+    if (picked) setExportPath(picked);
   };
 
   return (
@@ -126,7 +135,7 @@ const ExportDialog = ({ open, onOpenChange }: ExportDialogProps) => {
             <Label>Папка экспорта</Label>
             <div className="flex gap-2">
               <Input value={exportPath} onChange={(e) => setExportPath(e.target.value)} className="font-mono text-sm" />
-              <Button variant="outline" size="icon">
+              <Button type="button" variant="outline" size="icon" onClick={handlePickExportPath}>
                 <FolderOpen className="w-4 h-4" />
               </Button>
             </div>

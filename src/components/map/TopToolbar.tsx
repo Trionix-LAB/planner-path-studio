@@ -25,7 +25,7 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
-import { Tool } from '@/pages/MapWorkspace';
+import type { Tool } from "@/features/map/model/types";
 import { cn } from '@/lib/utils';
 
 interface TopToolbarProps {

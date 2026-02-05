@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { MapObject } from '@/pages/MapWorkspace';
+import type { MapObject } from "@/features/map/model/types";
 import { AlertTriangle } from 'lucide-react';
 
 interface ObjectPropertiesDialogProps {

@@ -1,4 +1,4 @@
-import { MapObject } from '@/pages/MapWorkspace';
+import type { MapObject } from "@/features/map/model/types";
 import { Wifi, WifiOff, Radio, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 

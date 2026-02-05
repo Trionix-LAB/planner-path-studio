@@ -1,16 +1,22 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Polygon, useMapEvents, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { Tool, MapObject } from '@/pages/MapWorkspace';
-import { AlertTriangle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MapContainer, Marker, Polygon, Polyline, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { AlertTriangle } from "lucide-react";
 
-// Fix leaflet default marker icons
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+import type { MapObject, Tool } from "@/features/map/model/types";
+import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
+import markerIconUrl from "leaflet/dist/images/marker-icon.png";
+import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
+import { platform } from "@/platform";
+
+// Fix leaflet default marker icons (bundle local assets; don't depend on CDN).
+const iconProto = L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown };
+delete iconProto._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+  iconRetinaUrl: markerIcon2xUrl,
+  iconUrl: markerIconUrl,
+  shadowUrl: markerShadowUrl,
 });
 
 interface MapCanvasProps {
@@ -37,16 +43,17 @@ interface MapCanvasProps {
   onCursorMove: (pos: { lat: number; lon: number }) => void;
   onObjectSelect: (id: string | null) => void;
   onObjectDoubleClick: (id: string) => void;
+  onMapDrag: () => void;
 }
 
 // Custom diver icon
 const createDiverIcon = (course: number, isFollowing: boolean) => {
   return L.divIcon({
-    className: 'diver-marker',
+    className: "diver-marker",
     html: `
       <div class="relative flex items-center justify-center">
-        <div class="w-8 h-8 rounded-full bg-primary border-2 border-white flex items-center justify-center ${isFollowing ? 'animate-pulse' : ''}">
-          <svg class="w-4 h-4 text-white" style="transform: rotate(${course}deg)" viewBox="0 0 24 24" fill="currentColor">
+        <div class="w-8 h-8 rounded-full bg-primary border-2 border-white flex items-center justify-center ${isFollowing ? "animate-pulse" : ""}">
+          <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor" transform="rotate(${course} 12 12)">
             <path d="M12 2L8 12H16L12 2Z"/>
           </svg>
         </div>
@@ -59,7 +66,7 @@ const createDiverIcon = (course: number, isFollowing: boolean) => {
 
 // Custom base station icon
 const baseStationIcon = L.divIcon({
-  className: 'base-station-marker',
+  className: "base-station-marker",
   html: `
     <div class="w-6 h-6 bg-muted border border-white flex items-center justify-center text-white text-xs font-bold">
       B
@@ -72,9 +79,9 @@ const baseStationIcon = L.divIcon({
 // Custom marker icon
 const createMarkerIcon = (isSelected: boolean) => {
   return L.divIcon({
-    className: 'custom-marker',
+    className: "custom-marker",
     html: `
-      <div class="w-4 h-4 rounded-full ${isSelected ? 'bg-green-400 scale-125' : 'bg-green-500'} border-2 border-background"></div>
+      <div class="w-4 h-4 rounded-full ${isSelected ? "bg-green-400 scale-125" : "bg-green-500"} border-2 border-background"></div>
     `,
     iconSize: [16, 16],
     iconAnchor: [8, 8],
@@ -82,14 +89,14 @@ const createMarkerIcon = (isSelected: boolean) => {
 };
 
 // Map events handler component
-const MapEvents = ({ 
-  onCursorMove, 
-  activeTool, 
-  onMapClick 
-}: { 
+const MapEvents = ({
+  onCursorMove,
+  onMapClick,
+  onMapDrag,
+}: {
   onCursorMove: (pos: { lat: number; lon: number }) => void;
-  activeTool: Tool;
   onMapClick: (latlng: L.LatLng) => void;
+  onMapDrag: () => void;
 }) => {
   useMapEvents({
     mousemove: (e) => {
@@ -98,28 +105,27 @@ const MapEvents = ({
     click: (e) => {
       onMapClick(e.latlng);
     },
+    dragstart: () => {
+      onMapDrag();
+    },
   });
   return null;
 };
 
 // Follow diver component
-const FollowDiver = ({ 
-  position, 
-  isFollowing 
-}: { 
-  position: [number, number]; 
-  isFollowing: boolean;
-}) => {
+const FollowDiver = ({ position, isFollowing }: { position: [number, number]; isFollowing: boolean }) => {
   const map = useMap();
-  
+
   useEffect(() => {
     if (isFollowing) {
       map.setView(position, map.getZoom());
     }
   }, [position, isFollowing, map]);
-  
+
   return null;
 };
+
+const toTuple = (p: { lat: number; lon: number }): [number, number] => [p.lat, p.lon];
 
 const MapCanvas = ({
   activeTool,
@@ -132,28 +138,16 @@ const MapCanvas = ({
   onCursorMove,
   onObjectSelect,
   onObjectDoubleClick,
+  onMapDrag,
 }: MapCanvasProps) => {
   const [drawingPoints, setDrawingPoints] = useState<L.LatLng[]>([]);
   const mapRef = useRef<L.Map | null>(null);
 
+  const pendingCursor = useRef<{ lat: number; lon: number } | null>(null);
+  const cursorRaf = useRef<number | null>(null);
+
   const diverPosition: [number, number] = [diverData.lat, diverData.lon];
   const baseStationPosition: [number, number] = [59.935, 30.333];
-
-  // Mock object positions (in lat/lng)
-  const mockObjects = {
-    route: {
-      id: '1',
-      positions: [[59.9345, 30.332], [59.9350, 30.336], [59.9355, 30.340]] as [number, number][],
-    },
-    zone: {
-      id: '2',
-      positions: [[59.9330, 30.337], [59.9330, 30.342], [59.9320, 30.342], [59.9320, 30.337]] as [number, number][],
-    },
-    marker: {
-      id: '3',
-      position: [59.9325, 30.334] as [number, number],
-    },
-  };
 
   // Mock track
   const trackPositions: [number, number][] = [
@@ -165,31 +159,56 @@ const MapCanvas = ({
     [59.9343, 30.335],
   ];
 
-  const handleMapClick = (latlng: L.LatLng) => {
-    if (activeTool === 'route' || activeTool === 'zone') {
-      setDrawingPoints(prev => [...prev, latlng]);
-    } else if (activeTool === 'marker') {
+  const handleMapClick = useCallback(
+    (latlng: L.LatLng) => {
+      if (activeTool === "route" || activeTool === "zone") {
+        setDrawingPoints((prev) => [...prev, latlng]);
+      } else if (activeTool === "marker") {
       setDrawingPoints([latlng]);
-    } else if (activeTool === 'select') {
-      onObjectSelect(null);
-    }
-  };
+      } else if (activeTool === "select") {
+        onObjectSelect(null);
+      }
+    },
+    [activeTool, onObjectSelect],
+  );
+
+  const onCursorMoveThrottled = useCallback(
+    (pos: { lat: number; lon: number }) => {
+      pendingCursor.current = pos;
+      if (cursorRaf.current !== null) return;
+
+      cursorRaf.current = window.requestAnimationFrame(() => {
+        cursorRaf.current = null;
+        if (pendingCursor.current) onCursorMove(pendingCursor.current);
+      });
+    },
+    [onCursorMove],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (cursorRaf.current !== null) {
+        window.cancelAnimationFrame(cursorRaf.current);
+        cursorRaf.current = null;
+      }
+    };
+  }, []);
 
   // Escape to cancel drawing
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         setDrawingPoints([]);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   // Double click to finish drawing
   useEffect(() => {
     const handleDoubleClick = () => {
-      if ((activeTool === 'route' || activeTool === 'zone') && drawingPoints.length > 1) {
+      if ((activeTool === "route" || activeTool === "zone") && drawingPoints.length > 1) {
         // Here you would save the object
         setDrawingPoints([]);
       }
@@ -197,12 +216,32 @@ const MapCanvas = ({
 
     const map = mapRef.current;
     if (map) {
-      map.on('dblclick', handleDoubleClick);
+      map.on("dblclick", handleDoubleClick);
       return () => {
-        map.off('dblclick', handleDoubleClick);
+        map.off("dblclick", handleDoubleClick);
       };
     }
   }, [activeTool, drawingPoints]);
+
+  const renderObjects = useMemo(() => {
+    const routes: Array<{ obj: MapObject; points: [number, number][] }> = [];
+    const zones: Array<{ obj: MapObject; points: [number, number][] }> = [];
+    const markers: Array<{ obj: MapObject; point: [number, number] }> = [];
+
+    for (const obj of objects) {
+      if (!obj.visible || !obj.geometry) continue;
+
+      if (obj.geometry.type === "route") {
+        routes.push({ obj, points: obj.geometry.points.map(toTuple) });
+      } else if (obj.geometry.type === "zone") {
+        zones.push({ obj, points: obj.geometry.points.map(toTuple) });
+      } else if (obj.geometry.type === "marker") {
+        markers.push({ obj, point: toTuple(obj.geometry.point) });
+      }
+    }
+
+    return { routes, zones, markers };
+  }, [objects]);
 
   return (
     <div className="w-full h-full relative">
@@ -212,19 +251,18 @@ const MapCanvas = ({
         className="w-full h-full"
         ref={mapRef}
         doubleClickZoom={false}
-        zoomControl={false}
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution={platform.map.tileLayerAttribution()}
+          url={platform.map.tileLayerUrl()}
         />
 
-        <MapEvents 
-          onCursorMove={onCursorMove} 
-          activeTool={activeTool}
+        <MapEvents
+          onCursorMove={onCursorMoveThrottled}
           onMapClick={handleMapClick}
+          onMapDrag={onMapDrag}
         />
-        
+
         <FollowDiver position={diverPosition} isFollowing={isFollowing} />
 
         {/* Track */}
@@ -232,95 +270,101 @@ const MapCanvas = ({
           <Polyline
             positions={trackPositions}
             pathOptions={{
-              color: 'hsl(280, 70%, 60%)',
+              color: "hsl(280, 70%, 60%)",
               weight: 3,
             }}
           />
         )}
 
         {/* Routes */}
-        {layers.routes && (
-          <Polyline
-            positions={mockObjects.route.positions}
-            pathOptions={{
-              color: selectedObjectId === mockObjects.route.id ? 'hsl(199, 89%, 60%)' : 'hsl(199, 89%, 48%)',
-              weight: selectedObjectId === mockObjects.route.id ? 4 : 3,
-            }}
-            eventHandlers={{
-              click: (e) => {
-                L.DomEvent.stopPropagation(e);
-                onObjectSelect(mockObjects.route.id);
-              },
-              dblclick: (e) => {
-                L.DomEvent.stopPropagation(e);
-                onObjectDoubleClick(mockObjects.route.id);
-              },
-            }}
-          />
-        )}
+        {layers.routes &&
+          renderObjects.routes.map(({ obj, points }) => (
+            <Polyline
+              key={obj.id}
+              positions={points}
+              pathOptions={{
+                color: selectedObjectId === obj.id ? "hsl(199, 89%, 60%)" : "hsl(199, 89%, 48%)",
+                weight: selectedObjectId === obj.id ? 4 : 3,
+              }}
+              eventHandlers={{
+                click: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  onObjectSelect(obj.id);
+                },
+                dblclick: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  onObjectDoubleClick(obj.id);
+                },
+              }}
+            />
+          ))}
 
         {/* Zone */}
-        {layers.routes && (
-          <Polygon
-            positions={mockObjects.zone.positions}
-            pathOptions={{
-              color: selectedObjectId === mockObjects.zone.id ? 'hsl(38, 92%, 60%)' : 'hsl(38, 92%, 50%)',
-              fillColor: 'hsl(38, 92%, 50%)',
-              fillOpacity: selectedObjectId === mockObjects.zone.id ? 0.3 : 0.15,
-              weight: selectedObjectId === mockObjects.zone.id ? 3 : 2,
-            }}
-            eventHandlers={{
-              click: (e) => {
-                L.DomEvent.stopPropagation(e);
-                onObjectSelect(mockObjects.zone.id);
-              },
-              dblclick: (e) => {
-                L.DomEvent.stopPropagation(e);
-                onObjectDoubleClick(mockObjects.zone.id);
-              },
-            }}
-          />
-        )}
+        {layers.routes &&
+          renderObjects.zones.map(({ obj, points }) => (
+            <Polygon
+              key={obj.id}
+              positions={points}
+              pathOptions={{
+                color: selectedObjectId === obj.id ? "hsl(38, 92%, 60%)" : "hsl(38, 92%, 50%)",
+                fillColor: "hsl(38, 92%, 50%)",
+                fillOpacity: selectedObjectId === obj.id ? 0.3 : 0.15,
+                weight: selectedObjectId === obj.id ? 3 : 2,
+              }}
+              eventHandlers={{
+                click: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  onObjectSelect(obj.id);
+                },
+                dblclick: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  onObjectDoubleClick(obj.id);
+                },
+              }}
+            />
+          ))}
 
         {/* Markers */}
-        {layers.markers && (
-          <Marker
-            position={mockObjects.marker.position}
-            icon={createMarkerIcon(selectedObjectId === mockObjects.marker.id)}
-            eventHandlers={{
-              click: (e) => {
-                L.DomEvent.stopPropagation(e);
-                onObjectSelect(mockObjects.marker.id);
-              },
-              dblclick: (e) => {
-                L.DomEvent.stopPropagation(e);
-                onObjectDoubleClick(mockObjects.marker.id);
-              },
-            }}
-          />
-        )}
+        {layers.markers &&
+          renderObjects.markers.map(({ obj, point }) => (
+            <Marker
+              key={obj.id}
+              position={point}
+              icon={createMarkerIcon(selectedObjectId === obj.id)}
+              eventHandlers={{
+                click: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  onObjectSelect(obj.id);
+                },
+                dblclick: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  onObjectDoubleClick(obj.id);
+                },
+              }}
+            />
+          ))}
 
         {/* Drawing preview */}
-        {drawingPoints.length > 0 && activeTool === 'route' && (
+        {drawingPoints.length > 0 && activeTool === "route" && (
           <Polyline
-            positions={drawingPoints.map(p => [p.lat, p.lng] as [number, number])}
+            positions={drawingPoints.map((p) => [p.lat, p.lng] as [number, number])}
             pathOptions={{
-              color: 'hsl(199, 89%, 48%)',
+              color: "hsl(199, 89%, 48%)",
               weight: 2,
-              dashArray: '5, 5',
+              dashArray: "5, 5",
             }}
           />
         )}
 
-        {drawingPoints.length > 2 && activeTool === 'zone' && (
+        {drawingPoints.length > 2 && activeTool === "zone" && (
           <Polygon
-            positions={drawingPoints.map(p => [p.lat, p.lng] as [number, number])}
+            positions={drawingPoints.map((p) => [p.lat, p.lng] as [number, number])}
             pathOptions={{
-              color: 'hsl(38, 92%, 50%)',
-              fillColor: 'hsl(38, 92%, 50%)',
+              color: "hsl(38, 92%, 50%)",
+              fillColor: "hsl(38, 92%, 50%)",
               fillOpacity: 0.15,
               weight: 2,
-              dashArray: '5, 5',
+              dashArray: "5, 5",
             }}
           />
         )}
@@ -331,7 +375,7 @@ const MapCanvas = ({
             key={i}
             position={[point.lat, point.lng]}
             icon={L.divIcon({
-              className: 'drawing-point',
+              className: "drawing-point",
               html: '<div class="w-2 h-2 bg-white rounded-full border border-background"></div>',
               iconSize: [8, 8],
               iconAnchor: [4, 4],

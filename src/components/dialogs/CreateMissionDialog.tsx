@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { FolderOpen } from 'lucide-react';
+import { platform } from "@/platform";
 
 interface CreateMissionDialogProps {
   open: boolean;
@@ -20,7 +21,7 @@ interface CreateMissionDialogProps {
 
 const CreateMissionDialog = ({ open, onOpenChange, onConfirm }: CreateMissionDialogProps) => {
   const [name, setName] = useState('');
-  const [folder, setFolder] = useState('C:/Missions');
+  const [folder, setFolder] = useState(platform.paths.defaultMissionsDir());
   const [createSubfolder, setCreateSubfolder] = useState(true);
 
   const handleConfirm = () => {
@@ -29,6 +30,14 @@ const CreateMissionDialog = ({ open, onOpenChange, onConfirm }: CreateMissionDia
       onConfirm(name, finalPath);
       setName('');
     }
+  };
+
+  const handlePickFolder = async () => {
+    const picked = await platform.fs.pickDirectory({
+      title: "Папка хранения миссий",
+      defaultPath: folder,
+    });
+    if (picked) setFolder(picked);
   };
 
   return (
@@ -53,7 +62,7 @@ const CreateMissionDialog = ({ open, onOpenChange, onConfirm }: CreateMissionDia
             <Label>Папка хранения</Label>
             <div className="flex gap-2">
               <Input value={folder} onChange={(e) => setFolder(e.target.value)} className="font-mono text-sm" />
-              <Button variant="outline" size="icon">
+              <Button type="button" variant="outline" size="icon" onClick={handlePickFolder}>
                 <FolderOpen className="w-4 h-4" />
               </Button>
             </div>

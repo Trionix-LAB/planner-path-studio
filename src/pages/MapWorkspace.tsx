@@ -11,43 +11,36 @@ import ExportDialog from '@/components/dialogs/ExportDialog';
 import SettingsDialog from '@/components/dialogs/SettingsDialog';
 import ObjectPropertiesDialog from '@/components/dialogs/ObjectPropertiesDialog';
 
-export type Tool = 'select' | 'route' | 'zone' | 'marker';
-export type MapObject = {
-  id: string;
-  type: 'route' | 'zone' | 'marker' | 'lane';
-  name: string;
-  visible: boolean;
-};
+import type { MapObject, Tool } from '@/features/map/model/types';
 
 const MapWorkspace = () => {
   const navigate = useNavigate();
-  
+
   // Mission state
   const [missionName, setMissionName] = useState<string | null>(null);
   const [isDraft, setIsDraft] = useState(true);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  
+  const [autoSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+
   // Tools state
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [isFollowing, setIsFollowing] = useState(true);
-  
+
   // Track state
   const [trackStatus, setTrackStatus] = useState<'recording' | 'paused' | 'stopped'>('recording');
   const [trackId, setTrackId] = useState(1);
-  
+
   // Connection state
-  const [connectionStatus, setConnectionStatus] = useState<'ok' | 'timeout' | 'error'>('ok');
-  const [lastDataTime, setLastDataTime] = useState(Date.now());
-  
+  const [connectionStatus] = useState<'ok' | 'timeout' | 'error'>('ok');
+
   // Diver data (mock)
-  const [diverData, setDiverData] = useState({
+  const [diverData] = useState({
     lat: 59.934280,
     lon: 30.335099,
     speed: 0.8,
     course: 45,
     depth: 12.5,
   });
-  
+
   // Layers state
   const [layers, setLayers] = useState({
     track: true,
@@ -57,27 +50,63 @@ const MapWorkspace = () => {
     scaleBar: true,
     diver: true,
   });
-  
+
   // Objects
   const [objects, setObjects] = useState<MapObject[]>([
-    { id: '1', type: 'route', name: 'Маршрут 1', visible: true },
-    { id: '2', type: 'zone', name: 'Зона обследования A', visible: true },
-    { id: '3', type: 'marker', name: 'Точка интереса', visible: true },
+    {
+      id: '1',
+      type: 'route',
+      name: 'Маршрут 1',
+      visible: true,
+      geometry: {
+        type: 'route',
+        points: [
+          { lat: 59.9345, lon: 30.3320 },
+          { lat: 59.9350, lon: 30.3360 },
+          { lat: 59.9355, lon: 30.3400 },
+        ],
+      },
+    },
+    {
+      id: '2',
+      type: 'zone',
+      name: 'Зона обследования A',
+      visible: true,
+      geometry: {
+        type: 'zone',
+        points: [
+          { lat: 59.9330, lon: 30.3370 },
+          { lat: 59.9330, lon: 30.3420 },
+          { lat: 59.9320, lon: 30.3420 },
+          { lat: 59.9320, lon: 30.3370 },
+        ],
+      },
+    },
+    {
+      id: '3',
+      type: 'marker',
+      name: 'Точка интереса',
+      visible: true,
+      geometry: {
+        type: 'marker',
+        point: { lat: 59.9325, lon: 30.3340 },
+      },
+    },
   ]);
-  
+
   // Selected object
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
-  
+
   // Dialogs
   const [showCreateMission, setShowCreateMission] = useState(false);
   const [showOpenMission, setShowOpenMission] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showObjectProperties, setShowObjectProperties] = useState(false);
-  
+
   // Cursor position
   const [cursorPosition, setCursorPosition] = useState({ lat: 59.934, lon: 30.335 });
-  const [mapScale, setMapScale] = useState('1:5000');
+  const [mapScale] = useState('1:5000');
 
   const handleToolChange = (tool: Tool) => {
     setActiveTool(tool);
@@ -106,14 +135,7 @@ const MapWorkspace = () => {
     setShowObjectProperties(true);
   };
 
-  const handleDeleteObject = () => {
-    if (selectedObjectId) {
-      setObjects(prev => prev.filter(obj => obj.id !== selectedObjectId));
-      setSelectedObjectId(null);
-    }
-  };
-
-  const handleCreateMission = (name: string, path: string) => {
+  const handleCreateMission = (name: string, _path: string) => {
     setMissionName(name);
     setIsDraft(false);
     setShowCreateMission(false);
@@ -148,7 +170,7 @@ const MapWorkspace = () => {
         onOpenSettings={() => setShowSettings(true)}
         onBackToStart={handleBackToStart}
       />
-      
+
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel - Layers & Tracks */}
@@ -156,7 +178,7 @@ const MapWorkspace = () => {
           layers={layers}
           onLayerToggle={handleLayerToggle}
         />
-        
+
         {/* Map Area */}
         <div className="flex-1 relative">
           <MapCanvas
@@ -170,9 +192,10 @@ const MapWorkspace = () => {
             onCursorMove={setCursorPosition}
             onObjectSelect={handleObjectSelect}
             onObjectDoubleClick={handleObjectDoubleClick}
+            onMapDrag={() => setIsFollowing(false)}
           />
         </div>
-        
+
         {/* Right Panel - HUD & Status */}
         <RightPanel
           diverData={diverData}
@@ -184,44 +207,44 @@ const MapWorkspace = () => {
           onObjectSelect={handleObjectSelect}
         />
       </div>
-      
+
       {/* Status Bar */}
       <StatusBar
         cursorPosition={cursorPosition}
         scale={mapScale}
         activeTool={activeTool}
       />
-      
+
       {/* Dialogs */}
       <CreateMissionDialog
         open={showCreateMission}
         onOpenChange={setShowCreateMission}
         onConfirm={handleCreateMission}
       />
-      
+
       <OpenMissionDialog
         open={showOpenMission}
         onOpenChange={setShowOpenMission}
         onConfirm={handleOpenMission}
       />
-      
+
       <ExportDialog
         open={showExport}
         onOpenChange={setShowExport}
       />
-      
+
       <SettingsDialog
         open={showSettings}
         onOpenChange={setShowSettings}
       />
-      
+
       {selectedObjectId && (
         <ObjectPropertiesDialog
           open={showObjectProperties}
           onOpenChange={setShowObjectProperties}
           object={objects.find(o => o.id === selectedObjectId)}
           onSave={(updates) => {
-            setObjects(prev => prev.map(obj => 
+            setObjects(prev => prev.map(obj =>
               obj.id === selectedObjectId ? { ...obj, ...updates } : obj
             ));
             setShowObjectProperties(false);
