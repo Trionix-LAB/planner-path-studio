@@ -16,6 +16,13 @@ const createId = (): string => {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
+const getColorFromStyle = (style?: Record<string, unknown>): string | undefined => {
+  if (!style) return undefined;
+  if (typeof style.color === 'string') return style.color;
+  if (typeof style.stroke_color === 'string') return style.stroke_color;
+  return undefined;
+};
+
 export const bundleToMapObjects = (bundle: MissionBundle): MapObject[] => {
   const objects: MapObject[] = [];
 
@@ -28,6 +35,7 @@ export const bundleToMapObjects = (bundle: MissionBundle): MapObject[] => {
         type: 'route',
         name: feature.properties.name,
         visible: true,
+        color: getColorFromStyle(feature.properties.style),
         note: feature.properties.note ?? undefined,
         geometry: {
           type: 'route',
@@ -44,6 +52,7 @@ export const bundleToMapObjects = (bundle: MissionBundle): MapObject[] => {
         type: 'zone',
         name: feature.properties.name,
         visible: true,
+        color: getColorFromStyle(feature.properties.style),
         note: feature.properties.note ?? undefined,
         laneAngle: feature.properties.lane_angle_deg,
         laneWidth: feature.properties.lane_width_m,
@@ -61,6 +70,7 @@ export const bundleToMapObjects = (bundle: MissionBundle): MapObject[] => {
       type: 'marker',
       name: marker.properties.name,
       visible: true,
+      color: getColorFromStyle(marker.properties.style),
       note: marker.properties.description,
       geometry: {
         type: 'marker',
@@ -102,6 +112,7 @@ export const mapObjectsToGeoJson = (
           note: object.note ?? null,
           created_at: now,
           updated_at: now,
+          ...(object.color ? { style: { color: object.color } } : {}),
         },
       });
       continue;
@@ -130,6 +141,7 @@ export const mapObjectsToGeoJson = (
           updated_at: now,
           lane_angle_deg: object.laneAngle === 90 ? 90 : 0,
           lane_width_m: object.laneWidth ?? 5,
+          ...(object.color ? { style: { color: object.color } } : {}),
         },
       });
       continue;
@@ -150,6 +162,7 @@ export const mapObjectsToGeoJson = (
           created_at: now,
           updated_at: now,
           description: object.note ?? '',
+          ...(object.color ? { style: { color: object.color } } : {}),
         },
       });
     }

@@ -1,5 +1,7 @@
 import { Checkbox } from '@/components/ui/checkbox';
-import { Eye, Route, MapPin, Grid3X3, Ruler, Waves } from 'lucide-react';
+import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { MapObject } from '@/features/map/model/types';
 
 interface LeftPanelProps {
   layers: {
@@ -11,9 +13,19 @@ interface LeftPanelProps {
     diver: boolean;
   };
   onLayerToggle: (layer: keyof LeftPanelProps['layers']) => void;
+  objects: MapObject[];
+  selectedObjectId: string | null;
+  onObjectSelect: (id: string | null) => void;
 }
 
-const LeftPanel = ({ layers, onLayerToggle }: LeftPanelProps) => {
+const getObjectColor = (obj: MapObject): string => {
+  if (obj.color) return obj.color;
+  if (obj.type === 'zone') return 'hsl(38, 92%, 50%)';
+  if (obj.type === 'marker') return 'hsl(142, 71%, 45%)';
+  return 'hsl(199, 89%, 48%)';
+};
+
+const LeftPanel = ({ layers, onLayerToggle, objects, selectedObjectId, onObjectSelect }: LeftPanelProps) => {
   const layerItems = [
     { key: 'diver' as const, icon: Waves, label: 'Водолаз', locked: true },
     { key: 'track' as const, icon: Route, label: 'Треки', locked: false },
@@ -63,7 +75,7 @@ const LeftPanel = ({ layers, onLayerToggle }: LeftPanelProps) => {
       <div className="panel-header">
         Треки миссии
       </div>
-      <div className="flex-1 overflow-auto p-2 space-y-1">
+      <div className="p-2 space-y-1">
         {tracks.map((track) => (
           <div
             key={track.id}
@@ -83,6 +95,30 @@ const LeftPanel = ({ layers, onLayerToggle }: LeftPanelProps) => {
             )}
           </div>
         ))}
+      </div>
+
+      <div className="border-t border-sidebar-border mt-1" />
+
+      <div className="panel-header">Объекты</div>
+      <div className="flex-1 min-h-0 overflow-auto p-2 space-y-1">
+        {objects.map((obj) => (
+          <button
+            key={obj.id}
+            className={cn(
+              'w-full text-left px-2 py-1.5 rounded flex items-center gap-2 text-sm transition-colors',
+              selectedObjectId === obj.id ? 'bg-primary/20 text-primary' : 'hover:bg-sidebar-accent',
+            )}
+            onClick={() => onObjectSelect(obj.id)}
+          >
+            <Circle className="w-3 h-3" style={{ color: getObjectColor(obj) }} fill="currentColor" />
+            <span className="truncate">{obj.name}</span>
+          </button>
+        ))}
+        {objects.length === 0 && (
+          <div className="p-2 text-center text-xs text-muted-foreground">
+            Нет объектов. Создайте их инструментами на карте.
+          </div>
+        )}
       </div>
     </div>
   );

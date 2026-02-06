@@ -17,6 +17,7 @@ export type MapObject = {
   type: MapObjectType;
   name: string;
   visible: boolean;
+  color?: string;
 
   // Optional while the app is still MVP/mocked.
   geometry?: MapObjectGeometry;
@@ -26,4 +27,3 @@ export type MapObject = {
   laneAngle?: number;
   laneWidth?: number;
 };
-

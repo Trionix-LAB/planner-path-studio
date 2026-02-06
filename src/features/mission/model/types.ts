@@ -94,6 +94,7 @@ export type SurveyAreaFeature = {
     kind: 'survey_area';
     lane_angle_deg: 0 | 90;
     lane_width_m: number;
+    style?: Record<string, unknown>;
   };
 };
 
@@ -119,6 +120,7 @@ export type MarkerFeature = {
   properties: BaseFeatureProperties & {
     kind: 'marker';
     description: string;
+    style?: Record<string, unknown>;
   };
 };
 

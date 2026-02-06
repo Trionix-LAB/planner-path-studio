@@ -5,12 +5,10 @@ import RightPanel from '@/components/map/RightPanel';
 import LeftPanel from '@/components/map/LeftPanel';
 import StatusBar from '@/components/map/StatusBar';
 import MapCanvas from '@/components/map/MapCanvas';
-import { Button } from '@/components/ui/button';
 import CreateMissionDialog from '@/components/dialogs/CreateMissionDialog';
 import OpenMissionDialog from '@/components/dialogs/OpenMissionDialog';
 import ExportDialog from '@/components/dialogs/ExportDialog';
 import SettingsDialog from '@/components/dialogs/SettingsDialog';
-import ObjectPropertiesDialog from '@/components/dialogs/ObjectPropertiesDialog';
 import type { MapObject, Tool } from '@/features/map/model/types';
 import {
   buildTrackSegments,
@@ -68,7 +66,6 @@ const MapWorkspace = () => {
   const [showOpenMission, setShowOpenMission] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showObjectProperties, setShowObjectProperties] = useState(false);
   const [cursorPosition, setCursorPosition] = useState({ lat: 59.934, lon: 30.335 });
   const [mapScale] = useState('1:5000');
   const [isLoaded, setIsLoaded] = useState(false);
@@ -88,6 +85,10 @@ const MapWorkspace = () => {
     const index = missionDocument.tracks.findIndex((track) => track.id === missionDocument.active_track_id);
     return index >= 0 ? index + 1 : missionDocument.tracks.length;
   }, [missionDocument]);
+  const selectedObject = useMemo(
+    () => objects.find((object) => object.id === selectedObjectId) ?? null,
+    [objects, selectedObjectId],
+  );
 
   const releaseCurrentLock = useCallback(async () => {
     if (!lockOwnerRootRef.current) return;
@@ -444,11 +445,6 @@ const MapWorkspace = () => {
     setSelectedObjectId(id);
   };
 
-  const handleObjectDoubleClick = (id: string) => {
-    setSelectedObjectId(id);
-    setShowObjectProperties(true);
-  };
-
   const handleCreateMission = async (name: string, path: string) => {
     try {
       await releaseCurrentLock();
@@ -481,6 +477,34 @@ const MapWorkspace = () => {
     void releaseCurrentLock().then(() => navigate('/'));
   };
 
+  const handleObjectUpdate = (id: string, updates: Partial<MapObject>) => {
+    setObjects((prev) => prev.map((obj) => (obj.id === id ? { ...obj, ...updates } : obj)));
+  };
+
+  const handleRegenerateLanes = (id: string) => {
+    console.log('Regenerate lanes for', id);
+    // TODO: Implement lane generation logic
+  };
+
+  const getNextObjectName = (type: string) => {
+    const prefix = type === 'marker' ? 'Маркер' : type === 'route' ? 'Маршрут' : 'Зона';
+    const existingNames = objects
+      .filter((o) => o.type === type)
+      .map((o) => o.name);
+
+    let counter = 1;
+    while (existingNames.includes(`${prefix} ${counter}`)) {
+      counter++;
+    }
+    return `${prefix} ${counter}`;
+  };
+
+  const getDefaultObjectColor = (type: MapObject['type']): string => {
+    if (type === 'zone') return '#f59e0b';
+    if (type === 'marker') return '#22c55e';
+    return '#0ea5e9';
+  };
+
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden relative">
       <TopToolbar
@@ -490,9 +514,13 @@ const MapWorkspace = () => {
         activeTool={activeTool}
         trackStatus={trackStatus}
         isFollowing={isFollowing}
+        simulationEnabled={simulationEnabled}
+        simulateConnectionError={simulateConnectionError}
         onToolChange={handleToolChange}
         onTrackAction={handleTrackAction}
         onFollowToggle={() => setIsFollowing(!isFollowing)}
+        onSimulationToggle={() => setSimulationEnabled((prev) => !prev)}
+        onSimulationErrorToggle={() => setSimulateConnectionError((prev) => !prev)}
         onOpenCreate={() => setShowCreateMission(true)}
         onOpenOpen={() => setShowOpenMission(true)}
         onOpenExport={() => setShowExport(true)}
@@ -501,7 +529,13 @@ const MapWorkspace = () => {
       />
 
       <div className="flex-1 flex overflow-hidden">
-        <LeftPanel layers={layers} onLayerToggle={handleLayerToggle} />
+        <LeftPanel
+          layers={layers}
+          onLayerToggle={handleLayerToggle}
+          objects={objects}
+          selectedObjectId={selectedObjectId}
+          onObjectSelect={handleObjectSelect}
+        />
 
         <div className="flex-1 relative">
           <MapCanvas
@@ -515,8 +549,35 @@ const MapWorkspace = () => {
             connectionStatus={connectionStatus}
             onCursorMove={setCursorPosition}
             onObjectSelect={handleObjectSelect}
-            onObjectDoubleClick={handleObjectDoubleClick}
+            onObjectDoubleClick={(id) => {
+              handleObjectSelect(id);
+            }}
             onMapDrag={() => setIsFollowing(false)}
+            onObjectCreate={(geometry, options) => {
+              const newObject: MapObject = {
+                id: crypto.randomUUID(),
+                type: geometry.type,
+                name: getNextObjectName(geometry.type),
+                visible: true,
+                geometry: geometry,
+                color: getDefaultObjectColor(geometry.type),
+                // Default values
+                laneAngle: geometry.type === 'zone' ? 0 : undefined,
+                laneWidth: geometry.type === 'zone' ? 5 : undefined,
+                note: '',
+              };
+              setObjects((prev) => [...prev, newObject]);
+              if (!options?.preserveActiveTool) {
+                setActiveTool('select');
+              }
+              setSelectedObjectId(newObject.id);
+            }}
+            onObjectUpdate={handleObjectUpdate}
+            onObjectDelete={(id) => {
+              setObjects((prev) => prev.filter((o) => o.id !== id));
+              if (selectedObjectId === id) setSelectedObjectId(null);
+            }}
+            onRegenerateLanes={handleRegenerateLanes}
           />
         </div>
 
@@ -525,30 +586,14 @@ const MapWorkspace = () => {
           connectionStatus={connectionStatus}
           trackStatus={trackStatus}
           trackId={activeTrackNumber}
-          objects={objects}
-          selectedObjectId={selectedObjectId}
+          selectedObject={selectedObject}
           onObjectSelect={handleObjectSelect}
+          onObjectUpdate={handleObjectUpdate}
+          onRegenerateLanes={handleRegenerateLanes}
         />
       </div>
 
       <StatusBar cursorPosition={cursorPosition} scale={mapScale} activeTool={activeTool} />
-
-      <div className="absolute bottom-10 right-4 z-[1200] flex gap-2 rounded-md border border-border bg-card/95 p-2 backdrop-blur-sm">
-        <Button
-          size="sm"
-          variant={simulationEnabled ? 'secondary' : 'outline'}
-          onClick={() => setSimulationEnabled((prev) => !prev)}
-        >
-          {simulationEnabled ? 'Стоп симуляции' : 'Старт симуляции'}
-        </Button>
-        <Button
-          size="sm"
-          variant={simulateConnectionError ? 'destructive' : 'outline'}
-          onClick={() => setSimulateConnectionError((prev) => !prev)}
-        >
-          {simulateConnectionError ? 'Ошибка: ВКЛ' : 'Ошибка: ВЫКЛ'}
-        </Button>
-      </div>
 
       <CreateMissionDialog
         open={showCreateMission}
@@ -565,18 +610,6 @@ const MapWorkspace = () => {
       <ExportDialog open={showExport} onOpenChange={setShowExport} />
 
       <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
-
-      {selectedObjectId && (
-        <ObjectPropertiesDialog
-          open={showObjectProperties}
-          onOpenChange={setShowObjectProperties}
-          object={objects.find((object) => object.id === selectedObjectId)}
-          onSave={(updates) => {
-            setObjects((prev) => prev.map((obj) => (obj.id === selectedObjectId ? { ...obj, ...updates } : obj)));
-            setShowObjectProperties(false);
-          }}
-        />
-      )}
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import type { MapObject } from "@/features/map/model/types";
-import { Wifi, WifiOff, Radio, Circle } from 'lucide-react';
+import { Wifi, WifiOff, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import MapObjectProperties from './MapObjectProperties';
 
 interface RightPanelProps {
   diverData: {
@@ -13,9 +14,10 @@ interface RightPanelProps {
   connectionStatus: 'ok' | 'timeout' | 'error';
   trackStatus: 'recording' | 'paused' | 'stopped';
   trackId: number;
-  objects: MapObject[];
-  selectedObjectId: string | null;
+  selectedObject: MapObject | null;
   onObjectSelect: (id: string | null) => void;
+  onObjectUpdate?: (id: string, updates: Partial<MapObject>) => void;
+  onRegenerateLanes?: (id: string) => void;
 }
 
 const RightPanel = ({
@@ -23,12 +25,13 @@ const RightPanel = ({
   connectionStatus,
   trackStatus,
   trackId,
-  objects,
-  selectedObjectId,
+  selectedObject,
   onObjectSelect,
+  onObjectUpdate,
+  onRegenerateLanes,
 }: RightPanelProps) => {
   return (
-    <div className="w-64 bg-sidebar border-l border-sidebar-border flex flex-col">
+    <div className="w-64 bg-sidebar border-l border-sidebar-border flex flex-col h-full">
       {/* HUD */}
       <div className="panel-header">HUD</div>
       <div className="p-3 space-y-3">
@@ -119,32 +122,20 @@ const RightPanel = ({
 
       <div className="border-t border-sidebar-border" />
 
-      {/* Objects */}
-      <div className="panel-header">Объекты</div>
-      <div className="flex-1 overflow-auto p-2 space-y-1">
-        {objects.map((obj) => (
-          <button
-            key={obj.id}
-            className={cn(
-              'w-full text-left px-2 py-1.5 rounded flex items-center gap-2 text-sm transition-colors',
-              selectedObjectId === obj.id
-                ? 'bg-primary/20 text-primary'
-                : 'hover:bg-sidebar-accent'
-            )}
-            onClick={() => onObjectSelect(obj.id)}
-          >
-            <Circle
-              className={cn(
-                'w-3 h-3',
-                obj.type === 'route' && 'text-primary',
-                obj.type === 'zone' && 'text-warning',
-                obj.type === 'marker' && 'text-success'
-              )}
-              fill="currentColor"
-            />
-            <span className="truncate">{obj.name}</span>
-          </button>
-        ))}
+      <div className="panel-header">Свойства объекта</div>
+      <div className="flex-1 min-h-0">
+        {selectedObject && onObjectUpdate ? (
+          <MapObjectProperties
+            object={selectedObject}
+            onSave={onObjectUpdate}
+            onClose={() => onObjectSelect(null)}
+            onRegenerateLanes={onRegenerateLanes}
+          />
+        ) : (
+          <div className="h-full flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
+            Выберите объект на карте или в левой панели.
+          </div>
+        )}
       </div>
     </div>
   );
