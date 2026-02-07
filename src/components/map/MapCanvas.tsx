@@ -480,9 +480,9 @@ const MapCanvas = ({
         className="w-full h-full"
         ref={mapRef}
         doubleClickZoom={false}
+        attributionControl={false}
       >
         <TileLayer
-          attribution={platform.map.tileLayerAttribution()}
           url={platform.map.tileLayerUrl()}
         />
 

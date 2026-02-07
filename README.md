@@ -19,6 +19,21 @@ npm run test
 npm run lint
 ```
 
+## Deployment
+
+To publish the project to GitHub Pages, run:
+
+```sh
+npm run deploy
+```
+
+**How it works:**
+1. Runs `npm run build` to create a production bundle in the `dist` folder.
+2. Uses the `gh-pages` package to push the `dist` content to the `gh-pages` branch.
+3. GitHub automatically hosts the content from that branch.
+
+Live Demo: [https://docs.trionix-lab.ru/planner-path-studio/](https://docs.trionix-lab.ru/planner-path-studio/)
+
 ## Electron Readiness
 
 The codebase is structured to keep platform-specific capabilities (filesystem dialogs, devices, offline tiles)
