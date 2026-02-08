@@ -19,6 +19,10 @@ const NICE_FACTORS = [1, 2, 5];
 const DEFAULT_TARGET_WIDTH_PX = 100;
 const DEFAULT_MIN_WIDTH_PX = 60;
 const DEFAULT_MAX_WIDTH_PX = 150;
+const DEFAULT_SCREEN_DPI = 96;
+const METERS_PER_INCH = 0.0254;
+
+export const DEFAULT_SCALE_RATIO_LABEL = '1:--';
 
 export const DEFAULT_MAP_SCALE: MapScale = {
   widthPx: 96,
@@ -111,12 +115,49 @@ export const computeScaleFromMetersPerPixel = (
 };
 
 export const computeScaleFromMap = (map: L.Map, options?: ScaleOptions): MapScale => {
-  const targetWidthPx = options?.targetWidthPx ?? DEFAULT_TARGET_WIDTH_PX;
+  const metersPerPx = computeMetersPerPixelFromMap(map, options?.targetWidthPx);
+  return computeScaleFromMetersPerPixel(metersPerPx, options);
+};
+
+export const computeMetersPerPixelFromMap = (map: L.Map, targetWidthPx = DEFAULT_TARGET_WIDTH_PX): number => {
+  if (!Number.isFinite(targetWidthPx) || targetWidthPx <= 0) {
+    return Number.NaN;
+  }
   const center = map.getCenter();
   const centerPoint = map.latLngToContainerPoint(center);
   const rightPoint = centerPoint.add([targetWidthPx, 0]);
   const rightLatLng = map.containerPointToLatLng(rightPoint);
   const targetDistanceM = haversineDistanceMeters(center.lat, center.lng, rightLatLng.lat, rightLatLng.lng);
-  const metersPerPx = targetDistanceM / targetWidthPx;
-  return computeScaleFromMetersPerPixel(metersPerPx, options);
+  return targetDistanceM / targetWidthPx;
+};
+
+export const computeScaleRatioFromMetersPerPixel = (
+  metersPerPx: number,
+  screenDpi = DEFAULT_SCREEN_DPI,
+): number | null => {
+  if (!Number.isFinite(metersPerPx) || metersPerPx <= 0 || !Number.isFinite(screenDpi) || screenDpi <= 0) {
+    return null;
+  }
+
+  const denominator = metersPerPx * (screenDpi / METERS_PER_INCH);
+  if (!Number.isFinite(denominator) || denominator <= 0) {
+    return null;
+  }
+  return Math.round(denominator);
+};
+
+export const formatScaleRatio = (denominator: number): string => {
+  if (!Number.isFinite(denominator) || denominator <= 0) {
+    return DEFAULT_SCALE_RATIO_LABEL;
+  }
+  return `1:${Math.round(denominator).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')}`;
+};
+
+export const computeScaleRatioLabelFromMap = (map: L.Map): string => {
+  const metersPerPx = computeMetersPerPixelFromMap(map);
+  const denominator = computeScaleRatioFromMetersPerPixel(metersPerPx);
+  if (!denominator) {
+    return DEFAULT_SCALE_RATIO_LABEL;
+  }
+  return formatScaleRatio(denominator);
 };

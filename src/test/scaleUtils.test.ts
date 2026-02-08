@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_MAP_SCALE,
   computeScaleFromMetersPerPixel,
+  computeScaleRatioFromMetersPerPixel,
+  formatScaleRatio,
 } from '@/components/map/scaleUtils';
 
 describe('scale utils', () => {
@@ -24,5 +26,16 @@ describe('scale utils', () => {
     const scale = computeScaleFromMetersPerPixel(20);
     expect(scale.distanceM).toBe(2000);
     expect(scale.label).toBe('2 км');
+  });
+
+  it('computes and formats scale ratio labels', () => {
+    const denominator = computeScaleRatioFromMetersPerPixel(1);
+    expect(denominator).toBe(3780);
+    expect(formatScaleRatio(denominator ?? 0)).toBe('1:3 780');
+  });
+
+  it('returns null ratio for invalid inputs', () => {
+    expect(computeScaleRatioFromMetersPerPixel(0)).toBeNull();
+    expect(computeScaleRatioFromMetersPerPixel(Number.NaN)).toBeNull();
   });
 });

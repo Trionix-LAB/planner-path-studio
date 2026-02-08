@@ -12,6 +12,7 @@ import { platform } from "@/platform";
 import { MapContextMenu } from "./MapContextMenu";
 import { GridLayer } from "./GridLayer";
 import { ScaleBar } from "./ScaleBar";
+import { computeScaleRatioLabelFromMap } from './scaleUtils';
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +54,7 @@ interface MapCanvasProps {
   onObjectUpdate?: (id: string, updates: Partial<MapObject>) => void;
   onObjectDelete?: (id: string) => void;
   onRegenerateLanes?: (id: string) => void;
+  onMapScaleChange?: (scale: string) => void;
   onMapDrag: () => void;
 }
 
@@ -121,12 +123,19 @@ const MapEvents = ({
   onMapClick,
   onMapDrag,
   onMapContextMenu,
+  onMapScaleChange,
 }: {
   onCursorMove: (pos: { lat: number; lon: number }) => void;
   onMapClick: (e: L.LeafletMouseEvent) => void;
   onMapDrag: () => void;
   onMapContextMenu: (e: L.LeafletMouseEvent) => void;
+  onMapScaleChange?: (scale: string) => void;
 }) => {
+  const map = useMap();
+  const reportScale = useCallback(() => {
+    onMapScaleChange?.(computeScaleRatioLabelFromMap(map));
+  }, [map, onMapScaleChange]);
+
   useMapEvents({
     mousemove: (e) => {
       onCursorMove({ lat: e.latlng.lat, lon: e.latlng.lng });
@@ -140,7 +149,14 @@ const MapEvents = ({
     contextmenu: (e) => {
       onMapContextMenu(e);
     },
+    zoomend: reportScale,
+    moveend: reportScale,
   });
+
+  useEffect(() => {
+    reportScale();
+  }, [reportScale]);
+
   return null;
 };
 
@@ -181,6 +197,7 @@ const MapCanvas = ({
   onObjectUpdate,
   onObjectDelete,
   onRegenerateLanes,
+  onMapScaleChange,
   onMapDrag,
 }: MapCanvasProps) => {
   const [drawingPoints, setDrawingPoints] = useState<L.LatLng[]>([]);
@@ -543,6 +560,7 @@ const MapCanvas = ({
           onCursorMove={onCursorMoveThrottled}
           onMapClick={handleMapClick}
           onMapDrag={onMapDrag}
+          onMapScaleChange={onMapScaleChange}
           onMapContextMenu={() => {
             setObjectMenuState(null);
             setDrawingMenuState(null);

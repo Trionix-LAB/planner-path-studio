@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,12 +11,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { MapObject } from '@/features/map/model/types';
-import { X } from 'lucide-react';
+import { Trash2, X } from 'lucide-react';
+import { haversineDistanceMeters } from './scaleUtils';
 
 interface MapObjectPropertiesProps {
   object: MapObject;
   onSave: (id: string, updates: Partial<MapObject>) => void;
   onClose: () => void;
+  onDelete?: (id: string) => void;
   onRegenerateLanes?: (id: string) => void;
 }
 
@@ -43,13 +45,38 @@ const toLaneAngle = (value: string, fallback: number | undefined): 0 | 90 | unde
   return undefined;
 };
 
-const MapObjectProperties = ({ object, onSave, onClose, onRegenerateLanes }: MapObjectPropertiesProps) => {
+const formatRouteLength = (meters: number): string => {
+  if (!Number.isFinite(meters) || meters <= 0) return '0 м';
+  if (meters >= 1000) {
+    const km = meters / 1000;
+    const decimals = km >= 10 ? 1 : 2;
+    return `${km.toFixed(decimals)} км`;
+  }
+  return `${meters.toFixed(1)} м`;
+};
+
+const computeRouteLengthMeters = (object: MapObject): number => {
+  if (object.type !== 'route' || object.geometry?.type !== 'route') return 0;
+  const points = object.geometry.points;
+  if (points.length < 2) return 0;
+
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1];
+    const next = points[i];
+    total += haversineDistanceMeters(prev.lat, prev.lon, next.lat, next.lon);
+  }
+  return total;
+};
+
+const MapObjectProperties = ({ object, onSave, onClose, onDelete, onRegenerateLanes }: MapObjectPropertiesProps) => {
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [laneAngle, setLaneAngle] = useState('0');
   const [laneWidth, setLaneWidth] = useState('5');
   const [color, setColor] = useState('#0ea5e9');
   const [isDirty, setIsDirty] = useState(false);
+  const routeLengthLabel = useMemo(() => formatRouteLength(computeRouteLengthMeters(object)), [object]);
 
   useEffect(() => {
     const fallbackColor = getDefaultColor(object.type);
@@ -131,7 +158,7 @@ const MapObjectProperties = ({ object, onSave, onClose, onRegenerateLanes }: Map
         {object.type === 'route' && (
           <div className="p-3 bg-muted rounded-md">
             <div className="text-xs text-muted-foreground mb-1">Общая длина</div>
-            <div className="font-mono text-lg">-- м</div>
+            <div className="font-mono text-lg">{routeLengthLabel}</div>
           </div>
         )}
 
@@ -177,6 +204,16 @@ const MapObjectProperties = ({ object, onSave, onClose, onRegenerateLanes }: Map
         <Button className="w-full" onClick={handleSave} disabled={!isDirty}>
           Сохранить изменения
         </Button>
+        {onDelete && (
+          <Button
+            className="w-full mt-2"
+            variant="destructive"
+            onClick={() => onDelete(object.id)}
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Удалить объект
+          </Button>
+        )}
       </div>
     </div>
   );

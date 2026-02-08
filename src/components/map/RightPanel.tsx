@@ -17,6 +17,7 @@ interface RightPanelProps {
   selectedObject: MapObject | null;
   onObjectSelect: (id: string | null) => void;
   onObjectUpdate?: (id: string, updates: Partial<MapObject>) => void;
+  onObjectDelete?: (id: string) => void;
   onRegenerateLanes?: (id: string) => void;
 }
 
@@ -28,6 +29,7 @@ const RightPanel = ({
   selectedObject,
   onObjectSelect,
   onObjectUpdate,
+  onObjectDelete,
   onRegenerateLanes,
 }: RightPanelProps) => {
   return (
@@ -129,6 +131,7 @@ const RightPanel = ({
             object={selectedObject}
             onSave={onObjectUpdate}
             onClose={() => onObjectSelect(null)}
+            onDelete={onObjectDelete}
             onRegenerateLanes={onRegenerateLanes}
           />
         ) : (

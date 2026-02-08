@@ -67,7 +67,7 @@ const MapWorkspace = () => {
   const [showExport, setShowExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [cursorPosition, setCursorPosition] = useState({ lat: 59.934, lon: 30.335 });
-  const [mapScale] = useState('1:5000');
+  const [mapScale, setMapScale] = useState('1:--');
   const [isLoaded, setIsLoaded] = useState(false);
 
   const activeTrackSegmentRef = useRef<Record<string, number>>({});
@@ -480,6 +480,10 @@ const MapWorkspace = () => {
   const handleObjectUpdate = (id: string, updates: Partial<MapObject>) => {
     setObjects((prev) => prev.map((obj) => (obj.id === id ? { ...obj, ...updates } : obj)));
   };
+  const handleObjectDelete = useCallback((id: string) => {
+    setObjects((prev) => prev.filter((obj) => obj.id !== id));
+    setSelectedObjectId((prev) => (prev === id ? null : prev));
+  }, []);
 
   const handleRegenerateLanes = (id: string) => {
     console.log('Regenerate lanes for', id);
@@ -535,6 +539,7 @@ const MapWorkspace = () => {
           objects={objects}
           selectedObjectId={selectedObjectId}
           onObjectSelect={handleObjectSelect}
+          onObjectDelete={handleObjectDelete}
         />
 
         <div className="flex-1 relative">
@@ -573,11 +578,9 @@ const MapWorkspace = () => {
               setSelectedObjectId(newObject.id);
             }}
             onObjectUpdate={handleObjectUpdate}
-            onObjectDelete={(id) => {
-              setObjects((prev) => prev.filter((o) => o.id !== id));
-              if (selectedObjectId === id) setSelectedObjectId(null);
-            }}
+            onObjectDelete={handleObjectDelete}
             onRegenerateLanes={handleRegenerateLanes}
+            onMapScaleChange={setMapScale}
           />
         </div>
 
@@ -589,6 +592,7 @@ const MapWorkspace = () => {
           selectedObject={selectedObject}
           onObjectSelect={handleObjectSelect}
           onObjectUpdate={handleObjectUpdate}
+          onObjectDelete={handleObjectDelete}
           onRegenerateLanes={handleRegenerateLanes}
         />
       </div>

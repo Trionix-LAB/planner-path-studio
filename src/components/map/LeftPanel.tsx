@@ -1,5 +1,5 @@
 import { Checkbox } from '@/components/ui/checkbox';
-import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle } from 'lucide-react';
+import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MapObject } from '@/features/map/model/types';
 
@@ -16,6 +16,7 @@ interface LeftPanelProps {
   objects: MapObject[];
   selectedObjectId: string | null;
   onObjectSelect: (id: string | null) => void;
+  onObjectDelete?: (id: string) => void;
 }
 
 const getObjectColor = (obj: MapObject): string => {
@@ -25,7 +26,7 @@ const getObjectColor = (obj: MapObject): string => {
   return 'hsl(199, 89%, 48%)';
 };
 
-const LeftPanel = ({ layers, onLayerToggle, objects, selectedObjectId, onObjectSelect }: LeftPanelProps) => {
+const LeftPanel = ({ layers, onLayerToggle, objects, selectedObjectId, onObjectSelect, onObjectDelete }: LeftPanelProps) => {
   const layerItems = [
     { key: 'diver' as const, icon: Waves, label: 'Водолаз', locked: true },
     { key: 'track' as const, icon: Route, label: 'Треки', locked: false },
@@ -102,17 +103,33 @@ const LeftPanel = ({ layers, onLayerToggle, objects, selectedObjectId, onObjectS
       <div className="panel-header">Объекты</div>
       <div className="flex-1 min-h-0 overflow-auto p-2 space-y-1">
         {objects.map((obj) => (
-          <button
+          <div
             key={obj.id}
             className={cn(
-              'w-full text-left px-2 py-1.5 rounded flex items-center gap-2 text-sm transition-colors',
-              selectedObjectId === obj.id ? 'bg-primary/20 text-primary' : 'hover:bg-sidebar-accent',
+              'w-full px-2 py-1.5 rounded flex items-center gap-2 text-sm transition-colors group',
+              selectedObjectId === obj.id ? 'bg-primary/20 text-primary' : 'hover:bg-sidebar-accent text-foreground',
             )}
-            onClick={() => onObjectSelect(obj.id)}
           >
-            <Circle className="w-3 h-3" style={{ color: getObjectColor(obj) }} fill="currentColor" />
-            <span className="truncate">{obj.name}</span>
-          </button>
+            <button
+              type="button"
+              className="flex-1 min-w-0 text-left flex items-center gap-2"
+              onClick={() => onObjectSelect(obj.id)}
+            >
+              <Circle className="w-3 h-3 shrink-0" style={{ color: getObjectColor(obj) }} fill="currentColor" />
+              <span className="truncate">{obj.name}</span>
+            </button>
+            {onObjectDelete && (
+              <button
+                type="button"
+                className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label={`Удалить ${obj.name}`}
+                title={`Удалить ${obj.name}`}
+                onClick={() => onObjectDelete(obj.id)}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         ))}
         {objects.length === 0 && (
           <div className="p-2 text-center text-xs text-muted-foreground">
