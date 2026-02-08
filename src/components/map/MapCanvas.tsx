@@ -10,6 +10,8 @@ import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import { platform } from "@/platform";
 import { MapContextMenu } from "./MapContextMenu";
+import { GridLayer } from "./GridLayer";
+import { ScaleBar } from "./ScaleBar";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -100,17 +102,17 @@ const createMarkerIcon = (color: string, isSelected: boolean) => {
 // Vertex handle icon
 const vertexHandleIcon = L.divIcon({
   className: "vertex-handle",
-  html: '<div class="w-3 h-3 bg-white border border-primary rounded-full cursor-grab hover:bg-primary/20"></div>',
-  iconSize: [12, 12],
-  iconAnchor: [6, 6],
+  html: '<div class="w-5 h-5 bg-white border-2 border-primary rounded-full cursor-grab hover:bg-primary/20 shadow-sm"></div>',
+  iconSize: [20, 20],
+  iconAnchor: [10, 10],
 });
 
 // Virtual vertex handle icon (ghost)
 const virtualHandleIcon = L.divIcon({
   className: "virtual-handle",
-  html: '<div class="w-2 h-2 bg-primary/50 border border-white rounded-full cursor-pointer hover:bg-primary"></div>',
-  iconSize: [8, 8],
-  iconAnchor: [4, 4],
+  html: '<div class="w-3.5 h-3.5 bg-primary/50 border-2 border-white rounded-full cursor-pointer hover:bg-primary shadow-sm"></div>',
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
 });
 
 // Map events handler component
@@ -190,9 +192,13 @@ const MapCanvas = ({
     position: { x: number; y: number };
     draftType: 'route' | 'zone';
   } | null>(null);
+  const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
 
   const mapRef = useRef<L.Map | null>(null);
   const previousToolRef = useRef<Tool>(activeTool);
+  const suppressNextMapClickRef = useRef<boolean>(false);
+  const suppressMapClickTimerRef = useRef<number | null>(null);
+  const markerIconCacheRef = useRef<Map<string, L.DivIcon>>(new Map());
 
   const pendingCursor = useRef<{ lat: number; lon: number } | null>(null);
   const cursorRaf = useRef<number | null>(null);
@@ -204,6 +210,37 @@ const MapCanvas = ({
   const clearDrawing = useCallback(() => {
     setDrawingPoints([]);
     setDrawingMenuState(null);
+  }, []);
+
+  const armMapClickSuppression = useCallback(() => {
+    suppressNextMapClickRef.current = true;
+    if (suppressMapClickTimerRef.current !== null) {
+      window.clearTimeout(suppressMapClickTimerRef.current);
+    }
+    suppressMapClickTimerRef.current = window.setTimeout(() => {
+      suppressNextMapClickRef.current = false;
+      suppressMapClickTimerRef.current = null;
+    }, 1200);
+  }, []);
+
+  const updateMarkerPosition = useCallback(
+    (id: string, latlng: L.LatLng) => {
+      if (!onObjectUpdate) return;
+      onObjectUpdate(id, {
+        geometry: { type: 'marker', point: { lat: latlng.lat, lon: latlng.lng } },
+      });
+    },
+    [onObjectUpdate],
+  );
+
+  const getMarkerIcon = useCallback((color: string, isSelected: boolean): L.DivIcon => {
+    const normalized = color || '#22c55e';
+    const key = `${normalized}|${isSelected ? 1 : 0}`;
+    const cached = markerIconCacheRef.current.get(key);
+    if (cached) return cached;
+    const icon = createMarkerIcon(normalized, isSelected);
+    markerIconCacheRef.current.set(key, icon);
+    return icon;
   }, []);
 
   const completeDrawing = useCallback(
@@ -241,12 +278,16 @@ const MapCanvas = ({
 
   const handleMapClick = useCallback(
     (e: L.LeafletMouseEvent) => {
+      if (suppressNextMapClickRef.current) {
+        suppressNextMapClickRef.current = false;
+        return;
+      }
       setObjectMenuState(null);
       const latlng = e.latlng;
       if (activeTool === "route" || activeTool === "zone") {
         setDrawingPoints((prev) => [...prev, latlng]);
         setDrawingMenuState({
-          position: { x: e.originalEvent.clientX, y: e.originalEvent.clientY },
+          position: { x: e.originalEvent.clientX, y: e.originalEvent.clientY + 20 },
           draftType: activeTool,
         });
       } else if (activeTool === "marker") {
@@ -279,6 +320,10 @@ const MapCanvas = ({
       if (cursorRaf.current !== null) {
         window.cancelAnimationFrame(cursorRaf.current);
         cursorRaf.current = null;
+      }
+      if (suppressMapClickTimerRef.current !== null) {
+        window.clearTimeout(suppressMapClickTimerRef.current);
+        suppressMapClickTimerRef.current = null;
       }
     };
   }, []);
@@ -471,6 +516,8 @@ const MapCanvas = ({
   return (
     <div className={cn(
       "w-full h-full relative",
+      activeTool === 'select' && hoveredObjectId && "cursor-pointer",
+      activeTool === 'select' && !hoveredObjectId && "cursor-default",
       (activeTool === 'route' || activeTool === 'zone') && "cursor-crosshair",
       activeTool === 'marker' && "cursor-crosshair"
     )}>
@@ -485,6 +532,12 @@ const MapCanvas = ({
         <TileLayer
           url={platform.map.tileLayerUrl()}
         />
+
+        {/* Grid */}
+        {layers.grid && <GridLayer visible={true} />}
+
+        {/* Scale bar */}
+        {layers.scaleBar && <ScaleBar />}
 
         <MapEvents
           onCursorMove={onCursorMoveThrottled}
@@ -531,6 +584,8 @@ const MapCanvas = ({
                   onObjectDoubleClick(obj.id);
                 },
                 contextmenu: (e) => handleObjectContextMenu(e, obj.id),
+                mouseover: () => setHoveredObjectId(obj.id),
+                mouseout: () => setHoveredObjectId(null),
               }}
             >
               <Tooltip sticky>{obj.name}</Tooltip>
@@ -559,6 +614,8 @@ const MapCanvas = ({
                   onObjectDoubleClick(obj.id);
                 },
                 contextmenu: (e) => handleObjectContextMenu(e, obj.id),
+                mouseover: () => setHoveredObjectId(obj.id),
+                mouseout: () => setHoveredObjectId(null),
               }}
             >
               <Tooltip sticky>{obj.name}</Tooltip>
@@ -571,9 +628,13 @@ const MapCanvas = ({
             <Marker
               key={obj.id}
               position={point}
-              icon={createMarkerIcon(getObjectColor(obj), selectedObjectId === obj.id)}
-              draggable={activeTool === 'select' && selectedObjectId === obj.id}
+              icon={getMarkerIcon(getObjectColor(obj), selectedObjectId === obj.id)}
+              draggable={activeTool === 'select'}
+              bubblingMouseEvents={false}
               eventHandlers={{
+                mousedown: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                },
                 click: (e) => {
                   L.DomEvent.stopPropagation(e);
                   onObjectSelect(obj.id);
@@ -583,18 +644,20 @@ const MapCanvas = ({
                   onObjectDoubleClick(obj.id);
                 },
                 contextmenu: (e) => handleObjectContextMenu(e, obj.id),
+                dragstart: () => {
+                  armMapClickSuppression();
+                },
                 dragend: (e) => {
-                  if (onObjectUpdate) {
-                    const m = e.target;
-                    const pos = m.getLatLng();
-                    onObjectUpdate(obj.id, {
-                      geometry: { type: 'marker', point: { lat: pos.lat, lon: pos.lng } },
-                    });
-                  }
-                }
+                  armMapClickSuppression();
+                  const m = e.target as L.Marker;
+                  updateMarkerPosition(obj.id, m.getLatLng());
+                  window.setTimeout(() => onObjectSelect(obj.id), 0);
+                },
+                mouseover: () => setHoveredObjectId(obj.id),
+                mouseout: () => setHoveredObjectId(null),
               }}
             >
-              <Tooltip sticky>{obj.name}</Tooltip>
+              <Tooltip direction="top" offset={[12, -14]}>{obj.name}</Tooltip>
             </Marker>
           ))}
 
@@ -722,16 +785,6 @@ const MapCanvas = ({
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-destructive/90 text-destructive-foreground px-4 py-2 rounded-md flex items-center gap-2 text-sm">
           <AlertTriangle className="w-4 h-4" />
           Нет данных от УКБ
-        </div>
-      )}
-
-      {/* Scale bar */}
-      {layers.scaleBar && (
-        <div className="absolute bottom-4 left-4 z-[1000] bg-card/80 backdrop-blur-sm border border-border rounded px-3 py-2">
-          <div className="flex items-center gap-2">
-            <div className="w-24 h-1 bg-foreground" />
-            <span className="text-xs font-mono">100 м</span>
-          </div>
         </div>
       )}
 
