@@ -11,6 +11,8 @@ type ZoneLaneGenerationInput = {
   points: GeoPoint[];
   laneAngleDeg: 0 | 90;
   laneWidthM: number;
+  laneBearingDeg?: number;
+  start?: GeoPoint;
   timestamp?: string;
 };
 
@@ -27,6 +29,26 @@ const createId = (): string => {
 };
 
 const dot = (a: PointXY, b: PointXY): number => a.x * b.x + a.y * b.y;
+
+const normalizeAngleDeg = (value: number): number => {
+  const normalized = ((value % 360) + 360) % 360;
+  return normalized;
+};
+
+// Bearing is degrees clockwise from North. We normalize to an undirected axis in [0, 180).
+const toUndirectedBearingDeg = (value: number): number => {
+  const normalized = normalizeAngleDeg(value);
+  return normalized >= 180 ? normalized - 180 : normalized;
+};
+
+const bearingToUnitVector = (bearingDeg: number): PointXY => {
+  const rad = bearingDeg * DEG_TO_RAD;
+  // x = East, y = North
+  const x = Math.sin(rad);
+  const y = Math.cos(rad);
+  const length = Math.hypot(x, y) || 1;
+  return { x: x / length, y: y / length };
+};
 
 const toClosedRing = (points: GeoPoint[]): GeoPoint[] => {
   if (points.length < 3) return [];
@@ -122,8 +144,11 @@ export const generateLanesForZone = (input: ZoneLaneGenerationInput): LaneFeatur
   const { lat0, lon0 } = computeCenter(ring.slice(0, -1));
   const ringXY = ring.map((point) => projectPoint(point, lat0, lon0));
   const hullPoints = ringXY.slice(0, -1);
-  const axis = principalDirection(hullPoints);
-  const laneDirection = input.laneAngleDeg === 90 ? { x: -axis.y, y: axis.x } : axis;
+  const baseAxis =
+    typeof input.laneBearingDeg === 'number' && Number.isFinite(input.laneBearingDeg)
+      ? bearingToUnitVector(toUndirectedBearingDeg(input.laneBearingDeg))
+      : principalDirection(hullPoints);
+  const laneDirection = input.laneAngleDeg === 90 ? { x: -baseAxis.y, y: baseAxis.x } : baseAxis;
   const normal = { x: -laneDirection.y, y: laneDirection.x };
   const laneStep = Number.isFinite(input.laneWidthM) ? Math.max(1, input.laneWidthM) : 5;
 
@@ -140,11 +165,23 @@ export const generateLanesForZone = (input: ZoneLaneGenerationInput): LaneFeatur
     offsets.push((minOffset + maxOffset) / 2);
   }
 
+  const startXY =
+    input.start && Number.isFinite(input.start.lat) && Number.isFinite(input.start.lon)
+      ? projectPoint(input.start, lat0, lon0)
+      : null;
+  if (startXY) {
+    const startOffset = dot(startXY, normal);
+    const nearMin = Math.abs(startOffset - minOffset) <= Math.abs(maxOffset - startOffset);
+    if (!nearMin) offsets.reverse();
+  }
+
   const timestamp = input.timestamp ?? new Date().toISOString();
   const lanes: LaneFeature[] = [];
   let laneIndex = 1;
+  let initialForward: boolean | null = null;
 
-  for (const offset of offsets) {
+  for (let rowIndex = 0; rowIndex < offsets.length; rowIndex += 1) {
+    const offset = offsets[rowIndex];
     const intersections: PointXY[] = [];
 
     for (let i = 0; i < ringXY.length - 1; i += 1) {
@@ -175,12 +212,41 @@ export const generateLanesForZone = (input: ZoneLaneGenerationInput): LaneFeatur
     }
 
     const lineIntersections = uniqueIntersections(intersections, laneDirection);
+    const segments: Array<{ a: PointXY; b: PointXY; midScore: number }> = [];
     for (let i = 0; i + 1 < lineIntersections.length; i += 2) {
-      const start = lineIntersections[i];
-      const end = lineIntersections[i + 1];
-      if (Math.hypot(end.x - start.x, end.y - start.y) < 0.25) {
-        continue;
+      const a = lineIntersections[i];
+      const b = lineIntersections[i + 1];
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 0.25) continue;
+      const midScore = dot({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, laneDirection);
+      segments.push({ a, b, midScore });
+    }
+    if (segments.length === 0) continue;
+
+    if (initialForward === null) {
+      if (!startXY) {
+        initialForward = true;
+      } else {
+        const first = [...segments].sort((s1, s2) => s1.midScore - s2.midScore)[0];
+        const aScore = dot(first.a, laneDirection);
+        const bScore = dot(first.b, laneDirection);
+        const low = aScore <= bScore ? first.a : first.b;
+        const high = aScore <= bScore ? first.b : first.a;
+        const distToLow = Math.hypot(startXY.x - low.x, startXY.y - low.y);
+        const distToHigh = Math.hypot(startXY.x - high.x, startXY.y - high.y);
+        initialForward = distToLow <= distToHigh;
       }
+    }
+
+    const rowForward = Boolean(initialForward) !== (rowIndex % 2 === 1);
+    segments.sort((s1, s2) => (rowForward ? s1.midScore - s2.midScore : s2.midScore - s1.midScore));
+
+    for (const seg of segments) {
+      const aScore = dot(seg.a, laneDirection);
+      const bScore = dot(seg.b, laneDirection);
+      const low = aScore <= bScore ? seg.a : seg.b;
+      const high = aScore <= bScore ? seg.b : seg.a;
+      const start = rowForward ? low : high;
+      const end = rowForward ? high : low;
 
       lanes.push({
         type: 'Feature',

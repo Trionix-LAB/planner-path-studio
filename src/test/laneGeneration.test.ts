@@ -53,4 +53,75 @@ describe('lane generation', () => {
     const lane90IsEastWest = isMostlyEastWest(lanes90[0].geometry.coordinates);
     expect(lane0IsEastWest).not.toBe(lane90IsEastWest);
   });
+
+  it('supports lane bearing to override auto axis', () => {
+    const lanesNorthSouth = generateLanesForZone({
+      parentAreaId: 'zone-1',
+      points: createRectangleZone(),
+      laneAngleDeg: 0,
+      laneWidthM: 10,
+      laneBearingDeg: 0,
+    });
+    const lanesEastWest = generateLanesForZone({
+      parentAreaId: 'zone-1',
+      points: createRectangleZone(),
+      laneAngleDeg: 0,
+      laneWidthM: 10,
+      laneBearingDeg: 90,
+    });
+
+    expect(lanesNorthSouth.length).toBeGreaterThan(0);
+    expect(lanesEastWest.length).toBeGreaterThan(0);
+
+    expect(isMostlyEastWest(lanesNorthSouth[0].geometry.coordinates)).toBe(false);
+    expect(isMostlyEastWest(lanesEastWest[0].geometry.coordinates)).toBe(true);
+  });
+
+  it('orders lanes from the start side when start point is provided', () => {
+    const southStart = { lat: 59.934, lon: 30.335 };
+    const northStart = { lat: 59.9343, lon: 30.3358 };
+
+    const lanesFromSouth = generateLanesForZone({
+      parentAreaId: 'zone-1',
+      points: createRectangleZone(),
+      laneAngleDeg: 0,
+      laneWidthM: 10,
+      start: southStart,
+    });
+    const lanesFromNorth = generateLanesForZone({
+      parentAreaId: 'zone-1',
+      points: createRectangleZone(),
+      laneAngleDeg: 0,
+      laneWidthM: 10,
+      start: northStart,
+    });
+
+    expect(lanesFromSouth.length).toBeGreaterThan(0);
+    expect(lanesFromNorth.length).toBeGreaterThan(0);
+
+    const southFirst = lanesFromSouth[0].geometry.coordinates;
+    const northFirst = lanesFromNorth[0].geometry.coordinates;
+    const southFirstLat = (southFirst[0][1] + southFirst[1][1]) / 2;
+    const northFirstLat = (northFirst[0][1] + northFirst[1][1]) / 2;
+    expect(northFirstLat).toBeGreaterThan(southFirstLat);
+  });
+
+  it('generates fewer lanes when lane width grows', () => {
+    const narrow = generateLanesForZone({
+      parentAreaId: 'zone-1',
+      points: createRectangleZone(),
+      laneAngleDeg: 0,
+      laneWidthM: 5,
+    });
+    const wide = generateLanesForZone({
+      parentAreaId: 'zone-1',
+      points: createRectangleZone(),
+      laneAngleDeg: 0,
+      laneWidthM: 20,
+    });
+
+    expect(narrow.length).toBeGreaterThan(0);
+    expect(wide.length).toBeGreaterThan(0);
+    expect(narrow.length).toBeGreaterThan(wide.length);
+  });
 });

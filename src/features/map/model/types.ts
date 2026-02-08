@@ -26,4 +26,6 @@ export type MapObject = {
   note?: string;
   laneAngle?: number;
   laneWidth?: number;
+  laneBearingDeg?: number;
+  laneStart?: GeoPoint;
 };

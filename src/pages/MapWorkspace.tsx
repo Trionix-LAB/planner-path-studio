@@ -13,11 +13,17 @@ import type { MapObject, Tool } from '@/features/map/model/types';
 import {
   buildTrackSegments,
   bundleToMapObjects,
+  cascadeDeleteZone,
+  clearZoneLanesOutdated,
+  countZoneLanes,
   createMissionRepository,
   createSimulationTelemetryProvider,
   createTrackRecorderState,
-  generateLanesForZone,
+  didZoneLaneInputsChange,
+  generateLanesFromZoneObject,
+  markZoneLanesOutdated,
   mapObjectsToGeoJson,
+  replaceZoneLanes,
   trackRecorderReduce,
   type LaneFeature,
   type MissionBundle,
@@ -90,7 +96,12 @@ const MapWorkspace = () => {
   const [layers, setLayers] = useState<LayersState>(DEFAULT_LAYERS);
   const [objects, setObjects] = useState<MapObject[]>([]);
   const [laneFeatures, setLaneFeatures] = useState<LaneFeature[]>([]);
+  const [outdatedZoneIds, setOutdatedZoneIds] = useState<Record<string, true>>({});
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [lanePickState, setLanePickState] = useState<{ mode: 'none' | 'edge' | 'start'; zoneId: string | null }>({
+    mode: 'none',
+    zoneId: null,
+  });
   const [showCreateMission, setShowCreateMission] = useState(false);
   const [showOpenMission, setShowOpenMission] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -135,6 +146,14 @@ const MapWorkspace = () => {
     () => objects.find((object) => object.id === selectedObjectId) ?? null,
     [objects, selectedObjectId],
   );
+  const selectedZoneLaneCount = useMemo(() => {
+    if (!selectedObject || selectedObject.type !== 'zone') return null;
+    return countZoneLanes(laneFeatures, selectedObject.id);
+  }, [laneFeatures, selectedObject]);
+  const selectedZoneLanesOutdated = useMemo(() => {
+    if (!selectedObject || selectedObject.type !== 'zone') return false;
+    return Boolean(outdatedZoneIds[selectedObject.id]);
+  }, [outdatedZoneIds, selectedObject]);
 
   useEffect(() => {
     latestSnapshotRef.current = {
@@ -235,6 +254,7 @@ const MapWorkspace = () => {
     setRecordingState(createTrackRecorderState(bundle.mission, bundle.trackPointsByTrackId));
     setObjects(bundleToMapObjects(bundle));
     setLaneFeatures(bundle.routes.features.filter((feature): feature is LaneFeature => feature.properties.kind === 'lane'));
+    setOutdatedZoneIds({});
     setMissionName(bundle.mission.name);
     setIsDraft(draftMode);
     setIsFollowing(bundle.mission.ui?.follow_diver ?? true);
@@ -542,32 +562,96 @@ const MapWorkspace = () => {
     })();
   };
 
-  const handleObjectUpdate = (id: string, updates: Partial<MapObject>) => {
-    setObjects((prev) => prev.map((obj) => (obj.id === id ? { ...obj, ...updates } : obj)));
-  };
-  const handleObjectDelete = useCallback((id: string) => {
-    setLaneFeatures((prev) => prev.filter((lane) => lane.properties.parent_area_id !== id));
-    setObjects((prev) => prev.filter((obj) => obj.id !== id));
-    setSelectedObjectId((prev) => (prev === id ? null : prev));
+  const showLaneGenerationError = useCallback(() => {
+    window.alert('Не удалось сгенерировать галсы для зоны. Проверьте геометрию и параметры.');
   }, []);
 
-  const handleRegenerateLanes = (id: string) => {
-    const zone = objects.find((obj) => obj.id === id && obj.type === 'zone' && obj.geometry?.type === 'zone');
-    if (!zone || zone.geometry?.type !== 'zone') return;
+  const handleObjectUpdate = useCallback(
+    (id: string, updates: Partial<MapObject>) => {
+      const zoneBeforeUpdate = objects.find((obj) => obj.id === id && obj.type === 'zone');
+      setObjects((prev) => prev.map((obj) => (obj.id === id ? { ...obj, ...updates } : obj)));
 
-    const nextLanes = generateLanesForZone({
-      parentAreaId: id,
-      points: zone.geometry.points,
-      laneAngleDeg: zone.laneAngle === 90 ? 90 : 0,
-      laneWidthM: Number.isFinite(zone.laneWidth) ? Math.max(1, zone.laneWidth ?? 5) : 5,
-    });
-    if (nextLanes.length === 0) {
-      window.alert('Не удалось сгенерировать галсы для зоны. Проверьте геометрию и параметры.');
-      return;
-    }
+      if (zoneBeforeUpdate && didZoneLaneInputsChange(zoneBeforeUpdate, updates)) {
+        setOutdatedZoneIds((prev) => markZoneLanesOutdated(prev, id));
+      }
+    },
+    [objects],
+  );
 
-    setLaneFeatures((prev) => [...prev.filter((lane) => lane.properties.parent_area_id !== id), ...nextLanes]);
-  };
+  const handleObjectDelete = useCallback(
+    (id: string) => {
+      const target = objects.find((obj) => obj.id === id);
+      if (target?.type === 'zone') {
+        const laneCount = countZoneLanes(laneFeatures, id);
+        if (!window.confirm(`Удалить зону и ${laneCount} галсов?`)) {
+          return;
+        }
+
+        const result = cascadeDeleteZone({
+          objects,
+          laneFeatures,
+          outdatedZoneIds,
+          zoneId: id,
+        });
+        setObjects(result.objects);
+        setLaneFeatures(result.laneFeatures);
+        setOutdatedZoneIds(result.outdatedZoneIds);
+      } else {
+        setObjects((prev) => prev.filter((obj) => obj.id !== id));
+      }
+
+      setSelectedObjectId((prev) => (prev === id ? null : prev));
+    },
+    [laneFeatures, objects, outdatedZoneIds],
+  );
+
+  const handleRegenerateLanes = useCallback(
+    (id: string) => {
+      const zone = objects.find((obj) => obj.id === id && obj.type === 'zone');
+      if (!zone) return;
+
+      const nextLanes = generateLanesFromZoneObject(zone);
+      if (nextLanes.length === 0) {
+        setOutdatedZoneIds((prev) => markZoneLanesOutdated(prev, id));
+        showLaneGenerationError();
+        return;
+      }
+
+      setLaneFeatures((prev) => replaceZoneLanes(prev, id, nextLanes));
+      setOutdatedZoneIds((prev) => clearZoneLanesOutdated(prev, id));
+    },
+    [objects, showLaneGenerationError],
+  );
+
+  const beginPickLaneEdge = useCallback((zoneId: string) => {
+    setActiveTool('select');
+    setLanePickState({ mode: 'edge', zoneId });
+  }, []);
+
+  const beginPickLaneStart = useCallback((zoneId: string) => {
+    setActiveTool('select');
+    setLanePickState({ mode: 'start', zoneId });
+  }, []);
+
+  const cancelLanePick = useCallback(() => {
+    setLanePickState({ mode: 'none', zoneId: null });
+  }, []);
+
+  const handlePickedLaneEdge = useCallback(
+    (zoneId: string, bearingDeg: number) => {
+      handleObjectUpdate(zoneId, { laneBearingDeg: bearingDeg });
+      setLanePickState({ mode: 'none', zoneId: null });
+    },
+    [handleObjectUpdate],
+  );
+
+  const handlePickedLaneStart = useCallback(
+    (zoneId: string, point: { lat: number; lon: number }) => {
+      handleObjectUpdate(zoneId, { laneStart: point });
+      setLanePickState({ mode: 'none', zoneId: null });
+    },
+    [handleObjectUpdate],
+  );
 
   const getNextObjectName = (type: string) => {
     const prefix = type === 'marker' ? 'Маркер' : type === 'route' ? 'Маршрут' : 'Зона';
@@ -584,6 +668,42 @@ const MapWorkspace = () => {
     if (type === 'zone') return '#f59e0b';
     if (type === 'marker') return '#22c55e';
     return '#0ea5e9';
+  };
+
+  const handleObjectCreate = (
+    geometry: NonNullable<MapObject['geometry']>,
+    options?: { preserveActiveTool?: boolean; initial?: Partial<MapObject> },
+  ) => {
+    const { id: _id, type: _type, geometry: _geometry, ...initial } = options?.initial ?? {};
+    const newObject: MapObject = {
+      id: crypto.randomUUID(),
+      type: geometry.type,
+      name: getNextObjectName(geometry.type),
+      visible: true,
+      geometry,
+      color: getDefaultObjectColor(geometry.type),
+      laneAngle: geometry.type === 'zone' ? 0 : undefined,
+      laneWidth: geometry.type === 'zone' ? 5 : undefined,
+      note: '',
+      ...initial,
+    };
+
+    setObjects((prev) => [...prev, newObject]);
+    if (newObject.type === 'zone') {
+      const nextLanes = generateLanesFromZoneObject(newObject);
+      if (nextLanes.length > 0) {
+        setLaneFeatures((prev) => replaceZoneLanes(prev, newObject.id, nextLanes));
+        setOutdatedZoneIds((prev) => clearZoneLanesOutdated(prev, newObject.id));
+      } else {
+        setOutdatedZoneIds((prev) => markZoneLanesOutdated(prev, newObject.id));
+        showLaneGenerationError();
+      }
+    }
+
+    if (!options?.preserveActiveTool) {
+      setActiveTool('select');
+    }
+    setSelectedObjectId(newObject.id);
   };
 
   return (
@@ -626,6 +746,9 @@ const MapWorkspace = () => {
           <MapCanvas
             activeTool={activeTool}
             laneFeatures={laneFeatures}
+            outdatedZoneIds={outdatedZoneIds}
+            lanePickMode={lanePickState.mode}
+            lanePickZoneId={lanePickState.zoneId}
             layers={layers}
             objects={objects}
             selectedObjectId={selectedObjectId}
@@ -641,27 +764,13 @@ const MapWorkspace = () => {
               handleObjectSelect(id);
             }}
             onMapDrag={() => setIsFollowing(false)}
-            onObjectCreate={(geometry, options) => {
-              const newObject: MapObject = {
-                id: crypto.randomUUID(),
-                type: geometry.type,
-                name: getNextObjectName(geometry.type),
-                visible: true,
-                geometry: geometry,
-                color: getDefaultObjectColor(geometry.type),
-                laneAngle: geometry.type === 'zone' ? 0 : undefined,
-                laneWidth: geometry.type === 'zone' ? 5 : undefined,
-                note: '',
-              };
-              setObjects((prev) => [...prev, newObject]);
-              if (!options?.preserveActiveTool) {
-                setActiveTool('select');
-              }
-              setSelectedObjectId(newObject.id);
-            }}
+            onObjectCreate={handleObjectCreate}
             onObjectUpdate={handleObjectUpdate}
             onObjectDelete={handleObjectDelete}
             onRegenerateLanes={handleRegenerateLanes}
+            onLanePickCancel={cancelLanePick}
+            onLanePickEdge={handlePickedLaneEdge}
+            onLanePickStart={handlePickedLaneStart}
             onMapScaleChange={setMapScale}
           />
         </div>
@@ -676,6 +785,10 @@ const MapWorkspace = () => {
           onObjectUpdate={handleObjectUpdate}
           onObjectDelete={handleObjectDelete}
           onRegenerateLanes={handleRegenerateLanes}
+          onPickLaneEdge={beginPickLaneEdge}
+          onPickLaneStart={beginPickLaneStart}
+          selectedZoneLanesOutdated={selectedZoneLanesOutdated}
+          selectedZoneLaneCount={selectedZoneLaneCount}
         />
       </div>
 

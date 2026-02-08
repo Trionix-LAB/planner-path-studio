@@ -109,7 +109,7 @@
 
   .data-value {
     font-family: var(--font-mono);
-    @apply text-sm tabular-nums;
+    @apply text-[13px] leading-5 tabular-nums;
   }
 
   .map-container {

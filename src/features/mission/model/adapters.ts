@@ -56,6 +56,12 @@ export const bundleToMapObjects = (bundle: MissionBundle): MapObject[] => {
         note: feature.properties.note ?? undefined,
         laneAngle: feature.properties.lane_angle_deg,
         laneWidth: feature.properties.lane_width_m,
+        laneBearingDeg:
+          typeof feature.properties.lane_bearing_deg === 'number' ? feature.properties.lane_bearing_deg : undefined,
+        laneStart:
+          typeof feature.properties.lane_start_lat === 'number' && typeof feature.properties.lane_start_lon === 'number'
+            ? { lat: feature.properties.lane_start_lat, lon: feature.properties.lane_start_lon }
+            : undefined,
         geometry: {
           type: 'zone',
           points: ring.map(([lon, lat]) => ({ lat, lon })),
@@ -141,6 +147,12 @@ export const mapObjectsToGeoJson = (
           updated_at: now,
           lane_angle_deg: object.laneAngle === 90 ? 90 : 0,
           lane_width_m: object.laneWidth ?? 5,
+          ...(typeof object.laneBearingDeg === 'number' && Number.isFinite(object.laneBearingDeg)
+            ? { lane_bearing_deg: object.laneBearingDeg }
+            : {}),
+          ...(object.laneStart && Number.isFinite(object.laneStart.lat) && Number.isFinite(object.laneStart.lon)
+            ? { lane_start_lat: object.laneStart.lat, lane_start_lon: object.laneStart.lon }
+            : {}),
           ...(object.color ? { style: { color: object.color } } : {}),
         },
       });

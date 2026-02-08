@@ -2,6 +2,18 @@ export { createMissionRepository } from './model/repository';
 export type { MissionRepository } from './model/repository';
 export { buildTrackSegments, bundleToMapObjects, mapObjectsToGeoJson } from './model/adapters';
 export { generateLanesForZone } from './model/laneGeneration';
+export { buildLaneTraversal } from './model/laneWaypoints';
+export type { LaneTraversal, LaneWaypoint } from './model/laneWaypoints';
+export {
+  cascadeDeleteZone,
+  clearZoneLanesOutdated,
+  countZoneLanes,
+  didZoneLaneInputsChange,
+  generateLanesFromZoneObject,
+  markZoneLanesOutdated,
+  replaceZoneLanes,
+} from './model/zoneLanes';
+export type { OutdatedZoneIds } from './model/zoneLanes';
 export { createSimulationTelemetryProvider } from './model/telemetry';
 export type { TelemetryConnectionState, TelemetryFix, TelemetryProvider } from './model/telemetry';
 export { createTrackRecorderState, trackRecorderReduce } from './model/trackRecorder';

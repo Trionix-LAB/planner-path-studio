@@ -15,10 +15,14 @@ interface RightPanelProps {
   trackStatus: 'recording' | 'paused' | 'stopped';
   trackId: number;
   selectedObject: MapObject | null;
+  selectedZoneLanesOutdated: boolean;
+  selectedZoneLaneCount: number | null;
   onObjectSelect: (id: string | null) => void;
   onObjectUpdate?: (id: string, updates: Partial<MapObject>) => void;
   onObjectDelete?: (id: string) => void;
   onRegenerateLanes?: (id: string) => void;
+  onPickLaneEdge?: (id: string) => void;
+  onPickLaneStart?: (id: string) => void;
 }
 
 const RightPanel = ({
@@ -27,17 +31,21 @@ const RightPanel = ({
   trackStatus,
   trackId,
   selectedObject,
+  selectedZoneLanesOutdated,
+  selectedZoneLaneCount,
   onObjectSelect,
   onObjectUpdate,
   onObjectDelete,
   onRegenerateLanes,
+  onPickLaneEdge,
+  onPickLaneStart,
 }: RightPanelProps) => {
   return (
-    <div className="w-64 bg-sidebar border-l border-sidebar-border flex flex-col h-full">
+    <div className="w-64 bg-sidebar border-l border-sidebar-border flex flex-col h-full text-[13px]">
       {/* HUD */}
       <div className="panel-header">HUD</div>
-      <div className="p-3 space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+      <div className="p-2.5 space-y-2">
+        <div className="grid grid-cols-2 gap-2">
           <div>
             <div className="text-xs text-muted-foreground mb-1">Широта</div>
             <div className="data-value text-foreground">{diverData.lat.toFixed(6)}°</div>
@@ -56,7 +64,7 @@ const RightPanel = ({
           </div>
           <div className="col-span-2">
             <div className="text-xs text-muted-foreground mb-1">Глубина</div>
-            <div className="data-value text-lg text-primary font-semibold">
+            <div className="data-value text-base text-primary font-semibold leading-5">
               {diverData.depth.toFixed(1)} м
             </div>
           </div>
@@ -67,7 +75,7 @@ const RightPanel = ({
 
       {/* Status */}
       <div className="panel-header">Статус</div>
-      <div className="p-3 space-y-2">
+      <div className="p-2.5 space-y-1.5">
         {/* Connection */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -76,7 +84,7 @@ const RightPanel = ({
             ) : (
               <WifiOff className="w-4 h-4 text-destructive" />
             )}
-            <span className="text-sm">Связь</span>
+            <span className="text-[13px] leading-5">Связь</span>
           </div>
           <span
             className={cn(
@@ -99,7 +107,7 @@ const RightPanel = ({
                 trackStatus === 'stopped' && 'text-muted-foreground'
               )}
             />
-            <span className="text-sm">Запись</span>
+            <span className="text-[13px] leading-5">Запись</span>
           </div>
           <span
             className={cn(
@@ -117,8 +125,8 @@ const RightPanel = ({
 
         {/* Active Track */}
         <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Активный трек</span>
-          <span className="text-sm font-mono">#{trackId}</span>
+          <span className="text-[13px] text-muted-foreground leading-5">Активный трек</span>
+          <span className="text-[13px] font-mono leading-5">#{trackId}</span>
         </div>
       </div>
 
@@ -133,6 +141,10 @@ const RightPanel = ({
             onClose={() => onObjectSelect(null)}
             onDelete={onObjectDelete}
             onRegenerateLanes={onRegenerateLanes}
+            onPickLaneEdge={onPickLaneEdge}
+            onPickLaneStart={onPickLaneStart}
+            zoneLanesOutdated={selectedObject.type === 'zone' ? selectedZoneLanesOutdated : undefined}
+            zoneLaneCount={selectedObject.type === 'zone' ? selectedZoneLaneCount : undefined}
           />
         ) : (
           <div className="h-full flex items-center justify-center px-4 text-center text-xs text-muted-foreground">

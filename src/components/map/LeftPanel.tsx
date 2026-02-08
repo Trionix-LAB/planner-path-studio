@@ -61,17 +61,17 @@ const LeftPanel = ({
   ];
 
   return (
-    <div className="w-56 bg-sidebar border-r border-sidebar-border flex flex-col">
+    <div className="w-56 bg-sidebar border-r border-sidebar-border flex flex-col text-[13px]">
       {/* Layers */}
       <div className="panel-header">
         <Eye className="w-4 h-4 inline mr-2" />
         Слои
       </div>
-      <div className="p-2 space-y-1">
+      <div className="p-1.5 space-y-0.5">
         {layerItems.map((item) => (
           <label
             key={item.key}
-            className={`flex items-center gap-3 px-2 py-1.5 rounded hover:bg-sidebar-accent cursor-pointer ${
+            className={`flex items-center gap-2.5 px-1.5 py-1 rounded hover:bg-sidebar-accent cursor-pointer ${
               item.locked ? 'opacity-75' : ''
             }`}
           >
@@ -80,35 +80,35 @@ const LeftPanel = ({
               disabled={item.locked}
               onCheckedChange={() => onLayerToggle(item.key)}
             />
-            <item.icon className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm">{item.label}</span>
+            <item.icon className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-[13px] leading-5">{item.label}</span>
             {item.locked && (
-              <span className="text-xs text-muted-foreground ml-auto">(фикс.)</span>
+              <span className="text-[11px] leading-4 text-muted-foreground ml-auto">(фикс.)</span>
             )}
           </label>
         ))}
       </div>
 
-      <div className="border-t border-sidebar-border mt-2" />
+      <div className="border-t border-sidebar-border mt-1.5" />
 
       {/* Tracks */}
       <div className="panel-header">
         Треки миссии
       </div>
-      <div className="p-2 space-y-1">
+      <div className="p-1.5 space-y-1">
         {(missionDocument?.tracks ?? []).map((track, index) => {
           const isActive = missionDocument?.active_track_id === track.id && trackStatus === 'recording';
           return (
             <div
               key={track.id}
-              className={`p-2 rounded text-sm ${
+              className={`p-1.5 rounded text-[13px] ${
                 isActive
                 ? 'bg-primary/20 border border-primary/40'
                 : 'bg-sidebar-accent'
               } group`}
             >
               <div className="flex items-center gap-1">
-                <div className="font-medium flex-1 min-w-0">{`Трек ${index + 1}`}</div>
+                <div className="font-medium leading-5 flex-1 min-w-0 truncate">{`Трек ${index + 1}`}</div>
                 {onTrackDelete && (
                   <button
                     type="button"
@@ -121,20 +121,20 @@ const LeftPanel = ({
                   </button>
                 )}
               </div>
-              <div className="text-xs text-muted-foreground font-mono">
+              <div className="text-[11px] leading-4 text-muted-foreground font-mono">
                 {`${formatTrackTime(track.started_at)} - ${track.ended_at ? formatTrackTime(track.ended_at) : '...'}`}
               </div>
               {isActive && (
-                <div className="flex items-center gap-1 mt-1">
+                <div className="flex items-center gap-1 mt-0.5">
                   <span className="status-indicator status-ok" />
-                  <span className="text-xs text-success">Запись</span>
+                  <span className="text-[11px] leading-4 text-success">Запись</span>
                 </div>
               )}
             </div>
           );
         })}
         {(missionDocument?.tracks.length ?? 0) === 0 && (
-          <div className="p-2 text-xs text-muted-foreground">
+          <div className="p-1.5 text-[11px] leading-4 text-muted-foreground">
             Треки пока не записаны.
           </div>
         )}
@@ -143,22 +143,22 @@ const LeftPanel = ({
       <div className="border-t border-sidebar-border mt-1" />
 
       <div className="panel-header">Объекты</div>
-      <div className="flex-1 min-h-0 overflow-auto p-2 space-y-1">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-1.5 space-y-0.5">
         {objects.map((obj) => (
           <div
             key={obj.id}
             className={cn(
-              'w-full px-2 py-1.5 rounded flex items-center gap-2 text-sm transition-colors group',
+              'w-full px-1.5 py-1 rounded flex items-center gap-1.5 text-[13px] transition-colors group',
               selectedObjectId === obj.id ? 'bg-primary/20 text-primary' : 'hover:bg-sidebar-accent text-foreground',
             )}
           >
             <button
               type="button"
-              className="flex-1 min-w-0 text-left flex items-center gap-2"
+              className="flex-1 min-w-0 text-left flex items-center gap-1.5"
               onClick={() => onObjectSelect(obj.id)}
             >
               <Circle className="w-3 h-3 shrink-0" style={{ color: getObjectColor(obj) }} fill="currentColor" />
-              <span className="truncate">{obj.name}</span>
+              <span className="truncate leading-5">{obj.name}</span>
             </button>
             {onObjectDelete && (
               <button
@@ -174,7 +174,7 @@ const LeftPanel = ({
           </div>
         ))}
         {objects.length === 0 && (
-          <div className="p-2 text-center text-xs text-muted-foreground">
+          <div className="p-1.5 text-center text-[11px] leading-4 text-muted-foreground">
             Нет объектов. Создайте их инструментами на карте.
           </div>
         )}

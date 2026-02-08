@@ -5,7 +5,7 @@ import "leaflet/dist/leaflet.css";
 import { AlertTriangle } from "lucide-react";
 
 import type { MapObject, MapObjectGeometry, Tool } from "@/features/map/model/types";
-import type { LaneFeature } from "@/features/mission";
+import { buildLaneTraversal, generateLanesForZone, type LaneFeature } from "@/features/mission";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
@@ -29,6 +29,9 @@ L.Icon.Default.mergeOptions({
 interface MapCanvasProps {
   activeTool: Tool;
   laneFeatures?: LaneFeature[];
+  outdatedZoneIds: Record<string, true>;
+  lanePickMode: 'none' | 'edge' | 'start';
+  lanePickZoneId: string | null;
   layers: {
     track: boolean;
     routes: boolean;
@@ -54,10 +57,16 @@ interface MapCanvasProps {
   onCursorMove: (pos: { lat: number; lon: number }) => void;
   onObjectSelect: (id: string | null) => void;
   onObjectDoubleClick: (id: string) => void;
-  onObjectCreate?: (geometry: MapObjectGeometry, options?: { preserveActiveTool?: boolean }) => void;
+  onObjectCreate?: (
+    geometry: MapObjectGeometry,
+    options?: { preserveActiveTool?: boolean; initial?: Partial<MapObject> },
+  ) => void;
   onObjectUpdate?: (id: string, updates: Partial<MapObject>) => void;
   onObjectDelete?: (id: string) => void;
   onRegenerateLanes?: (id: string) => void;
+  onLanePickCancel?: () => void;
+  onLanePickEdge?: (zoneId: string, bearingDeg: number) => void;
+  onLanePickStart?: (zoneId: string, point: { lat: number; lon: number }) => void;
   onMapScaleChange?: (scale: string) => void;
   onMapDrag: () => void;
 }
@@ -188,6 +197,9 @@ const getObjectColor = (obj: MapObject): string => {
 const MapCanvas = ({
   activeTool,
   laneFeatures = [],
+  outdatedZoneIds,
+  lanePickMode,
+  lanePickZoneId,
   layers,
   objects,
   selectedObjectId,
@@ -204,6 +216,9 @@ const MapCanvas = ({
   onObjectUpdate,
   onObjectDelete,
   onRegenerateLanes,
+  onLanePickCancel,
+  onLanePickEdge,
+  onLanePickStart,
   onMapScaleChange,
   onMapDrag,
 }: MapCanvasProps) => {
@@ -216,6 +231,11 @@ const MapCanvas = ({
     position: { x: number; y: number };
     draftType: 'route' | 'zone';
   } | null>(null);
+  const [draftZoneLaneAngle, setDraftZoneLaneAngle] = useState<'0' | '90'>('0');
+  const [draftZoneLaneWidth, setDraftZoneLaneWidth] = useState('10');
+  const [draftZoneBearingDeg, setDraftZoneBearingDeg] = useState<number | null>(null);
+  const [draftZoneStart, setDraftZoneStart] = useState<{ lat: number; lon: number } | null>(null);
+  const [draftLanePickMode, setDraftLanePickMode] = useState<'none' | 'edge' | 'start'>('none');
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
 
   const mapRef = useRef<L.Map | null>(null);
@@ -234,7 +254,63 @@ const MapCanvas = ({
   const clearDrawing = useCallback(() => {
     setDrawingPoints([]);
     setDrawingMenuState(null);
+    setDraftZoneBearingDeg(null);
+    setDraftZoneStart(null);
+    setDraftLanePickMode('none');
   }, []);
+
+  const normalizeBearing180 = (bearingDeg: number): number => {
+    const normalized = ((bearingDeg % 360) + 360) % 360;
+    return normalized >= 180 ? normalized - 180 : normalized;
+  };
+
+  const computeBearingDeg = (a: { lat: number; lon: number }, b: { lat: number; lon: number }): number => {
+    const toRad = (v: number) => (v * Math.PI) / 180;
+    const toDeg = (v: number) => (v * 180) / Math.PI;
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const dLon = toRad(b.lon - a.lon);
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    const brng = (toDeg(Math.atan2(y, x)) + 360) % 360;
+    return normalizeBearing180(brng);
+  };
+
+  const pickNearestVertex = (zone: MapObject, latlng: L.LatLng): { lat: number; lon: number } | null => {
+    if (zone.type !== 'zone' || zone.geometry?.type !== 'zone') return null;
+    const points = zone.geometry.points;
+    if (!points || points.length === 0) return null;
+
+    let best = points[0];
+    let bestDist = Infinity;
+    for (const p of points) {
+      const d = L.latLng(p.lat, p.lon).distanceTo(latlng);
+      if (d < bestDist) {
+        bestDist = d;
+        best = p;
+      }
+    }
+    return { lat: best.lat, lon: best.lon };
+  };
+
+  const getDrawingMenuPosition = useCallback(
+    (clientX: number, clientY: number, draftType: 'route' | 'zone'): { x: number; y: number } => {
+      const offsetX = draftType === 'zone' ? 28 : 0;
+      const offsetY = draftType === 'zone' ? 64 : 20;
+      const width = draftType === 'zone' ? 320 : 180;
+      const height = draftType === 'zone' ? 380 : 120;
+      const padding = 12;
+
+      const desiredX = clientX + offsetX;
+      const desiredY = clientY + offsetY;
+
+      const clampedX = Math.min(Math.max(padding, desiredX), Math.max(padding, window.innerWidth - width - padding));
+      const clampedY = Math.min(Math.max(padding, desiredY), Math.max(padding, window.innerHeight - height - padding));
+
+      return { x: clampedX, y: clampedY };
+    },
+    [],
+  );
 
   const armMapClickSuppression = useCallback(() => {
     suppressNextMapClickRef.current = true;
@@ -287,17 +363,36 @@ const MapCanvas = ({
         return false;
       }
 
+      const initial =
+        draftType === 'zone'
+          ? {
+              laneAngle: Number(draftZoneLaneAngle) === 90 ? 90 : 0,
+              laneWidth: Math.max(1, Number(draftZoneLaneWidth) || 5),
+              laneBearingDeg: typeof draftZoneBearingDeg === 'number' ? draftZoneBearingDeg : undefined,
+              laneStart: draftZoneStart ?? undefined,
+            }
+          : undefined;
+
       onObjectCreate?.(
         {
           type: draftType,
           points: drawingPoints.map((point) => ({ lat: point.lat, lon: point.lng })),
         },
-        { preserveActiveTool: options?.preserveActiveTool },
+        { preserveActiveTool: options?.preserveActiveTool, initial },
       );
       clearDrawing();
       return true;
     },
-    [clearDrawing, drawingPoints, onObjectCreate, toast],
+    [
+      clearDrawing,
+      draftZoneBearingDeg,
+      draftZoneLaneAngle,
+      draftZoneLaneWidth,
+      draftZoneStart,
+      drawingPoints,
+      onObjectCreate,
+      toast,
+    ],
   );
 
   const handleMapClick = useCallback(
@@ -308,10 +403,52 @@ const MapCanvas = ({
       }
       setObjectMenuState(null);
       const latlng = e.latlng;
+
+      if (activeTool === 'zone' && drawingPoints.length > 0 && draftLanePickMode !== 'none') {
+        if (draftLanePickMode === 'start') {
+          const snapped = pickNearestVertex(
+            {
+              id: 'draft',
+              type: 'zone',
+              name: 'draft',
+              visible: true,
+              geometry: { type: 'zone', points: drawingPoints.map((p) => ({ lat: p.lat, lon: p.lng })) },
+            },
+            latlng,
+          );
+          if (snapped) {
+            setDraftZoneStart(snapped);
+            setDraftLanePickMode('none');
+            toast({ title: 'Старт выбран', description: `${snapped.lat.toFixed(6)}, ${snapped.lon.toFixed(6)}` });
+          }
+        }
+        return;
+      }
+
+      if (lanePickMode === 'start' && lanePickZoneId) {
+        const zone = objects.find((obj) => obj.id === lanePickZoneId && obj.type === 'zone');
+        if (zone) {
+          const snapped = pickNearestVertex(zone, latlng);
+          if (snapped) {
+            onLanePickStart?.(lanePickZoneId, snapped);
+            toast({ title: 'Старт выбран', description: `${snapped.lat.toFixed(6)}, ${snapped.lon.toFixed(6)}` });
+          } else {
+            toast({ variant: 'destructive', title: 'Не удалось выбрать старт', description: 'Проверьте геометрию зоны.' });
+          }
+        }
+        return;
+      }
+
       if (activeTool === "route" || activeTool === "zone") {
+        if (activeTool === 'zone' && drawingPoints.length === 0) {
+          // Reset per-zone picks when starting a new zone draft.
+          setDraftZoneBearingDeg(null);
+          setDraftZoneStart(null);
+          setDraftLanePickMode('none');
+        }
         setDrawingPoints((prev) => [...prev, latlng]);
         setDrawingMenuState({
-          position: { x: e.originalEvent.clientX, y: e.originalEvent.clientY + 20 },
+          position: getDrawingMenuPosition(e.originalEvent.clientX, e.originalEvent.clientY, activeTool),
           draftType: activeTool,
         });
       } else if (activeTool === "marker") {
@@ -323,7 +460,19 @@ const MapCanvas = ({
         setDrawingMenuState(null);
       }
     },
-    [activeTool, onObjectSelect, onObjectCreate],
+    [
+      activeTool,
+      draftLanePickMode,
+      drawingPoints,
+      lanePickMode,
+      lanePickZoneId,
+      objects,
+      onLanePickStart,
+      onObjectCreate,
+      onObjectSelect,
+      toast,
+      getDrawingMenuPosition,
+    ],
   );
 
   const onCursorMoveThrottled = useCallback(
@@ -386,6 +535,14 @@ const MapCanvas = ({
       }
 
       if (e.key === "Escape") {
+        if (activeTool === 'zone' && draftLanePickMode !== 'none') {
+          setDraftLanePickMode('none');
+          return;
+        }
+        if (lanePickMode !== 'none') {
+          onLanePickCancel?.();
+          return;
+        }
         if (activeTool !== 'select') {
           onToolChange?.('select');
         }
@@ -405,7 +562,18 @@ const MapCanvas = ({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTool, clearDrawing, drawingPoints.length, selectedObjectId, onObjectDelete, onObjectSelect, onToolChange]);
+  }, [
+    activeTool,
+    clearDrawing,
+    draftLanePickMode,
+    drawingPoints.length,
+    lanePickMode,
+    onLanePickCancel,
+    onObjectDelete,
+    onObjectSelect,
+    onToolChange,
+    selectedObjectId,
+  ]);
 
   // Context menu handler for map objects
   const handleObjectContextMenu = (e: L.LeafletMouseEvent, objectId: string) => {
@@ -442,6 +610,153 @@ const MapCanvas = ({
 
     return { routes, zones, markers };
   }, [objects]);
+
+  const zoneTraversalOverlays = useMemo(() => {
+    const zonesById = new Map<string, MapObject>();
+    for (const obj of objects) {
+      if (obj.type !== 'zone' || obj.geometry?.type !== 'zone') continue;
+      zonesById.set(obj.id, obj);
+    }
+
+    const lanesByZone = new Map<string, LaneFeature[]>();
+    for (const lane of laneFeatures) {
+      const zoneId = lane.properties.parent_area_id;
+      if (!zonesById.has(zoneId) || outdatedZoneIds[zoneId]) continue;
+      const bucket = lanesByZone.get(zoneId);
+      if (bucket) {
+        bucket.push(lane);
+      } else {
+        lanesByZone.set(zoneId, [lane]);
+      }
+    }
+
+    const overlays: Array<{
+      zoneId: string;
+      isSelected: boolean;
+      traversalPath: [number, number][];
+      waypoints: Array<{ lat: number; lon: number; index: number }>;
+    }> = [];
+
+    for (const [zoneId, lanes] of lanesByZone.entries()) {
+      const zone = zonesById.get(zoneId);
+      if (!zone) continue;
+
+      const traversal = buildLaneTraversal(lanes, zone.laneStart ?? null, zone.laneBearingDeg);
+      const fullWaypoints = traversal.waypoints;
+      if (fullWaypoints.length === 0) continue;
+
+      const isSelected = selectedObjectId === zoneId;
+      const first = fullWaypoints[0];
+      const last = fullWaypoints[fullWaypoints.length - 1];
+      const waypoints = isSelected
+        ? fullWaypoints
+        : first.index === last.index
+          ? [first]
+          : [first, last];
+
+      overlays.push({
+        zoneId,
+        isSelected,
+        traversalPath: fullWaypoints.map((wp) => [wp.lat, wp.lon] as [number, number]),
+        waypoints,
+      });
+    }
+
+    return overlays;
+  }, [laneFeatures, objects, outdatedZoneIds, selectedObjectId]);
+
+  const waypointIcon = useCallback((label: string) => {
+    return L.divIcon({
+      className: 'lane-waypoint-icon',
+      html: `
+        <div style="
+          width: 20px;
+          height: 20px;
+          border-radius: 9999px;
+          background: rgba(15, 23, 42, 0.85);
+          color: white;
+          font-size: 11px;
+          line-height: 20px;
+          text-align: center;
+          border: 1px solid rgba(255, 255, 255, 0.7);
+          box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+        ">${label}</div>
+      `,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+    });
+  }, []);
+
+  const lanePickZone = useMemo(() => {
+    if (!lanePickZoneId) return null;
+    const zone = objects.find((obj) => obj.id === lanePickZoneId && obj.type === 'zone');
+    return zone?.geometry?.type === 'zone' ? zone : null;
+  }, [lanePickZoneId, objects]);
+
+  const lanePickEdges = useMemo(() => {
+    if (!lanePickZone) return [];
+    const points = lanePickZone.geometry!.points;
+    if (points.length < 2) return [];
+    const edges: Array<{ a: { lat: number; lon: number }; b: { lat: number; lon: number }; key: string }> = [];
+    for (let i = 0; i < points.length; i += 1) {
+      const a = points[i];
+      const b = points[(i + 1) % points.length];
+      if (a.lat === b.lat && a.lon === b.lon) continue;
+      edges.push({ a, b, key: `edge-${i}` });
+    }
+    return edges;
+  }, [lanePickZone]);
+
+  const draftPickEdges = useMemo(() => {
+    if (activeTool !== 'zone' || draftLanePickMode !== 'edge') return [];
+    if (drawingPoints.length < 2) return [];
+
+    const pts = drawingPoints.map((p) => ({ lat: p.lat, lon: p.lng }));
+    const edges: Array<{ a: { lat: number; lon: number }; b: { lat: number; lon: number }; key: string }> = [];
+    for (let i = 0; i + 1 < pts.length; i += 1) {
+      edges.push({ a: pts[i], b: pts[i + 1], key: `draft-edge-${i}` });
+    }
+    if (pts.length >= 3) {
+      edges.push({ a: pts[pts.length - 1], b: pts[0], key: `draft-edge-close` });
+    }
+    return edges;
+  }, [activeTool, draftLanePickMode, drawingPoints]);
+
+  const draftZonePreviewLanes = useMemo(() => {
+    if (activeTool !== 'zone') return [];
+    if (drawingPoints.length < 3) return [];
+
+    const points = drawingPoints.map((p) => ({ lat: p.lat, lon: p.lng }));
+    const laneWidthM = Math.max(1, Number(draftZoneLaneWidth) || 5);
+    const laneAngleDeg = Number(draftZoneLaneAngle) === 90 ? 90 : 0;
+
+    return generateLanesForZone({
+      parentAreaId: 'draft-zone',
+      points,
+      laneAngleDeg,
+      laneWidthM,
+      laneBearingDeg: typeof draftZoneBearingDeg === 'number' ? draftZoneBearingDeg : undefined,
+      start: draftZoneStart ?? undefined,
+    });
+  }, [
+    activeTool,
+    draftZoneBearingDeg,
+    draftZoneLaneAngle,
+    draftZoneLaneWidth,
+    draftZoneStart,
+    drawingPoints,
+  ]);
+
+  const draftZonePreviewWaypoints = useMemo(() => {
+    if (activeTool !== 'zone') return [];
+    if (drawingPoints.length < 3) return [];
+    const traversal = buildLaneTraversal(
+      draftZonePreviewLanes,
+      draftZoneStart ?? null,
+      typeof draftZoneBearingDeg === 'number' ? draftZoneBearingDeg : undefined,
+    );
+    return traversal.waypoints;
+  }, [activeTool, draftZoneBearingDeg, draftZonePreviewLanes, draftZoneStart, drawingPoints.length]);
 
   const handleVertexDrag = (index: number, latlng: L.LatLng) => {
     if (!selectedObject || !selectedObject.geometry || !onObjectUpdate) return;
@@ -629,6 +944,7 @@ const MapCanvas = ({
           laneFeatures.map((lane) => {
             const parentAreaId = lane.properties.parent_area_id;
             const isParentSelected = selectedObjectId === parentAreaId;
+            const isOutdated = Boolean(outdatedZoneIds[parentAreaId]);
             const lanePoints = lane.geometry.coordinates.map(
               ([lon, lat]) => [lat, lon] as [number, number],
             );
@@ -638,10 +954,10 @@ const MapCanvas = ({
                 key={lane.properties.id}
                 positions={lanePoints}
                 pathOptions={{
-                  color: 'hsl(38, 92%, 40%)',
+                  color: isOutdated ? 'hsl(142, 24%, 34%)' : 'hsl(142, 71%, 45%)',
                   weight: isParentSelected ? 3 : 2,
-                  opacity: isParentSelected ? 0.95 : 0.65,
-                  dashArray: '8 6',
+                  opacity: isOutdated ? 0.35 : isParentSelected ? 0.95 : 0.75,
+                  dashArray: isOutdated ? '3 7' : undefined,
                 }}
                 eventHandlers={{
                   click: (e) => {
@@ -651,7 +967,7 @@ const MapCanvas = ({
                   contextmenu: (e) => handleObjectContextMenu(e, parentAreaId),
                 }}
               >
-                <Tooltip sticky>{`Галс ${lane.properties.lane_index}`}</Tooltip>
+                <Tooltip sticky>{`Галс ${lane.properties.lane_index}${isOutdated ? ' (неактуален)' : ''}`}</Tooltip>
               </Polyline>
             );
           })}
@@ -728,6 +1044,85 @@ const MapCanvas = ({
         {/* Editing Handles */}
         {renderEditingHandles()}
 
+        {/* Lane traversal + waypoints */}
+        {layers.routes &&
+          zoneTraversalOverlays.map((overlay) =>
+            overlay.traversalPath.length > 1 ? (
+              <Polyline
+                key={`traversal-${overlay.zoneId}`}
+                positions={overlay.traversalPath}
+                pathOptions={{
+                  color: 'hsl(142, 71%, 45%)',
+                  weight: overlay.isSelected ? 3 : 2,
+                  opacity: overlay.isSelected ? 0.9 : 0.7,
+                }}
+              />
+            ) : null,
+          )}
+        {layers.routes &&
+          zoneTraversalOverlays.flatMap((overlay) =>
+            overlay.waypoints.map((wp) => (
+              <Marker
+                key={`wp-${overlay.zoneId}-${wp.index}`}
+                position={[wp.lat, wp.lon]}
+                icon={waypointIcon(String(wp.index))}
+                interactive={false}
+                zIndexOffset={1200}
+              />
+            )),
+          )}
+
+        {/* Lane pick edge overlay */}
+        {lanePickMode === 'edge' &&
+          lanePickZone &&
+          lanePickEdges.map((edge) => (
+            <Polyline
+              key={edge.key}
+              positions={[
+                [edge.a.lat, edge.a.lon],
+                [edge.b.lat, edge.b.lon],
+              ]}
+              pathOptions={{
+                color: 'hsl(199, 89%, 48%)',
+                weight: 10,
+                opacity: 0.25,
+              }}
+              eventHandlers={{
+                click: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  const bearing = computeBearingDeg(edge.a, edge.b);
+                  onLanePickEdge?.(lanePickZone.id, bearing);
+                  toast({ title: 'Грань выбрана', description: `bearing ${Math.round(bearing)}°` });
+                },
+              }}
+            />
+          ))}
+
+        {/* Draft edge pick overlay */}
+        {draftPickEdges.map((edge) => (
+          <Polyline
+            key={edge.key}
+            positions={[
+              [edge.a.lat, edge.a.lon],
+              [edge.b.lat, edge.b.lon],
+            ]}
+            pathOptions={{
+              color: 'hsl(142, 71%, 45%)',
+              weight: 12,
+              opacity: 0.25,
+            }}
+            eventHandlers={{
+              click: (e) => {
+                L.DomEvent.stopPropagation(e);
+                const bearing = computeBearingDeg(edge.a, edge.b);
+                setDraftZoneBearingDeg(bearing);
+                setDraftLanePickMode('none');
+                toast({ title: 'Грань выбрана', description: `bearing ${Math.round(bearing)}°` });
+              },
+            }}
+          />
+        ))}
+
         {/* Drawing preview */}
         {drawingPoints.length > 0 && activeTool === "route" && (
           <Polyline
@@ -752,6 +1147,39 @@ const MapCanvas = ({
             }}
           />
         )}
+
+        {/* Draft zone live lane preview */}
+        {activeTool === 'zone' &&
+          drawingPoints.length > 2 &&
+          draftZonePreviewLanes.map((lane) => {
+            const lanePoints = lane.geometry.coordinates.map(([lon, lat]) => [lat, lon] as [number, number]);
+            const key = `${lane.properties.lane_index}-${lanePoints[0]?.join(',')}-${lanePoints[1]?.join(',')}`;
+            return (
+              <Polyline
+                key={key}
+                positions={lanePoints}
+                pathOptions={{
+                  color: 'hsl(142, 71%, 45%)',
+                  weight: 2,
+                  opacity: 0.8,
+                  dashArray: '6 6',
+                }}
+              />
+            );
+          })}
+
+        {/* Draft zone waypoint numbers */}
+        {activeTool === 'zone' &&
+          drawingPoints.length > 2 &&
+          draftZonePreviewWaypoints.map((wp) => (
+            <Marker
+              key={`draft-wp-${wp.index}`}
+              position={[wp.lat, wp.lon]}
+              icon={waypointIcon(String(wp.index))}
+              interactive={false}
+              zIndexOffset={1200}
+            />
+          ))}
 
         {/* Drawing points markers */}
         {drawingPoints.map((point, i) => (
@@ -832,19 +1260,19 @@ const MapCanvas = ({
       )}
 
       {/* Drawing Context Menu */}
-      {drawingMenuState && drawingPoints.length > 0 && (
+      {drawingMenuState && drawingPoints.length > 0 && drawingMenuState.draftType === 'route' && (
         <MapContextMenu
           position={drawingMenuState.position}
           onClose={() => setDrawingMenuState(null)}
           items={[
             {
-              label: drawingMenuState.draftType === 'route' ? 'Завершить маршрут' : 'Завершить галс',
+              label: 'Завершить маршрут',
               action: () => {
-                completeDrawing(drawingMenuState.draftType);
+                completeDrawing('route');
               },
             },
             {
-              label: drawingMenuState.draftType === 'route' ? 'Удалить маршрут' : 'Удалить галс',
+              label: 'Удалить маршрут',
               action: () => {
                 clearDrawing();
               },
@@ -852,6 +1280,115 @@ const MapCanvas = ({
             },
           ]}
         />
+      )}
+
+      {drawingMenuState && drawingPoints.length > 0 && drawingMenuState.draftType === 'zone' && (
+        <div
+          className="fixed z-[9999] w-[320px] bg-popover text-popover-foreground rounded-md border border-border shadow-md p-3 animate-in fade-in zoom-in-95 duration-100"
+          style={{ top: drawingMenuState.position.y, left: drawingMenuState.position.x }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div className="text-sm font-medium mb-2">Параметры галсов</div>
+
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Угол</div>
+                <select
+                  className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  value={draftZoneLaneAngle}
+                  onChange={(e) => setDraftZoneLaneAngle(e.target.value === '90' ? '90' : '0')}
+                >
+                  <option value="0">0°</option>
+                  <option value="90">90°</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Ширина (м)</div>
+                <input
+                  className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={draftZoneLaneWidth}
+                  onChange={(e) => setDraftZoneLaneWidth(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">Ориентация</div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-mono text-xs">
+                  {typeof draftZoneBearingDeg === 'number' ? `по грани (${Math.round(draftZoneBearingDeg)}°)` : 'авто'}
+                </div>
+                <button
+                  type="button"
+                  className="h-8 px-2 rounded-md border border-input text-xs hover:bg-accent"
+                  onClick={() => setDraftLanePickMode('edge')}
+                  disabled={drawingPoints.length < 2}
+                >
+                  Выбрать грань
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">Старт</div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-mono text-xs">
+                  {draftZoneStart ? `${draftZoneStart.lat.toFixed(6)}, ${draftZoneStart.lon.toFixed(6)}` : 'не выбран'}
+                </div>
+                <button
+                  type="button"
+                  className="h-8 px-2 rounded-md border border-input text-xs hover:bg-accent"
+                  onClick={() => setDraftLanePickMode('start')}
+                  disabled={drawingPoints.length < 3}
+                >
+                  Выбрать старт
+                </button>
+              </div>
+            </div>
+
+            <div className="text-xs text-muted-foreground">
+              {drawingPoints.length < 3
+                ? 'Добавьте ещё точки (минимум 3) для предпросмотра галсов.'
+                : `Предпросмотр: ${draftZonePreviewLanes.length} галсов`}
+            </div>
+
+            {draftLanePickMode !== 'none' && (
+              <div className="text-xs text-muted-foreground">
+                {draftLanePickMode === 'edge' && 'Кликните по ребру зоны на карте.'}
+                {draftLanePickMode === 'start' && 'Кликните около вершины. Старт снапается к ближайшей вершине.'}
+                <button
+                  type="button"
+                  className="ml-2 text-primary hover:underline"
+                  onClick={() => setDraftLanePickMode('none')}
+                >
+                  Отмена
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button
+                type="button"
+                className="h-9 px-3 rounded-md border border-input text-sm hover:bg-accent"
+                onClick={() => clearDrawing()}
+              >
+                Удалить черновик
+              </button>
+              <button
+                type="button"
+                className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm disabled:opacity-50"
+                onClick={() => completeDrawing('zone')}
+                disabled={drawingPoints.length < 3}
+              >
+                Завершить зону
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Connection timeout warning */}
@@ -873,6 +1410,22 @@ const MapCanvas = ({
       {activeTool === 'marker' && drawingPoints.length === 0 && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] bg-card/90 backdrop-blur-sm border border-border rounded px-4 py-2 text-sm">
           Кликните для установки маркера
+        </div>
+      )}
+
+      {(lanePickMode === 'edge' || lanePickMode === 'start') && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] bg-card/90 backdrop-blur-sm border border-border rounded px-4 py-2 text-sm flex items-center gap-3">
+          <span className="text-muted-foreground">
+            {lanePickMode === 'edge' && 'Выберите грань зоны'}
+            {lanePickMode === 'start' && 'Кликните для выбора старта (снап к вершине)'}
+          </span>
+          <button
+            type="button"
+            className="text-primary hover:underline"
+            onClick={() => onLanePickCancel?.()}
+          >
+            Отмена
+          </button>
         </div>
       )}
     </div>

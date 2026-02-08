@@ -88,12 +88,15 @@ export type SurveyAreaFeature = {
   type: 'Feature';
   geometry: {
     type: 'Polygon';
-    coordinates: [number, number][][];
+    coordinates: [number, number][][]; 
   };
   properties: BaseFeatureProperties & {
     kind: 'survey_area';
     lane_angle_deg: 0 | 90;
     lane_width_m: number;
+    lane_bearing_deg?: number;
+    lane_start_lat?: number;
+    lane_start_lon?: number;
     style?: Record<string, unknown>;
   };
 };
