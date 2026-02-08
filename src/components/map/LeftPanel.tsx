@@ -13,6 +13,8 @@ interface LeftPanelProps {
     scaleBar: boolean;
     diver: boolean;
   };
+  primaryDiverTitle: string;
+  primaryTrackColor: string;
   onLayerToggle: (layer: keyof LeftPanelProps['layers']) => void;
   objects: MapObject[];
   missionDocument: MissionDocument | null;
@@ -43,6 +45,8 @@ const formatTrackTime = (value: string): string => {
 
 const LeftPanel = ({
   layers,
+  primaryDiverTitle,
+  primaryTrackColor,
   onLayerToggle,
   objects,
   missionDocument,
@@ -110,7 +114,12 @@ const LeftPanel = ({
               } group`}
             >
               <div className="flex items-center gap-1">
-                <div className="font-medium leading-5 flex-1 min-w-0 truncate">{`Трек ${index + 1}`}</div>
+                <span
+                  className="h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: primaryTrackColor }}
+                  aria-hidden
+                />
+                <div className="font-medium leading-5 flex-1 min-w-0 truncate">{`Трек: "${primaryDiverTitle}"`}</div>
                 {onTrackDelete && (
                   <button
                     type="button"

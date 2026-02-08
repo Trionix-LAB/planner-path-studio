@@ -16,6 +16,7 @@ import {
   cascadeDeleteZone,
   clearZoneLanesOutdated,
   countZoneLanes,
+  createDefaultDivers,
   createMissionRepository,
   createSimulationTelemetryProvider,
   createTrackRecorderState,
@@ -23,8 +24,10 @@ import {
   generateLanesFromZoneObject,
   markZoneLanesOutdated,
   mapObjectsToGeoJson,
+  normalizeDivers,
   replaceZoneLanes,
   trackRecorderReduce,
+  type DiverUiConfig,
   type LaneFeature,
   type MissionBundle,
   type MissionDocument,
@@ -79,6 +82,7 @@ type WorkspaceSnapshot = {
   laneFeatures: LaneFeature[];
   isFollowing: boolean;
   layers: LayersState;
+  divers: DiverUiConfig[];
   mapView: MissionUiState['map_view'] | null;
   coordPrecision: number;
   grid: AppUiDefaults['measurements']['grid'];
@@ -106,6 +110,7 @@ const DEFAULT_LAYERS: LayersState = {
 
 const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   follow_diver: defaults.follow_diver,
+  divers: createDefaultDivers(1),
   layers: { ...defaults.layers },
   coordinates: { precision: defaults.coordinates.precision },
   measurements: {
@@ -139,6 +144,7 @@ const MapWorkspace = () => {
   const [simulationEnabled, setSimulationEnabled] = useState(true);
   const [simulateConnectionError, setSimulateConnectionError] = useState(false);
   const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
+  const [missionDivers, setMissionDivers] = useState<DiverUiConfig[]>(() => createDefaultDivers(1));
   const [layers, setLayers] = useState<LayersState>(DEFAULT_LAYERS);
   const [objects, setObjects] = useState<MapObject[]>([]);
   const [laneFeatures, setLaneFeatures] = useState<LaneFeature[]>([]);
@@ -163,6 +169,9 @@ const MapWorkspace = () => {
     DEFAULT_APP_SETTINGS.defaults.measurements.segment_lengths_mode,
   );
   const [styles, setStyles] = useState<AppUiDefaults['styles']>(DEFAULT_APP_SETTINGS.defaults.styles);
+  const [connectionSettings, setConnectionSettings] = useState<AppUiDefaults['connection']>(
+    DEFAULT_APP_SETTINGS.defaults.connection,
+  );
   const [centerOnObjectSelect, setCenterOnObjectSelect] = useState<boolean>(
     DEFAULT_APP_SETTINGS.defaults.interactions.center_on_object_select,
   );
@@ -192,6 +201,7 @@ const MapWorkspace = () => {
     laneFeatures: [],
     isFollowing: true,
     layers: DEFAULT_LAYERS,
+    divers: createDefaultDivers(1),
     mapView: null,
     coordPrecision: DEFAULT_APP_SETTINGS.defaults.coordinates.precision,
     grid: DEFAULT_APP_SETTINGS.defaults.measurements.grid,
@@ -220,9 +230,19 @@ const MapWorkspace = () => {
     return Boolean(outdatedZoneIds[selectedObject.id]);
   }, [outdatedZoneIds, selectedObject]);
 
+  const effectiveTrackColor = missionDivers[0]?.track_color ?? styles.track.color;
+  const effectiveStyles = useMemo<AppUiDefaults['styles']>(
+    () => ({
+      ...styles,
+      track: { ...styles.track, color: effectiveTrackColor },
+    }),
+    [effectiveTrackColor, styles],
+  );
+
   const settingsValue = useMemo<AppUiDefaults>(
     () => ({
       follow_diver: isFollowing,
+      connection: { ...connectionSettings },
       interactions: {
         center_on_object_select: centerOnObjectSelect,
       },
@@ -241,8 +261,9 @@ const MapWorkspace = () => {
       styles,
     }),
     [
-      coordPrecision,
       centerOnObjectSelect,
+      connectionSettings,
+      coordPrecision,
       gridSettings,
       isFollowing,
       layers.grid,
@@ -278,6 +299,7 @@ const MapWorkspace = () => {
       laneFeatures,
       isFollowing,
       layers,
+      divers: missionDivers,
       mapView,
       coordPrecision,
       grid: gridSettings,
@@ -292,6 +314,7 @@ const MapWorkspace = () => {
     laneFeatures,
     isFollowing,
     layers,
+    missionDivers,
     mapView,
     coordPrecision,
     gridSettings,
@@ -320,6 +343,7 @@ const MapWorkspace = () => {
       missionLaneFeatures: LaneFeature[],
       followEnabled: boolean,
       layersState: LayersState,
+      diversState: DiverUiConfig[],
       nextMapView: MissionUiState['map_view'] | null,
       nextCoordPrecision: number,
       nextGrid: AppUiDefaults['measurements']['grid'],
@@ -332,6 +356,7 @@ const MapWorkspace = () => {
         ui: {
           ...(mission.ui ?? {}),
           follow_diver: followEnabled,
+          divers: diversState,
           layers: {
             track: layersState.track,
             routes: layersState.routes,
@@ -389,6 +414,7 @@ const MapWorkspace = () => {
         snapshot.laneFeatures,
         snapshot.isFollowing,
         snapshot.layers,
+        snapshot.divers,
         snapshot.mapView,
         snapshot.coordPrecision,
         snapshot.grid,
@@ -415,6 +441,7 @@ const MapWorkspace = () => {
     setOutdatedZoneIds({});
     setMissionName(bundle.mission.name);
     setIsDraft(draftMode);
+    setMissionDivers(normalizeDivers(bundle.mission.ui?.divers));
     setIsFollowing(effective.follow_diver);
     setCenterOnObjectSelect(effective.interactions.center_on_object_select);
     setLayers({
@@ -477,6 +504,7 @@ const MapWorkspace = () => {
         setGridSettings(normalized.defaults.measurements.grid);
         setSegmentLengthsMode(normalized.defaults.measurements.segment_lengths_mode);
         setStyles(normalized.defaults.styles);
+        setConnectionSettings(normalized.defaults.connection);
         setCenterOnObjectSelect(normalized.defaults.interactions.center_on_object_select);
 
         if (location.pathname === '/create-mission') {
@@ -541,6 +569,7 @@ const MapWorkspace = () => {
           laneFeatures,
           isFollowing,
           layers,
+          missionDivers,
           mapView,
           coordPrecision,
           gridSettings,
@@ -568,6 +597,7 @@ const MapWorkspace = () => {
     missionRootPath,
     objects,
     laneFeatures,
+    missionDivers,
     repository,
     trackPointsByTrackId,
     mapView,
@@ -757,6 +787,7 @@ const MapWorkspace = () => {
     // Apply immediately and let autosave persist mission overrides.
     setIsFollowing(next.follow_diver);
     setCenterOnObjectSelect(next.interactions.center_on_object_select);
+    setConnectionSettings(next.connection);
     setLayers((prev) => ({
       ...prev,
       track: next.layers.track,
@@ -776,6 +807,14 @@ const MapWorkspace = () => {
 
   const handleSettingsReset = async () => {
     await handleSettingsApply(DEFAULT_APP_SETTINGS.defaults);
+  };
+
+  const handleDiversApply = (next: DiverUiConfig[]) => {
+    setMissionDivers(normalizeDivers(next));
+  };
+
+  const handleDiversReset = () => {
+    setMissionDivers(createDefaultDivers(1));
   };
 
   const handleExport = async (request: ExportRequest) => {
@@ -1066,6 +1105,10 @@ const MapWorkspace = () => {
       <div className="flex-1 flex overflow-hidden">
         <LeftPanel
           layers={layers}
+          primaryDiverTitle={
+            missionDivers[0]?.title?.trim() || missionDivers[0]?.id?.trim() || 'Водолаз 1'
+          }
+          primaryTrackColor={missionDivers[0]?.track_color ?? '#a855f7'}
           onLayerToggle={handleLayerToggle}
           objects={objects}
           missionDocument={missionDocument}
@@ -1087,12 +1130,13 @@ const MapWorkspace = () => {
             layers={layers}
             grid={gridSettings}
             segmentLengthsMode={segmentLengthsMode}
-            styles={styles}
+            styles={effectiveStyles}
             mapView={mapView}
             objects={objects}
             selectedObjectId={selectedObjectId}
             centerRequest={centerRequest}
             diverData={diverData}
+            divers={missionDivers}
             trackSegments={trackSegments}
             isFollowing={isFollowing}
             connectionStatus={connectionStatus}
@@ -1166,8 +1210,11 @@ const MapWorkspace = () => {
         open={showSettings}
         onOpenChange={setShowSettings}
         value={settingsValue}
+        missionDivers={missionDivers}
         onApply={handleSettingsApply}
+        onApplyDivers={handleDiversApply}
         onReset={handleSettingsReset}
+        onResetDivers={handleDiversReset}
       />
     </div>
   );

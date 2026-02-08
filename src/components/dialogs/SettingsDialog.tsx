@@ -23,13 +23,17 @@ import {
   normalizeAppSettings,
   type AppUiDefaults,
 } from '@/features/settings';
+import type { DiverUiConfig } from '@/features/mission';
 
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   value: AppUiDefaults;
+  missionDivers: DiverUiConfig[];
   onApply: (next: AppUiDefaults) => Promise<void> | void;
+  onApplyDivers: (next: DiverUiConfig[]) => Promise<void> | void;
   onReset: () => Promise<void> | void;
+  onResetDivers: () => Promise<void> | void;
 }
 
 const clampNumber = (value: string, fallback: number, min: number, max: number): number => {
@@ -38,21 +42,65 @@ const clampNumber = (value: string, fallback: number, min: number, max: number):
   return Math.max(min, Math.min(max, n));
 };
 
-const SettingsDialog = ({ open, onOpenChange, value, onApply, onReset }: SettingsDialogProps) => {
+const SettingsDialog = ({
+  open,
+  onOpenChange,
+  value,
+  missionDivers,
+  onApply,
+  onApplyDivers,
+  onReset,
+  onResetDivers,
+}: SettingsDialogProps) => {
   const initial = useMemo(() => value, [value]);
   const [draft, setDraft] = useState<AppUiDefaults>(initial);
+  const [diversDraft, setDiversDraft] = useState<DiverUiConfig[]>(missionDivers);
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setDraft(value);
+    setDiversDraft(missionDivers);
     setIsDirty(false);
-  }, [open, value]);
+  }, [open, value, missionDivers]);
 
   const update = (next: AppUiDefaults) => {
     setDraft(next);
     setIsDirty(true);
+  };
+
+  const updateDivers = (next: DiverUiConfig[]) => {
+    setDiversDraft(next);
+    setIsDirty(true);
+  };
+
+  const updateDiver = (index: number, updates: Partial<DiverUiConfig>) => {
+    updateDivers(
+      diversDraft.map((diver, currentIndex) =>
+        currentIndex === index ? { ...diver, ...updates } : diver,
+      ),
+    );
+  };
+
+  const handleAddDiver = () => {
+    const index = diversDraft.length;
+    updateDivers([
+      ...diversDraft,
+      {
+        uid: crypto.randomUUID(),
+        id: `diver-${index + 1}`,
+        title: `Водолаз ${index + 1}`,
+        marker_color: '#0ea5e9',
+        marker_size_px: 32,
+        track_color: '#a855f7',
+      },
+    ]);
+  };
+
+  const handleRemoveDiver = (index: number) => {
+    if (diversDraft.length <= 1) return;
+    updateDivers(diversDraft.filter((_, currentIndex) => currentIndex !== index));
   };
 
   const handleApply = async () => {
@@ -63,6 +111,7 @@ const SettingsDialog = ({ open, onOpenChange, value, onApply, onReset }: Setting
         defaults: draft,
       }).defaults;
       await onApply(normalized);
+      await onApplyDivers(diversDraft);
       setIsDirty(false);
       onOpenChange(false);
     } finally {
@@ -74,6 +123,7 @@ const SettingsDialog = ({ open, onOpenChange, value, onApply, onReset }: Setting
     setIsSaving(true);
     try {
       await onReset();
+      await onResetDivers();
       setIsDirty(false);
     } finally {
       setIsSaving(false);
@@ -88,11 +138,12 @@ const SettingsDialog = ({ open, onOpenChange, value, onApply, onReset }: Setting
         </DialogHeader>
 
         <Tabs defaultValue="measurements" className="flex-1 min-h-0 flex flex-col overflow-hidden">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="measurements">Измерения</TabsTrigger>
             <TabsTrigger value="coordinates">Координаты</TabsTrigger>
             <TabsTrigger value="styles">Стили</TabsTrigger>
             <TabsTrigger value="defaults">По умолчанию</TabsTrigger>
+            <TabsTrigger value="connection">Подключение</TabsTrigger>
           </TabsList>
 
           <div className="mt-4 flex-1 min-h-0 overflow-y-auto pr-1">
@@ -518,6 +569,116 @@ const SettingsDialog = ({ open, onOpenChange, value, onApply, onReset }: Setting
                   />
                   <span>Маркеры</span>
                 </label>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="connection" className="mt-0 space-y-6">
+              <div className="space-y-2">
+                <Label>Хост</Label>
+                <Input
+                  value={draft.connection.host}
+                  onChange={(e) =>
+                    update({
+                      ...draft,
+                      connection: { ...draft.connection, host: e.target.value },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Порт</Label>
+                <Input
+                  inputMode="numeric"
+                  value={String(draft.connection.port)}
+                  onChange={(e) =>
+                    update({
+                      ...draft,
+                      connection: {
+                        ...draft.connection,
+                        port: clampNumber(e.target.value, 9000, 1, 65535),
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">Водолазы</div>
+                  <Button type="button" variant="outline" size="sm" onClick={handleAddDiver}>
+                    Добавить водолаза
+                  </Button>
+                </div>
+
+                <div className="space-y-3">
+                  {diversDraft.map((diver, index) => (
+                    <div key={diver.uid} className="border border-border rounded-md p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-muted-foreground">#{index + 1}</div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveDiver(index)}
+                          disabled={diversDraft.length <= 1}
+                        >
+                          Удалить
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label>ID</Label>
+                          <Input
+                            value={diver.id}
+                            onChange={(e) => updateDiver(index, { id: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Заголовок</Label>
+                          <Input
+                            value={diver.title}
+                            onChange={(e) => updateDiver(index, { title: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-1.5">
+                          <Label>Цвет маркера</Label>
+                          <Input
+                            type="color"
+                            value={diver.marker_color}
+                            onChange={(e) => updateDiver(index, { marker_color: e.target.value })}
+                            className="w-12 h-9 p-1"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Размер маркера</Label>
+                          <Input
+                            inputMode="numeric"
+                            value={String(diver.marker_size_px)}
+                            onChange={(e) =>
+                              updateDiver(index, {
+                                marker_size_px: clampNumber(e.target.value, 32, 12, 64),
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Цвет трека</Label>
+                          <Input
+                            type="color"
+                            value={diver.track_color}
+                            onChange={(e) => updateDiver(index, { track_color: e.target.value })}
+                            className="w-12 h-9 p-1"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </TabsContent>
           </div>

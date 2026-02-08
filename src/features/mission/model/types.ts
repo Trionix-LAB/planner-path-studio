@@ -4,6 +4,15 @@ export type IsoUtcString = string;
 
 export type SegmentLengthsMode = 'off' | 'on-select' | 'always';
 
+export type DiverUiConfig = {
+  uid: string;
+  id: string;
+  title: string;
+  marker_color: string;
+  marker_size_px: number;
+  track_color: string;
+};
+
 export type MissionTrackMeta = {
   id: string;
   file: string;
@@ -14,6 +23,7 @@ export type MissionTrackMeta = {
 
 export type MissionUiState = {
   follow_diver?: boolean;
+  divers?: DiverUiConfig[];
   layers?: {
     track?: boolean;
     routes?: boolean;

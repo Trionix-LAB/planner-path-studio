@@ -7,6 +7,7 @@ import { AlertTriangle } from "lucide-react";
 import type { MapObject, MapObjectGeometry, Tool } from "@/features/map/model/types";
 import { buildLaneTraversal, generateLanesForZone, type LaneFeature, type SegmentLengthsMode } from "@/features/mission";
 import type { AppUiDefaults } from "@/features/settings";
+import type { DiverUiConfig } from "@/features/mission";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
@@ -55,6 +56,7 @@ interface MapCanvasProps {
     course: number;
     depth: number;
   };
+  divers: DiverUiConfig[];
   trackSegments: Array<Array<[number, number]>>;
   isFollowing: boolean;
   connectionStatus: 'ok' | 'timeout' | 'error';
@@ -79,20 +81,22 @@ interface MapCanvasProps {
 }
 
 // Custom diver icon
-const createDiverIcon = (course: number, isFollowing: boolean) => {
+const createDiverIcon = (course: number, isFollowing: boolean, color: string, sizePx: number) => {
+  const size = Math.max(12, Math.min(64, Math.trunc(sizePx)));
+  const iconSize = Math.max(10, Math.round(size * 0.5));
   return L.divIcon({
     className: "diver-marker",
     html: `
-      <div class="relative flex items-center justify-center">
-        <div class="w-8 h-8 rounded-full bg-primary border-2 border-white flex items-center justify-center ${isFollowing ? "animate-pulse" : ""}">
-          <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor" transform="rotate(${course} 12 12)">
+      <div class="relative flex items-center justify-center" style="width:${size}px;height:${size}px;">
+        <div class="rounded-full border-2 border-white flex items-center justify-center ${isFollowing ? "animate-pulse" : ""}" style="width:${size}px;height:${size}px;background:${color};">
+          <svg class="text-white" style="width:${iconSize}px;height:${iconSize}px;" viewBox="0 0 24 24" fill="currentColor" transform="rotate(${course} 12 12)">
             <path d="M12 2L8 12H16L12 2Z"/>
           </svg>
         </div>
       </div>
     `,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
 };
 
@@ -353,6 +357,7 @@ const MapCanvas = ({
   selectedObjectId,
   centerRequest,
   diverData,
+  divers,
   trackSegments,
   isFollowing,
   connectionStatus,
@@ -398,6 +403,13 @@ const MapCanvas = ({
   const cursorRaf = useRef<number | null>(null);
 
   const diverPosition: [number, number] = [diverData.lat, diverData.lon];
+  const offsetStep = 0.00008;
+  const getDiverPosition = (index: number): [number, number] => {
+    if (index === 0) return diverPosition;
+    const ring = Math.ceil(index / 2);
+    const sign = index % 2 === 0 ? -1 : 1;
+    return [diverPosition[0] + ring * offsetStep * sign, diverPosition[1] + ring * offsetStep * sign];
+  };
   const baseStationPosition: [number, number] = [59.935, 30.333];
   const { toast } = useToast();
 
@@ -1423,12 +1435,18 @@ const MapCanvas = ({
         ))}
 
         {/* Diver */}
-        {layers.diver && (
-          <Marker
-            position={diverPosition}
-            icon={createDiverIcon(diverData.course, isFollowing)}
-          />
-        )}
+        {layers.diver &&
+          divers.map((diver, index) => {
+            const position = getDiverPosition(index);
+            const course = index === 0 ? diverData.course : 0;
+            return (
+              <Marker
+                key={diver.uid}
+                position={position}
+                icon={createDiverIcon(course, index === 0 && isFollowing, diver.marker_color, diver.marker_size_px)}
+              />
+            );
+          })}
 
         {/* Base station */}
         <Marker

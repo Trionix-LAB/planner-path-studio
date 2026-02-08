@@ -18,6 +18,7 @@ export { createSimulationTelemetryProvider } from './model/telemetry';
 export type { TelemetryConnectionState, TelemetryFix, TelemetryProvider } from './model/telemetry';
 export { createTrackRecorderState, trackRecorderReduce } from './model/trackRecorder';
 export type { TrackFixPayload, TrackRecorderEvent, TrackRecorderState, TrackRecorderStatus } from './model/trackRecorder';
+export { createDefaultDiver, createDefaultDivers, normalizeDivers } from './model/divers';
 export {
   MISSION_SCHEMA_VERSION,
   type CreateMissionInput,
@@ -32,5 +33,6 @@ export {
   type RoutesFeature,
   type SurveyAreaFeature,
   type LaneFeature,
+  type DiverUiConfig,
   type TrackPoint,
 } from './model/types';

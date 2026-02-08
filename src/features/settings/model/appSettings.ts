@@ -7,6 +7,10 @@ export type GridMode = 'auto' | 'manual';
 
 export type AppUiDefaults = {
   follow_diver: boolean;
+  connection: {
+    host: string;
+    port: number;
+  };
   interactions: {
     center_on_object_select: boolean;
   };
@@ -60,6 +64,14 @@ const normalizeHexColor = (value: unknown, fallback: string): string => {
   return fallback;
 };
 
+const normalizeHost = (value: unknown, fallback: string): string => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+};
+
+const normalizePort = (value: unknown, fallback: number): number => clampInt(value, fallback, 1, 65535);
+
 const normalizeSegmentLengthsMode = (value: unknown, fallback: SegmentLengthsMode): SegmentLengthsMode => {
   if (value === 'off' || value === 'on-select' || value === 'always') return value;
   return fallback;
@@ -74,6 +86,10 @@ export const createDefaultAppSettings = (): AppSettingsV1 => ({
   schema_version: APP_SETTINGS_SCHEMA_VERSION,
   defaults: {
     follow_diver: true,
+    connection: {
+      host: 'localhost',
+      port: 9000,
+    },
     interactions: {
       center_on_object_select: false,
     },
@@ -105,6 +121,7 @@ export const normalizeAppSettings = (raw: unknown): AppSettingsV1 => {
   if (raw.schema_version !== APP_SETTINGS_SCHEMA_VERSION) return base;
   const defaultsRaw = isRecord(raw.defaults) ? raw.defaults : {};
 
+  const connectionRaw = isRecord(defaultsRaw.connection) ? defaultsRaw.connection : {};
   const interactionsRaw = isRecord(defaultsRaw.interactions) ? defaultsRaw.interactions : {};
 
   const layersRaw = isRecord(defaultsRaw.layers) ? defaultsRaw.layers : {};
@@ -126,6 +143,10 @@ export const normalizeAppSettings = (raw: unknown): AppSettingsV1 => {
     schema_version: APP_SETTINGS_SCHEMA_VERSION,
     defaults: {
       follow_diver: typeof defaultsRaw.follow_diver === 'boolean' ? defaultsRaw.follow_diver : base.defaults.follow_diver,
+      connection: {
+        host: normalizeHost(connectionRaw.host, base.defaults.connection.host),
+        port: normalizePort(connectionRaw.port, base.defaults.connection.port),
+      },
       interactions: {
         center_on_object_select:
           typeof interactionsRaw.center_on_object_select === 'boolean'

@@ -8,12 +8,15 @@ describe('app settings', () => {
     expect(settings.defaults.coordinates.precision).toBe(6);
     expect(settings.defaults.layers.scale_bar).toBe(true);
     expect(settings.defaults.measurements.grid.line_style).toBe('dashed');
+    expect(settings.defaults.connection.host).toBe('localhost');
+    expect(settings.defaults.connection.port).toBe(9000);
   });
 
   it('clamps invalid numeric settings', () => {
     const raw = {
       schema_version: 1,
       defaults: {
+        connection: { host: '', port: 99999 },
         coordinates: { precision: 999 },
         styles: {
           track: { width_px: 0 },
@@ -29,6 +32,8 @@ describe('app settings', () => {
     expect(normalized.defaults.measurements.grid.mode).toBe('manual');
     expect(normalized.defaults.measurements.grid.step_m).toBe(1);
     expect(normalized.defaults.measurements.grid.line_style).toBe('dashed');
+    expect(normalized.defaults.connection.host).toBe('localhost');
+    expect(normalized.defaults.connection.port).toBe(65535);
   });
 
   it('merges mission ui overrides onto defaults', () => {
