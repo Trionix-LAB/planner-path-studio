@@ -1,5 +1,5 @@
 import { Checkbox } from '@/components/ui/checkbox';
-import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle, Trash2 } from 'lucide-react';
+import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle, LocateFixed, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MapObject } from '@/features/map/model/types';
 import type { MissionDocument } from '@/features/mission';
@@ -19,6 +19,7 @@ interface LeftPanelProps {
   trackStatus: 'recording' | 'paused' | 'stopped';
   selectedObjectId: string | null;
   onObjectSelect: (id: string | null) => void;
+  onObjectCenter?: (id: string) => void;
   onObjectDelete?: (id: string) => void;
   onTrackDelete?: (id: string) => void;
 }
@@ -48,6 +49,7 @@ const LeftPanel = ({
   trackStatus,
   selectedObjectId,
   onObjectSelect,
+  onObjectCenter,
   onObjectDelete,
   onTrackDelete,
 }: LeftPanelProps) => {
@@ -160,6 +162,17 @@ const LeftPanel = ({
               <Circle className="w-3 h-3 shrink-0" style={{ color: getObjectColor(obj) }} fill="currentColor" />
               <span className="truncate leading-5">{obj.name}</span>
             </button>
+            {onObjectCenter && (
+              <button
+                type="button"
+                className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label={`Переместиться к ${obj.name}`}
+                title={`Переместиться к ${obj.name}`}
+                onClick={() => onObjectCenter(obj.id)}
+              >
+                <LocateFixed className="w-3.5 h-3.5" />
+              </button>
+            )}
             {onObjectDelete && (
               <button
                 type="button"

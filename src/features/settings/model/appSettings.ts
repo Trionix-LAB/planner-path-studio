@@ -7,6 +7,9 @@ export type GridMode = 'auto' | 'manual';
 
 export type AppUiDefaults = {
   follow_diver: boolean;
+  interactions: {
+    center_on_object_select: boolean;
+  };
   layers: {
     track: boolean;
     routes: boolean;
@@ -71,6 +74,9 @@ export const createDefaultAppSettings = (): AppSettingsV1 => ({
   schema_version: APP_SETTINGS_SCHEMA_VERSION,
   defaults: {
     follow_diver: true,
+    interactions: {
+      center_on_object_select: false,
+    },
     layers: {
       track: true,
       routes: true,
@@ -99,6 +105,8 @@ export const normalizeAppSettings = (raw: unknown): AppSettingsV1 => {
   if (raw.schema_version !== APP_SETTINGS_SCHEMA_VERSION) return base;
   const defaultsRaw = isRecord(raw.defaults) ? raw.defaults : {};
 
+  const interactionsRaw = isRecord(defaultsRaw.interactions) ? defaultsRaw.interactions : {};
+
   const layersRaw = isRecord(defaultsRaw.layers) ? defaultsRaw.layers : {};
   const coordsRaw = isRecord(defaultsRaw.coordinates) ? defaultsRaw.coordinates : {};
   const measurementsRaw = isRecord(defaultsRaw.measurements) ? defaultsRaw.measurements : {};
@@ -118,6 +126,12 @@ export const normalizeAppSettings = (raw: unknown): AppSettingsV1 => {
     schema_version: APP_SETTINGS_SCHEMA_VERSION,
     defaults: {
       follow_diver: typeof defaultsRaw.follow_diver === 'boolean' ? defaultsRaw.follow_diver : base.defaults.follow_diver,
+      interactions: {
+        center_on_object_select:
+          typeof interactionsRaw.center_on_object_select === 'boolean'
+            ? interactionsRaw.center_on_object_select
+            : base.defaults.interactions.center_on_object_select,
+      },
       layers: {
         track: typeof layersRaw.track === 'boolean' ? layersRaw.track : base.defaults.layers.track,
         routes: typeof layersRaw.routes === 'boolean' ? layersRaw.routes : base.defaults.layers.routes,

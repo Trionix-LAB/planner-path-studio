@@ -163,6 +163,10 @@ const MapWorkspace = () => {
     DEFAULT_APP_SETTINGS.defaults.measurements.segment_lengths_mode,
   );
   const [styles, setStyles] = useState<AppUiDefaults['styles']>(DEFAULT_APP_SETTINGS.defaults.styles);
+  const [centerOnObjectSelect, setCenterOnObjectSelect] = useState<boolean>(
+    DEFAULT_APP_SETTINGS.defaults.interactions.center_on_object_select,
+  );
+  const [centerRequest, setCenterRequest] = useState<{ objectId: string; nonce: number } | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [shouldAutoStartRecording, setShouldAutoStartRecording] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<TelemetryConnectionState>('ok');
@@ -219,6 +223,9 @@ const MapWorkspace = () => {
   const settingsValue = useMemo<AppUiDefaults>(
     () => ({
       follow_diver: isFollowing,
+      interactions: {
+        center_on_object_select: centerOnObjectSelect,
+      },
       layers: {
         track: layers.track,
         routes: layers.routes,
@@ -235,6 +242,7 @@ const MapWorkspace = () => {
     }),
     [
       coordPrecision,
+      centerOnObjectSelect,
       gridSettings,
       isFollowing,
       layers.grid,
@@ -245,6 +253,21 @@ const MapWorkspace = () => {
       segmentLengthsMode,
       styles,
     ],
+  );
+
+  const centerNonceRef = useRef(0);
+  const requestCenterOnObject = useCallback((id: string) => {
+    setIsFollowing(false);
+    centerNonceRef.current += 1;
+    setCenterRequest({ objectId: id, nonce: centerNonceRef.current });
+  }, []);
+
+  const handleObjectCenter = useCallback(
+    (id: string) => {
+      setSelectedObjectId(id);
+      requestCenterOnObject(id);
+    },
+    [requestCenterOnObject],
   );
 
   useEffect(() => {
@@ -393,6 +416,7 @@ const MapWorkspace = () => {
     setMissionName(bundle.mission.name);
     setIsDraft(draftMode);
     setIsFollowing(effective.follow_diver);
+    setCenterOnObjectSelect(effective.interactions.center_on_object_select);
     setLayers({
       track: effective.layers.track,
       routes: effective.layers.routes,
@@ -408,6 +432,7 @@ const MapWorkspace = () => {
     setMapView(bundle.mission.ui?.map_view ?? null);
     setAutoSaveStatus('saved');
     setSelectedObjectId(null);
+    setCenterRequest(null);
     setIsLoaded(true);
     setShouldAutoStartRecording(!draftMode);
   }, []);
@@ -452,6 +477,7 @@ const MapWorkspace = () => {
         setGridSettings(normalized.defaults.measurements.grid);
         setSegmentLengthsMode(normalized.defaults.measurements.segment_lengths_mode);
         setStyles(normalized.defaults.styles);
+        setCenterOnObjectSelect(normalized.defaults.interactions.center_on_object_select);
 
         if (location.pathname === '/create-mission') {
           setShowCreateMission(true);
@@ -683,6 +709,9 @@ const MapWorkspace = () => {
 
   const handleObjectSelect = (id: string | null) => {
     setSelectedObjectId(id);
+    if (id && centerOnObjectSelect) {
+      requestCenterOnObject(id);
+    }
   };
 
   const handleCreateMission = async (name: string, path: string) => {
@@ -727,6 +756,7 @@ const MapWorkspace = () => {
 
     // Apply immediately and let autosave persist mission overrides.
     setIsFollowing(next.follow_diver);
+    setCenterOnObjectSelect(next.interactions.center_on_object_select);
     setLayers((prev) => ({
       ...prev,
       track: next.layers.track,
@@ -1042,6 +1072,7 @@ const MapWorkspace = () => {
           trackStatus={trackStatus}
           selectedObjectId={selectedObjectId}
           onObjectSelect={handleObjectSelect}
+          onObjectCenter={handleObjectCenter}
           onObjectDelete={handleObjectDelete}
           onTrackDelete={handleTrackDelete}
         />
@@ -1060,6 +1091,7 @@ const MapWorkspace = () => {
             mapView={mapView}
             objects={objects}
             selectedObjectId={selectedObjectId}
+            centerRequest={centerRequest}
             diverData={diverData}
             trackSegments={trackSegments}
             isFollowing={isFollowing}

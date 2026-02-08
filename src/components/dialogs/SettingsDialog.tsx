@@ -473,6 +473,19 @@ const SettingsDialog = ({ open, onOpenChange, value, onApply, onReset }: Setting
                 <span>Режим слежения за водолазом</span>
               </label>
 
+              <label className="flex items-center gap-3">
+                <Checkbox
+                  checked={draft.interactions.center_on_object_select}
+                  onCheckedChange={(c) =>
+                    update({
+                      ...draft,
+                      interactions: { ...draft.interactions, center_on_object_select: c as boolean },
+                    })
+                  }
+                />
+                <span>Центрировать карту при выборе объекта в списке</span>
+              </label>
+
               <div className="border-t border-border pt-4 space-y-3">
                 <div className="text-sm font-medium">Видимость слоев</div>
 

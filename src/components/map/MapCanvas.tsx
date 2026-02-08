@@ -47,6 +47,7 @@ interface MapCanvasProps {
   mapView: { center_lat: number; center_lon: number; zoom: number } | null;
   objects: MapObject[];
   selectedObjectId: string | null;
+  centerRequest?: { objectId: string; nonce: number } | null;
   diverData: {
     lat: number;
     lon: number;
@@ -248,6 +249,50 @@ const ApplyMapView = ({
   return null;
 };
 
+const CenterOnObjectRequest = ({
+  request,
+  objects,
+  onMissingGeometry,
+}: {
+  request: { objectId: string; nonce: number } | null | undefined;
+  objects: MapObject[];
+  onMissingGeometry: (name: string) => void;
+}) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!request) return;
+    const obj = objects.find((item) => item.id === request.objectId);
+    if (!obj) return;
+    if (!obj.geometry) {
+      onMissingGeometry(obj.name);
+      return;
+    }
+
+    if (obj.geometry.type === 'marker') {
+      const targetZoom = Math.max(map.getZoom(), 16);
+      map.setView([obj.geometry.point.lat, obj.geometry.point.lon], targetZoom, { animate: true });
+      return;
+    }
+
+    const points = obj.geometry.points;
+    if (!points || points.length === 0) {
+      onMissingGeometry(obj.name);
+      return;
+    }
+
+    const bounds = L.latLngBounds(points.map((p) => L.latLng(p.lat, p.lon)));
+    if (!bounds.isValid()) {
+      onMissingGeometry(obj.name);
+      return;
+    }
+
+    map.fitBounds(bounds, { padding: [24, 24], maxZoom: 18, animate: true });
+  }, [map, objects, onMissingGeometry, request]);
+
+  return null;
+};
+
 const toTuple = (p: { lat: number; lon: number }): [number, number] => [p.lat, p.lon];
 const getObjectColor = (obj: MapObject, defaults: AppUiDefaults['styles']): string => {
   if (obj.color) return obj.color;
@@ -306,6 +351,7 @@ const MapCanvas = ({
   mapView,
   objects,
   selectedObjectId,
+  centerRequest,
   diverData,
   trackSegments,
   isFollowing,
@@ -354,6 +400,17 @@ const MapCanvas = ({
   const diverPosition: [number, number] = [diverData.lat, diverData.lon];
   const baseStationPosition: [number, number] = [59.935, 30.333];
   const { toast } = useToast();
+
+  const handleMissingGeometry = useCallback(
+    (name: string) => {
+      toast({
+        variant: 'destructive',
+        title: 'Не удалось переместиться',
+        description: `У объекта «${name}» нет геометрии.`,
+      });
+    },
+    [toast],
+  );
 
   const clearDrawing = useCallback(() => {
     setDrawingPoints([]);
@@ -1053,6 +1110,7 @@ const MapCanvas = ({
         />
 
         <ApplyMapView mapView={mapView} isFollowing={isFollowing} />
+        <CenterOnObjectRequest request={centerRequest} objects={objects} onMissingGeometry={handleMissingGeometry} />
         <FollowDiver position={diverPosition} isFollowing={isFollowing} />
 
         {/* Track */}
