@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -18,227 +18,506 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  APP_SETTINGS_SCHEMA_VERSION,
+  normalizeAppSettings,
+  type AppUiDefaults,
+} from '@/features/settings';
 
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  value: AppUiDefaults;
+  onApply: (next: AppUiDefaults) => Promise<void> | void;
+  onReset: () => Promise<void> | void;
 }
 
-const SettingsDialog = ({ open, onOpenChange }: SettingsDialogProps) => {
-  // Measurements
-  const [showScaleBar, setShowScaleBar] = useState(true);
-  const [showGrid, setShowGrid] = useState(true);
-  const [gridMode, setGridMode] = useState<'auto' | 'manual'>('auto');
-  const [gridStep, setGridStep] = useState('50');
-  const [showLengths, setShowLengths] = useState<'off' | 'on-select' | 'always'>('on-select');
+const clampNumber = (value: string, fallback: number, min: number, max: number): number => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+};
 
-  // Connection
-  const [connectionProfile, setConnectionProfile] = useState<'old' | 'new'>('new');
-  const [comPort, setComPort] = useState('COM3');
-  const [ipAddress, setIpAddress] = useState('192.168.1.100');
+const SettingsDialog = ({ open, onOpenChange, value, onApply, onReset }: SettingsDialogProps) => {
+  const initial = useMemo(() => value, [value]);
+  const [draft, setDraft] = useState<AppUiDefaults>(initial);
+  const [isDirty, setIsDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Coordinates
-  const [coordPrecision, setCoordPrecision] = useState('6');
+  useEffect(() => {
+    if (!open) return;
+    setDraft(value);
+    setIsDirty(false);
+  }, [open, value]);
 
-  // Styles
-  const [trackColor, setTrackColor] = useState('#a855f7');
-  const [routeColor, setRouteColor] = useState('#0ea5e9');
-  const [zoneColor, setZoneColor] = useState('#fbbf24');
+  const update = (next: AppUiDefaults) => {
+    setDraft(next);
+    setIsDirty(true);
+  };
 
-  // Defaults
-  const [defaultFollow, setDefaultFollow] = useState(true);
+  const handleApply = async () => {
+    setIsSaving(true);
+    try {
+      const normalized = normalizeAppSettings({
+        schema_version: APP_SETTINGS_SCHEMA_VERSION,
+        defaults: draft,
+      }).defaults;
+      await onApply(normalized);
+      setIsDirty(false);
+      onOpenChange(false);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setIsSaving(true);
+    try {
+      await onReset();
+      setIsDirty(false);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+      <DialogContent className="w-[min(94vw,56rem)] h-[80vh] max-h-[80vh] sm:max-w-2xl overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>Настройки</DialogTitle>
         </DialogHeader>
-        
-        <Tabs defaultValue="measurements" className="flex-1 overflow-hidden">
-          <TabsList className="grid w-full grid-cols-5">
+
+        <Tabs defaultValue="measurements" className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="measurements">Измерения</TabsTrigger>
-            <TabsTrigger value="connection">Подключение</TabsTrigger>
             <TabsTrigger value="coordinates">Координаты</TabsTrigger>
             <TabsTrigger value="styles">Стили</TabsTrigger>
             <TabsTrigger value="defaults">По умолчанию</TabsTrigger>
           </TabsList>
-          
-          <div className="mt-4 overflow-auto max-h-[400px]">
-            <TabsContent value="measurements" className="space-y-4">
+
+          <div className="mt-4 flex-1 min-h-0 overflow-y-auto pr-1">
+            <TabsContent value="measurements" className="mt-0 space-y-4">
               <label className="flex items-center gap-3">
-                <Checkbox checked={showScaleBar} onCheckedChange={(c) => setShowScaleBar(c as boolean)} />
+                <Checkbox
+                  checked={draft.layers.scale_bar}
+                  onCheckedChange={(c) =>
+                    update({
+                      ...draft,
+                      layers: { ...draft.layers, scale_bar: c as boolean },
+                    })
+                  }
+                />
                 <span>Линейка масштаба</span>
               </label>
-              
+
               <label className="flex items-center gap-3">
-                <Checkbox checked={showGrid} onCheckedChange={(c) => setShowGrid(c as boolean)} />
+                <Checkbox
+                  checked={draft.layers.grid}
+                  onCheckedChange={(c) =>
+                    update({
+                      ...draft,
+                      layers: { ...draft.layers, grid: c as boolean },
+                    })
+                  }
+                />
                 <span>Сетка (метры)</span>
               </label>
 
-              {showGrid && (
-                <div className="ml-7 space-y-2">
-                  <div className="flex items-center gap-4">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        checked={gridMode === 'auto'}
-                        onChange={() => setGridMode('auto')}
-                        className="accent-primary"
-                      />
-                      Авто
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        checked={gridMode === 'manual'}
-                        onChange={() => setGridMode('manual')}
-                        className="accent-primary"
-                      />
-                      Вручную
-                    </label>
-                  </div>
-                  {gridMode === 'manual' && (
+              {draft.layers.grid && (
+                <div className="ml-7 space-y-3">
+                  <div className="space-y-1.5">
+                    <Label>Вид сетки</Label>
                     <div className="flex items-center gap-2">
-                      <Label>Шаг:</Label>
-                      <Select value={gridStep} onValueChange={setGridStep}>
-                        <SelectTrigger className="w-24">
+                      <Input
+                        type="color"
+                        value={draft.measurements.grid.color}
+                        onChange={(e) =>
+                          update({
+                            ...draft,
+                            measurements: {
+                              ...draft.measurements,
+                              grid: { ...draft.measurements.grid, color: e.target.value },
+                            },
+                          })
+                        }
+                        className="w-10 h-10 p-1"
+                      />
+                      <Input
+                        className="w-20 font-mono"
+                        inputMode="numeric"
+                        value={String(draft.measurements.grid.width_px)}
+                        onChange={(e) =>
+                          update({
+                            ...draft,
+                            measurements: {
+                              ...draft.measurements,
+                              grid: {
+                                ...draft.measurements.grid,
+                                width_px: clampNumber(e.target.value, 1, 1, 8),
+                              },
+                            },
+                          })
+                        }
+                      />
+                      <Select
+                        value={draft.measurements.grid.line_style}
+                        onValueChange={(v) =>
+                          update({
+                            ...draft,
+                            measurements: {
+                              ...draft.measurements,
+                              grid: {
+                                ...draft.measurements.grid,
+                                line_style: v as typeof draft.measurements.grid.line_style,
+                              },
+                            },
+                          })
+                        }
+                      >
+                        <SelectTrigger className="w-36">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="10">10 м</SelectItem>
-                          <SelectItem value="25">25 м</SelectItem>
-                          <SelectItem value="50">50 м</SelectItem>
-                          <SelectItem value="100">100 м</SelectItem>
+                          <SelectItem value="solid">Сплошная</SelectItem>
+                          <SelectItem value="dashed">Пунктир</SelectItem>
+                          <SelectItem value="dotted">Точки</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                  )}
+                    <div className="text-xs text-muted-foreground">цвет / толщина / тип линии</div>
+                  </div>
                 </div>
               )}
 
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <Label>Длины отрезков</Label>
-                <Select value={showLengths} onValueChange={(v) => setShowLengths(v as typeof showLengths)}>
-                  <SelectTrigger>
+                <Select
+                  value={draft.measurements.segment_lengths_mode}
+                  onValueChange={(v) =>
+                    update({
+                      ...draft,
+                      measurements: {
+                        ...draft.measurements,
+                        segment_lengths_mode: v as typeof draft.measurements.segment_lengths_mode,
+                      },
+                    })
+                  }
+                >
+                  <SelectTrigger className="w-56">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="off">Выключено</SelectItem>
-                    <SelectItem value="on-select">При выборе</SelectItem>
+                    <SelectItem value="off">Выкл</SelectItem>
+                    <SelectItem value="on-select">Только выбранный</SelectItem>
                     <SelectItem value="always">Всегда</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </TabsContent>
 
-            <TabsContent value="connection" className="space-y-4">
-              <div className="space-y-2">
-                <Label>Профиль подключения</Label>
-                <Select value={connectionProfile} onValueChange={(v) => setConnectionProfile(v as typeof connectionProfile)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="old">Старый протокол</SelectItem>
-                    <SelectItem value="new">Новый протокол</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {connectionProfile === 'old' && (
-                <div className="space-y-2">
-                  <Label>COM-порт</Label>
-                  <Input value={comPort} onChange={(e) => setComPort(e.target.value)} />
-                </div>
-              )}
-
-              {connectionProfile === 'new' && (
-                <div className="space-y-2">
-                  <Label>IP-адрес</Label>
-                  <Input value={ipAddress} onChange={(e) => setIpAddress(e.target.value)} />
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="coordinates" className="space-y-4">
+            <TabsContent value="coordinates" className="mt-0 space-y-4">
               <div className="space-y-2">
                 <Label>Точность вывода (знаков после запятой)</Label>
-                <Select value={coordPrecision} onValueChange={setCoordPrecision}>
+                <Select
+                  value={String(draft.coordinates.precision)}
+                  onValueChange={(v) =>
+                    update({
+                      ...draft,
+                      coordinates: { precision: clampNumber(v, 6, 0, 12) },
+                    })
+                  }
+                >
                   <SelectTrigger className="w-24">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="4">4</SelectItem>
-                    <SelectItem value="5">5</SelectItem>
-                    <SelectItem value="6">6</SelectItem>
-                    <SelectItem value="7">7</SelectItem>
-                    <SelectItem value="8">8</SelectItem>
+                    {Array.from({ length: 13 }, (_, i) => (
+                      <SelectItem key={i} value={String(i)}>
+                        {i}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </TabsContent>
 
-            <TabsContent value="styles" className="space-y-4">
+            <TabsContent value="styles" className="mt-0 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Цвет трека</Label>
+                  <Label>Трек</Label>
                   <div className="flex items-center gap-2">
-                    <input
+                    <Input
                       type="color"
-                      value={trackColor}
-                      onChange={(e) => setTrackColor(e.target.value)}
-                      className="w-10 h-10 rounded cursor-pointer"
+                      value={draft.styles.track.color}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: { ...draft.styles, track: { ...draft.styles.track, color: e.target.value } },
+                        })
+                      }
+                      className="w-10 h-10 p-1"
                     />
-                    <Input value={trackColor} onChange={(e) => setTrackColor(e.target.value)} className="font-mono" />
+                    <Input
+                      value={draft.styles.track.color}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: { ...draft.styles, track: { ...draft.styles.track, color: e.target.value } },
+                        })
+                      }
+                      className="font-mono"
+                    />
+                    <Input
+                      className="w-20 font-mono"
+                      inputMode="numeric"
+                      value={String(draft.styles.track.width_px)}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: {
+                            ...draft.styles,
+                            track: { ...draft.styles.track, width_px: clampNumber(e.target.value, 3, 1, 20) },
+                          },
+                        })
+                      }
+                    />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Цвет маршрута</Label>
+                  <Label>Маршрут</Label>
                   <div className="flex items-center gap-2">
-                    <input
+                    <Input
                       type="color"
-                      value={routeColor}
-                      onChange={(e) => setRouteColor(e.target.value)}
-                      className="w-10 h-10 rounded cursor-pointer"
+                      value={draft.styles.route.color}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: { ...draft.styles, route: { ...draft.styles.route, color: e.target.value } },
+                        })
+                      }
+                      className="w-10 h-10 p-1"
                     />
-                    <Input value={routeColor} onChange={(e) => setRouteColor(e.target.value)} className="font-mono" />
+                    <Input
+                      value={draft.styles.route.color}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: { ...draft.styles, route: { ...draft.styles.route, color: e.target.value } },
+                        })
+                      }
+                      className="font-mono"
+                    />
+                    <Input
+                      className="w-20 font-mono"
+                      inputMode="numeric"
+                      value={String(draft.styles.route.width_px)}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: {
+                            ...draft.styles,
+                            route: { ...draft.styles.route, width_px: clampNumber(e.target.value, 3, 1, 20) },
+                          },
+                        })
+                      }
+                    />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Цвет зоны</Label>
+                  <Label>Зона (обводка/заливка)</Label>
                   <div className="flex items-center gap-2">
-                    <input
+                    <Input
                       type="color"
-                      value={zoneColor}
-                      onChange={(e) => setZoneColor(e.target.value)}
-                      className="w-10 h-10 rounded cursor-pointer"
+                      value={draft.styles.survey_area.stroke_color}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: {
+                            ...draft.styles,
+                            survey_area: { ...draft.styles.survey_area, stroke_color: e.target.value },
+                          },
+                        })
+                      }
+                      className="w-10 h-10 p-1"
                     />
-                    <Input value={zoneColor} onChange={(e) => setZoneColor(e.target.value)} className="font-mono" />
+                    <Input
+                      type="color"
+                      value={draft.styles.survey_area.fill_color}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: {
+                            ...draft.styles,
+                            survey_area: { ...draft.styles.survey_area, fill_color: e.target.value },
+                          },
+                        })
+                      }
+                      className="w-10 h-10 p-1"
+                    />
+                    <Input
+                      className="w-20 font-mono"
+                      inputMode="numeric"
+                      value={String(draft.styles.survey_area.stroke_width_px)}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: {
+                            ...draft.styles,
+                            survey_area: {
+                              ...draft.styles.survey_area,
+                              stroke_width_px: clampNumber(e.target.value, 2, 1, 20),
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <Input
+                      className="w-20 font-mono"
+                      inputMode="decimal"
+                      value={String(draft.styles.survey_area.fill_opacity)}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: {
+                            ...draft.styles,
+                            survey_area: {
+                              ...draft.styles.survey_area,
+                              fill_opacity: clampNumber(e.target.value, 0.15, 0, 1),
+                            },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="text-xs text-muted-foreground">stroke width / fill opacity</div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Галсы</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="color"
+                      value={draft.styles.lane.color}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: { ...draft.styles, lane: { ...draft.styles.lane, color: e.target.value } },
+                        })
+                      }
+                      className="w-10 h-10 p-1"
+                    />
+                    <Input
+                      value={draft.styles.lane.color}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: { ...draft.styles, lane: { ...draft.styles.lane, color: e.target.value } },
+                        })
+                      }
+                      className="font-mono"
+                    />
+                    <Input
+                      className="w-20 font-mono"
+                      inputMode="numeric"
+                      value={String(draft.styles.lane.width_px)}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: {
+                            ...draft.styles,
+                            lane: { ...draft.styles.lane, width_px: clampNumber(e.target.value, 2, 1, 20) },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Маркеры</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="color"
+                      value={draft.styles.marker.color}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: { ...draft.styles, marker: { ...draft.styles.marker, color: e.target.value } },
+                        })
+                      }
+                      className="w-10 h-10 p-1"
+                    />
+                    <Input
+                      value={draft.styles.marker.color}
+                      onChange={(e) =>
+                        update({
+                          ...draft,
+                          styles: { ...draft.styles, marker: { ...draft.styles.marker, color: e.target.value } },
+                        })
+                      }
+                      className="font-mono"
+                    />
                   </div>
                 </div>
               </div>
             </TabsContent>
 
-            <TabsContent value="defaults" className="space-y-4">
+            <TabsContent value="defaults" className="mt-0 space-y-4">
               <label className="flex items-center gap-3">
-                <Checkbox checked={defaultFollow} onCheckedChange={(c) => setDefaultFollow(c as boolean)} />
-                <span>Режим слежения за водолазом по умолчанию</span>
+                <Checkbox
+                  checked={draft.follow_diver}
+                  onCheckedChange={(c) => update({ ...draft, follow_diver: c as boolean })}
+                />
+                <span>Режим слежения за водолазом</span>
               </label>
+
+              <div className="border-t border-border pt-4 space-y-3">
+                <div className="text-sm font-medium">Видимость слоев</div>
+
+                <label className="flex items-center gap-3">
+                  <Checkbox
+                    checked={draft.layers.track}
+                    onCheckedChange={(c) =>
+                      update({ ...draft, layers: { ...draft.layers, track: c as boolean } })
+                    }
+                  />
+                  <span>Трек</span>
+                </label>
+
+                <label className="flex items-center gap-3">
+                  <Checkbox
+                    checked={draft.layers.routes}
+                    onCheckedChange={(c) =>
+                      update({ ...draft, layers: { ...draft.layers, routes: c as boolean } })
+                    }
+                  />
+                  <span>Маршруты/Галсы</span>
+                </label>
+
+                <label className="flex items-center gap-3">
+                  <Checkbox
+                    checked={draft.layers.markers}
+                    onCheckedChange={(c) =>
+                      update({ ...draft, layers: { ...draft.layers, markers: c as boolean } })
+                    }
+                  />
+                  <span>Маркеры</span>
+                </label>
+              </div>
             </TabsContent>
           </div>
         </Tabs>
 
         <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
             Закрыть
           </Button>
-          <Button variant="secondary">
+          <Button variant="secondary" onClick={handleReset} disabled={isSaving}>
             Сбросить по умолчанию
           </Button>
-          <Button onClick={() => onOpenChange(false)}>
+          <Button onClick={handleApply} disabled={isSaving || !isDirty}>
             Применить
           </Button>
         </DialogFooter>

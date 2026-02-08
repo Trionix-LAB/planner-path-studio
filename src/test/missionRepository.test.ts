@@ -39,6 +39,36 @@ const createMemoryStoreWithReadLog = (): { store: FileStoreBridge; readLog: stri
 };
 
 describe('mission repository', () => {
+  it('stores provided mission ui on create', async () => {
+    const store = createMemoryStore();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/UiMission';
+
+    await repository.createMission(
+      {
+        rootPath,
+        name: 'UI mission',
+        now: new Date('2026-02-03T10:00:00.000Z'),
+        ui: {
+          follow_diver: false,
+          layers: { track: false, routes: true, markers: true, grid: true, scale_bar: false },
+          coordinates: { precision: 7 },
+          measurements: { grid: { mode: 'manual', step_m: 100 }, segment_lengths_mode: 'always' },
+        },
+      },
+      { acquireLock: false },
+    );
+
+    const opened = await repository.openMission(rootPath, { acquireLock: false });
+    expect(opened.mission.ui?.follow_diver).toBe(false);
+    expect(opened.mission.ui?.layers?.track).toBe(false);
+    expect(opened.mission.ui?.layers?.grid).toBe(true);
+    expect(opened.mission.ui?.coordinates?.precision).toBe(7);
+    expect(opened.mission.ui?.measurements?.grid?.mode).toBe('manual');
+    expect(opened.mission.ui?.measurements?.grid?.step_m).toBe(100);
+    expect(opened.mission.ui?.measurements?.segment_lengths_mode).toBe('always');
+  });
+
   it('creates mission files and reopens mission without data loss', async () => {
     const store = createMemoryStore();
     const repository = createMissionRepository(store);

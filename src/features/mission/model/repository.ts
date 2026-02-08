@@ -6,6 +6,7 @@ import {
   type MarkerFeature,
   type MissionBundle,
   type MissionDocument,
+  type MissionUiState,
   type RoutesFeature,
   type TrackPoint,
 } from './types';
@@ -162,6 +163,17 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
     const now = input.now ?? new Date();
     const nowIso = toIso(now);
 
+    const defaultUi: MissionUiState = {
+      follow_diver: true,
+      layers: {
+        track: true,
+        routes: true,
+        markers: true,
+        grid: false,
+        scale_bar: true,
+      },
+    };
+
     const mission: MissionDocument = {
       schema_version: MISSION_SCHEMA_VERSION,
       mission_id: createId(),
@@ -174,16 +186,7 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
         routes: 'routes/routes.geojson',
         markers: 'markers/markers.geojson',
       },
-      ui: {
-        follow_diver: true,
-        layers: {
-          track: true,
-          routes: true,
-          markers: true,
-          grid: false,
-          scale_bar: true,
-        },
-      },
+      ui: input.ui ?? defaultUi,
     };
 
     const bundle: MissionBundle = {

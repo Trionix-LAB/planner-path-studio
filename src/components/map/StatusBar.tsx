@@ -4,6 +4,7 @@ interface StatusBarProps {
   cursorPosition: { lat: number; lon: number };
   scale: string;
   activeTool: Tool;
+  coordPrecision: number;
 }
 
 const toolNames: Record<Tool, string> = {
@@ -13,13 +14,13 @@ const toolNames: Record<Tool, string> = {
   marker: 'Маркер',
 };
 
-const StatusBar = ({ cursorPosition, scale, activeTool }: StatusBarProps) => {
+const StatusBar = ({ cursorPosition, scale, activeTool, coordPrecision }: StatusBarProps) => {
   return (
     <div className="h-7 bg-card border-t border-border flex items-center px-3 gap-6 text-xs">
       <div className="flex items-center gap-2">
         <span className="text-muted-foreground">Курсор:</span>
         <span className="font-mono text-foreground">
-          {cursorPosition.lat.toFixed(6)}°, {cursorPosition.lon.toFixed(6)}°
+          {cursorPosition.lat.toFixed(coordPrecision)}°, {cursorPosition.lon.toFixed(coordPrecision)}°
         </span>
       </div>
       

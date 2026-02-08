@@ -2,6 +2,7 @@ import type { MapObject } from "@/features/map/model/types";
 import { Wifi, WifiOff, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MapObjectProperties from './MapObjectProperties';
+import type { AppUiDefaults } from '@/features/settings';
 
 interface RightPanelProps {
   diverData: {
@@ -11,6 +12,8 @@ interface RightPanelProps {
     course: number;
     depth: number;
   };
+  coordPrecision: number;
+  styles: AppUiDefaults['styles'];
   connectionStatus: 'ok' | 'timeout' | 'error';
   trackStatus: 'recording' | 'paused' | 'stopped';
   trackId: number;
@@ -27,6 +30,8 @@ interface RightPanelProps {
 
 const RightPanel = ({
   diverData,
+  coordPrecision,
+  styles,
   connectionStatus,
   trackStatus,
   trackId,
@@ -48,11 +53,11 @@ const RightPanel = ({
         <div className="grid grid-cols-2 gap-2">
           <div>
             <div className="text-xs text-muted-foreground mb-1">Широта</div>
-            <div className="data-value text-foreground">{diverData.lat.toFixed(6)}°</div>
+            <div className="data-value text-foreground">{diverData.lat.toFixed(coordPrecision)}°</div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1">Долгота</div>
-            <div className="data-value text-foreground">{diverData.lon.toFixed(6)}°</div>
+            <div className="data-value text-foreground">{diverData.lon.toFixed(coordPrecision)}°</div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1">Скорость</div>
@@ -137,6 +142,7 @@ const RightPanel = ({
         {selectedObject && onObjectUpdate ? (
           <MapObjectProperties
             object={selectedObject}
+            styles={styles}
             onSave={onObjectUpdate}
             onClose={() => onObjectSelect(null)}
             onDelete={onObjectDelete}

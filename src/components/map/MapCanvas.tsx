@@ -5,7 +5,8 @@ import "leaflet/dist/leaflet.css";
 import { AlertTriangle } from "lucide-react";
 
 import type { MapObject, MapObjectGeometry, Tool } from "@/features/map/model/types";
-import { buildLaneTraversal, generateLanesForZone, type LaneFeature } from "@/features/mission";
+import { buildLaneTraversal, generateLanesForZone, type LaneFeature, type SegmentLengthsMode } from "@/features/mission";
+import type { AppUiDefaults } from "@/features/settings";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
@@ -13,7 +14,7 @@ import { platform } from "@/platform";
 import { MapContextMenu } from "./MapContextMenu";
 import { GridLayer } from "./GridLayer";
 import { ScaleBar } from "./ScaleBar";
-import { computeScaleRatioLabelFromMap } from './scaleUtils';
+import { computeScaleRatioLabelFromMap, haversineDistanceMeters } from './scaleUtils';
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +41,10 @@ interface MapCanvasProps {
     scaleBar: boolean;
     diver: boolean;
   };
+  grid: AppUiDefaults['measurements']['grid'];
+  segmentLengthsMode: SegmentLengthsMode;
+  styles: AppUiDefaults['styles'];
+  mapView: { center_lat: number; center_lon: number; zoom: number } | null;
   objects: MapObject[];
   selectedObjectId: string | null;
   diverData: {
@@ -68,6 +73,7 @@ interface MapCanvasProps {
   onLanePickEdge?: (zoneId: string, bearingDeg: number) => void;
   onLanePickStart?: (zoneId: string, point: { lat: number; lon: number }) => void;
   onMapScaleChange?: (scale: string) => void;
+  onMapViewChange?: (view: { center_lat: number; center_lon: number; zoom: number }) => void;
   onMapDrag: () => void;
 }
 
@@ -137,17 +143,36 @@ const MapEvents = ({
   onMapDrag,
   onMapContextMenu,
   onMapScaleChange,
+  onMapViewChange,
 }: {
   onCursorMove: (pos: { lat: number; lon: number }) => void;
   onMapClick: (e: L.LeafletMouseEvent) => void;
   onMapDrag: () => void;
   onMapContextMenu: (e: L.LeafletMouseEvent) => void;
   onMapScaleChange?: (scale: string) => void;
+  onMapViewChange?: (view: { center_lat: number; center_lon: number; zoom: number }) => void;
 }) => {
   const map = useMap();
+  const viewTimerRef = useRef<number | null>(null);
   const reportScale = useCallback(() => {
     onMapScaleChange?.(computeScaleRatioLabelFromMap(map));
   }, [map, onMapScaleChange]);
+
+  const scheduleViewReport = useCallback(() => {
+    if (!onMapViewChange) return;
+    if (viewTimerRef.current !== null) {
+      window.clearTimeout(viewTimerRef.current);
+    }
+
+    viewTimerRef.current = window.setTimeout(() => {
+      const center = map.getCenter();
+      onMapViewChange({
+        center_lat: center.lat,
+        center_lon: center.lng,
+        zoom: map.getZoom(),
+      });
+    }, 250);
+  }, [map, onMapViewChange]);
 
   useMapEvents({
     mousemove: (e) => {
@@ -162,13 +187,25 @@ const MapEvents = ({
     contextmenu: (e) => {
       onMapContextMenu(e);
     },
-    zoomend: reportScale,
-    moveend: reportScale,
+    zoomend: () => {
+      reportScale();
+      scheduleViewReport();
+    },
+    moveend: () => {
+      reportScale();
+      scheduleViewReport();
+    },
   });
 
   useEffect(() => {
     reportScale();
-  }, [reportScale]);
+    scheduleViewReport();
+    return () => {
+      if (viewTimerRef.current !== null) {
+        window.clearTimeout(viewTimerRef.current);
+      }
+    };
+  }, [reportScale, scheduleViewReport]);
 
   return null;
 };
@@ -186,13 +223,75 @@ const FollowDiver = ({ position, isFollowing }: { position: [number, number]; is
   return null;
 };
 
-const toTuple = (p: { lat: number; lon: number }): [number, number] => [p.lat, p.lon];
-const getObjectColor = (obj: MapObject): string => {
-  if (obj.color) return obj.color;
-  if (obj.type === 'zone') return 'hsl(38, 92%, 50%)';
-  if (obj.type === 'marker') return 'hsl(142, 71%, 45%)';
-  return 'hsl(199, 89%, 48%)';
+const ApplyMapView = ({
+  mapView,
+  isFollowing,
+}: {
+  mapView: { center_lat: number; center_lon: number; zoom: number } | null;
+  isFollowing: boolean;
+}) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!mapView) return;
+    if (isFollowing) return;
+
+    const center = map.getCenter();
+    const zoom = map.getZoom();
+    const dLat = Math.abs(center.lat - mapView.center_lat);
+    const dLon = Math.abs(center.lng - mapView.center_lon);
+    if (dLat < 1e-7 && dLon < 1e-7 && zoom === mapView.zoom) return;
+
+    map.setView([mapView.center_lat, mapView.center_lon], mapView.zoom, { animate: false });
+  }, [isFollowing, map, mapView]);
+
+  return null;
 };
+
+const toTuple = (p: { lat: number; lon: number }): [number, number] => [p.lat, p.lon];
+const getObjectColor = (obj: MapObject, defaults: AppUiDefaults['styles']): string => {
+  if (obj.color) return obj.color;
+  if (obj.type === 'zone') return defaults.survey_area.stroke_color;
+  if (obj.type === 'marker') return defaults.marker.color;
+  if (obj.type === 'lane') return defaults.lane.color;
+  return defaults.route.color;
+};
+
+const formatSegmentLength = (meters: number): string => {
+  if (!Number.isFinite(meters) || meters <= 0) return '0 м';
+  if (meters >= 1000) {
+    const km = meters / 1000;
+    return `${km >= 10 ? km.toFixed(1) : km.toFixed(2)} км`;
+  }
+  return `${Math.round(meters)} м`;
+};
+
+const segmentLengthIcon = (label: string): L.DivIcon =>
+  L.divIcon({
+    className: 'segment-length-label',
+    html: `
+      <div style="
+        transform: translate(-50%, -145%);
+        pointer-events: none;
+        background: rgba(255, 255, 255, 0.92);
+        color: #0f172a;
+        border: 1px solid rgba(15, 23, 42, 0.2);
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1;
+        padding: 3px 6px;
+        white-space: nowrap;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+      ">${label}</div>
+    `,
+    iconSize: [0, 0],
+    iconAnchor: [0, 0],
+  });
+
+type ZoneWithGeometry = MapObject & { geometry: { type: 'zone'; points: Array<{ lat: number; lon: number }> } };
+const isZoneWithGeometry = (obj: MapObject | undefined): obj is ZoneWithGeometry =>
+  Boolean(obj && obj.type === 'zone' && obj.geometry?.type === 'zone');
 
 const MapCanvas = ({
   activeTool,
@@ -201,6 +300,10 @@ const MapCanvas = ({
   lanePickMode,
   lanePickZoneId,
   layers,
+  grid,
+  segmentLengthsMode,
+  styles,
+  mapView,
   objects,
   selectedObjectId,
   diverData,
@@ -220,6 +323,7 @@ const MapCanvas = ({
   onLanePickEdge,
   onLanePickStart,
   onMapScaleChange,
+  onMapViewChange,
   onMapDrag,
 }: MapCanvasProps) => {
   const [drawingPoints, setDrawingPoints] = useState<L.LatLng[]>([]);
@@ -611,6 +715,50 @@ const MapCanvas = ({
     return { routes, zones, markers };
   }, [objects]);
 
+  const segmentLengthOverlays = useMemo(() => {
+    if (segmentLengthsMode === 'off') return [] as Array<{ key: string; lat: number; lon: number; label: string }>;
+    const overlays: Array<{ key: string; lat: number; lon: number; label: string }> = [];
+
+    const shouldIncludeObject = (id: string) =>
+      segmentLengthsMode === 'always' || (segmentLengthsMode === 'on-select' && selectedObjectId === id);
+
+    for (const obj of objects) {
+      if (!obj.visible || !obj.geometry) continue;
+      if (!shouldIncludeObject(obj.id)) continue;
+      if (obj.geometry.type !== 'route' && obj.geometry.type !== 'zone') continue;
+
+      const points = obj.geometry.points.slice();
+      if (points.length < 2) continue;
+
+      if (obj.geometry.type === 'zone') {
+        const first = points[0];
+        const last = points[points.length - 1];
+        if (first && last && first.lat === last.lat && first.lon === last.lon) {
+          points.pop();
+        }
+      }
+      if (points.length < 2) continue;
+
+      const lastIndex = obj.geometry.type === 'zone' ? points.length : points.length - 1;
+      for (let i = 0; i < lastIndex; i += 1) {
+        const a = points[i];
+        const b = points[(i + 1) % points.length];
+        if (!a || !b) continue;
+        const len = haversineDistanceMeters(a.lat, a.lon, b.lat, b.lon);
+        if (!Number.isFinite(len) || len <= 0) continue;
+
+        overlays.push({
+          key: `${obj.id}-seg-${i}`,
+          lat: (a.lat + b.lat) / 2,
+          lon: (a.lon + b.lon) / 2,
+          label: formatSegmentLength(len),
+        });
+      }
+    }
+
+    return overlays;
+  }, [objects, segmentLengthsMode, selectedObjectId]);
+
   const zoneTraversalOverlays = useMemo(() => {
     const zonesById = new Map<string, MapObject>();
     for (const obj of objects) {
@@ -689,8 +837,8 @@ const MapCanvas = ({
 
   const lanePickZone = useMemo(() => {
     if (!lanePickZoneId) return null;
-    const zone = objects.find((obj) => obj.id === lanePickZoneId && obj.type === 'zone');
-    return zone?.geometry?.type === 'zone' ? zone : null;
+    const zone = objects.find((obj) => obj.id === lanePickZoneId);
+    return isZoneWithGeometry(zone) ? zone : null;
   }, [lanePickZoneId, objects]);
 
   const lanePickEdges = useMemo(() => {
@@ -868,8 +1016,8 @@ const MapCanvas = ({
       activeTool === 'marker' && "cursor-crosshair"
     )}>
       <MapContainer
-        center={diverPosition}
-        zoom={16}
+        center={mapView ? [mapView.center_lat, mapView.center_lon] : diverPosition}
+        zoom={mapView?.zoom ?? 16}
         className="w-full h-full"
         ref={mapRef}
         doubleClickZoom={false}
@@ -880,7 +1028,14 @@ const MapCanvas = ({
         />
 
         {/* Grid */}
-        {layers.grid && <GridLayer visible={true} />}
+        {layers.grid && (
+          <GridLayer
+            visible={true}
+            color={grid.color}
+            widthPx={grid.width_px}
+            lineStyle={grid.line_style}
+          />
+        )}
 
         {/* Scale bar */}
         {layers.scaleBar && <ScaleBar />}
@@ -890,12 +1045,14 @@ const MapCanvas = ({
           onMapClick={handleMapClick}
           onMapDrag={onMapDrag}
           onMapScaleChange={onMapScaleChange}
+          onMapViewChange={onMapViewChange}
           onMapContextMenu={() => {
             setObjectMenuState(null);
             setDrawingMenuState(null);
           }}
         />
 
+        <ApplyMapView mapView={mapView} isFollowing={isFollowing} />
         <FollowDiver position={diverPosition} isFollowing={isFollowing} />
 
         {/* Track */}
@@ -905,8 +1062,8 @@ const MapCanvas = ({
               key={`track-segment-${index}`}
               positions={segment}
               pathOptions={{
-                color: 'hsl(280, 70%, 60%)',
-                weight: 3,
+                color: styles.track.color,
+                weight: styles.track.width_px,
               }}
             />
           ))}
@@ -918,8 +1075,8 @@ const MapCanvas = ({
               key={obj.id}
               positions={points}
               pathOptions={{
-                color: getObjectColor(obj),
-                weight: selectedObjectId === obj.id ? 4 : 3,
+                color: getObjectColor(obj, styles),
+                weight: (selectedObjectId === obj.id ? 1 : 0) + styles.route.width_px,
               }}
               eventHandlers={{
                 click: (e) => {
@@ -954,10 +1111,10 @@ const MapCanvas = ({
                 key={lane.properties.id}
                 positions={lanePoints}
                 pathOptions={{
-                  color: isOutdated ? 'hsl(142, 24%, 34%)' : 'hsl(142, 71%, 45%)',
-                  weight: isParentSelected ? 3 : 2,
+                  color: isOutdated ? 'hsl(215, 16%, 47%)' : styles.lane.color,
+                  weight: (isParentSelected ? 1 : 0) + styles.lane.width_px,
                   opacity: isOutdated ? 0.35 : isParentSelected ? 0.95 : 0.75,
-                  dashArray: isOutdated ? '3 7' : undefined,
+                  dashArray: isOutdated ? '3 7' : (styles.lane.dash || undefined),
                 }}
                 eventHandlers={{
                   click: (e) => {
@@ -979,10 +1136,10 @@ const MapCanvas = ({
               key={obj.id}
               positions={points}
               pathOptions={{
-                color: getObjectColor(obj),
-                fillColor: getObjectColor(obj),
-                fillOpacity: selectedObjectId === obj.id ? 0.3 : 0.15,
-                weight: selectedObjectId === obj.id ? 3 : 2,
+                color: getObjectColor(obj, styles),
+                fillColor: obj.color ? obj.color : styles.survey_area.fill_color,
+                fillOpacity: selectedObjectId === obj.id ? 0.3 : styles.survey_area.fill_opacity,
+                weight: (selectedObjectId === obj.id ? 1 : 0) + styles.survey_area.stroke_width_px,
               }}
               eventHandlers={{
                 click: (e) => {
@@ -1008,7 +1165,7 @@ const MapCanvas = ({
             <Marker
               key={obj.id}
               position={point}
-              icon={getMarkerIcon(getObjectColor(obj), selectedObjectId === obj.id)}
+              icon={getMarkerIcon(getObjectColor(obj, styles), selectedObjectId === obj.id)}
               draggable={activeTool === 'select'}
               bubblingMouseEvents={false}
               eventHandlers={{
@@ -1039,6 +1196,18 @@ const MapCanvas = ({
             >
               <Tooltip direction="top" offset={[12, -14]}>{obj.name}</Tooltip>
             </Marker>
+          ))}
+
+        {/* Segment lengths */}
+        {layers.routes &&
+          segmentLengthOverlays.map((item) => (
+            <Marker
+              key={item.key}
+              position={[item.lat, item.lon]}
+              icon={segmentLengthIcon(item.label)}
+              interactive={false}
+              zIndexOffset={800}
+            />
           ))}
 
         {/* Editing Handles */}

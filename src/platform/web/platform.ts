@@ -66,6 +66,31 @@ export const webPlatform: Platform = {
       return normalized;
     },
   },
+  settings: {
+    readJson: async <T,>(key: string): Promise<T | null> => {
+      try {
+        const raw = window.localStorage.getItem(key);
+        if (!raw) return null;
+        return JSON.parse(raw) as T;
+      } catch {
+        return null;
+      }
+    },
+    writeJson: async (key: string, value: unknown): Promise<void> => {
+      try {
+        window.localStorage.setItem(key, JSON.stringify(value));
+      } catch {
+        // ignore
+      }
+    },
+    remove: async (key: string): Promise<void> => {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        // ignore
+      }
+    },
+  },
   fileStore: {
     exists: async (path) => {
       try {

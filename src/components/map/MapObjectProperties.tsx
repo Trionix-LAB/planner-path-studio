@@ -12,11 +12,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { MapObject } from '@/features/map/model/types';
+import type { AppUiDefaults } from '@/features/settings';
 import { AlertTriangle, Trash2, X } from 'lucide-react';
 import { haversineDistanceMeters } from './scaleUtils';
 
 interface MapObjectPropertiesProps {
   object: MapObject;
+  styles: AppUiDefaults['styles'];
   onSave: (id: string, updates: Partial<MapObject>) => void;
   onClose: () => void;
   onDelete?: (id: string) => void;
@@ -27,10 +29,11 @@ interface MapObjectPropertiesProps {
   zoneLaneCount?: number | null;
 }
 
-const getDefaultColor = (type: MapObject['type']): string => {
-  if (type === 'zone') return '#f59e0b';
-  if (type === 'marker') return '#22c55e';
-  return '#0ea5e9';
+const getDefaultColor = (type: MapObject['type'], styles: AppUiDefaults['styles']): string => {
+  if (type === 'zone') return styles.survey_area.stroke_color;
+  if (type === 'marker') return styles.marker.color;
+  if (type === 'lane') return styles.lane.color;
+  return styles.route.color;
 };
 
 const normalizeHexColor = (value: string, fallback: string): string => {
@@ -81,6 +84,7 @@ const formatLaneCount = (count: number | null | undefined): string => {
 
 const MapObjectProperties = ({
   object,
+  styles,
   onSave,
   onClose,
   onDelete,
@@ -100,7 +104,7 @@ const MapObjectProperties = ({
   const routeLengthLabel = useMemo(() => formatRouteLength(computeRouteLengthMeters(object)), [object]);
 
   useEffect(() => {
-    const fallbackColor = getDefaultColor(object.type);
+    const fallbackColor = getDefaultColor(object.type, styles);
     setName(object.name);
     setNote(object.note ?? '');
     setLaneAngle(String(object.laneAngle ?? 0));
@@ -108,10 +112,10 @@ const MapObjectProperties = ({
     setZoneVisible(object.visible);
     setColor(normalizeHexColor(object.color ?? fallbackColor, fallbackColor));
     setIsDirty(false);
-  }, [object]);
+  }, [object, styles]);
 
   const handleSave = () => {
-    const fallbackColor = getDefaultColor(object.type);
+    const fallbackColor = getDefaultColor(object.type, styles);
     const updates: Partial<MapObject> = {
       name: name.trim() || object.name,
       color: normalizeHexColor(color, fallbackColor),
@@ -169,7 +173,7 @@ const MapObjectProperties = ({
             <Input
               id="obj-color"
               type="color"
-              value={normalizeHexColor(color, getDefaultColor(object.type))}
+              value={normalizeHexColor(color, getDefaultColor(object.type, styles))}
               onChange={(e) => handleFieldChange(setColor, e.target.value)}
               className="h-9 w-14 p-1"
             />

@@ -27,6 +27,7 @@ export {
   type MissionDocument,
   type MissionTrackMeta,
   type MissionUiState,
+  type SegmentLengthsMode,
   type RouteFeature,
   type RoutesFeature,
   type SurveyAreaFeature,

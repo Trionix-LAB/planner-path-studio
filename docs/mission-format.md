@@ -41,11 +41,19 @@
 - `ui` (опционально, но рекомендуется сохранять):
   - `follow_diver`: boolean
   - `layers`: object (видимость слоев: `track`, `routes`, `markers`, `grid`, `scale_bar`)
+  - `coordinates` (опционально): object
+    - `precision`: number (кол-во знаков после запятой для lat/lon; default 6)
   - `map_view`: object:
     - `center_lat`: number
     - `center_lon`: number
     - `zoom`: number
   - `measurements` (опционально): object (настройки измерений/подписей)
+    - `grid` (опционально): object
+      - `mode`: string (`auto` | `manual`)
+      - `step_m`: number (только для `manual`)
+      - `color`: string (HEX, например `#64748b`)
+      - `width_px`: number (толщина линии)
+      - `line_style`: string (`solid` | `dashed` | `dotted`)
     - `segment_lengths_mode`: string (`off` | `on-select` | `always`)
   - `styles` (опционально): object (переопределения внешнего вида объектов в рамках миссии)
     - `track`: object (например: `{"color":"#00A3FF","width_px":3,"dash":"none"}`)
@@ -85,6 +93,11 @@
   "ui": {
     "follow_diver": true,
     "layers": { "track": true, "routes": true, "markers": true, "grid": false, "scale_bar": true },
+    "coordinates": { "precision": 6 },
+    "measurements": {
+      "grid": { "mode": "auto", "color": "#64748b", "width_px": 1, "line_style": "dashed" },
+      "segment_lengths_mode": "on-select"
+    },
     "map_view": { "center_lat": 59.93863, "center_lon": 30.31413, "zoom": 14 }
   }
 }

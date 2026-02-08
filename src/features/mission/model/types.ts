@@ -21,12 +21,22 @@ export type MissionUiState = {
     grid?: boolean;
     scale_bar?: boolean;
   };
+  coordinates?: {
+    precision?: number;
+  };
   map_view?: {
     center_lat: number;
     center_lon: number;
     zoom: number;
   };
   measurements?: {
+    grid?: {
+      mode?: 'auto' | 'manual';
+      step_m?: number;
+      color?: string;
+      width_px?: number;
+      line_style?: 'solid' | 'dashed' | 'dotted';
+    };
     segment_lengths_mode?: SegmentLengthsMode;
   };
   styles?: {
@@ -145,5 +155,6 @@ export type MissionBundle = {
 export type CreateMissionInput = {
   rootPath: string;
   name: string;
+  ui?: MissionUiState;
   now?: Date;
 };

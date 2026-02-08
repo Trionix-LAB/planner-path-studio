@@ -28,16 +28,40 @@ import {
   type LaneFeature,
   type MissionBundle,
   type MissionDocument,
+  type MissionUiState,
+  type SegmentLengthsMode,
   type TelemetryConnectionState,
   type TelemetryFix,
   type TrackRecorderState,
 } from '@/features/mission';
+import {
+  APP_SETTINGS_STORAGE_KEY,
+  createDefaultAppSettings,
+  mergeDefaultsWithMissionUi,
+  normalizeAppSettings,
+  type AppSettingsV1,
+  type AppUiDefaults,
+} from '@/features/settings';
+import {
+  joinPath as joinExportPath,
+  markersToCsv,
+  markersToGpx,
+  routesToGpx,
+  routesToKml,
+  safeFilename,
+  tracksToGpx,
+  tracksToKml,
+  type ExportRequest,
+} from '@/features/export';
 import { platform } from '@/platform';
+import { toast } from '@/hooks/use-toast';
 
 const DRAFT_ROOT_PATH = 'draft/current';
 const DRAFT_MISSION_NAME = 'Черновик';
 const CONNECTION_TIMEOUT_MS = 5000;
 const AUTOSAVE_DELAY_MS = 1200;
+
+const DEFAULT_APP_SETTINGS = createDefaultAppSettings();
 
 type LayersState = {
   track: boolean;
@@ -55,6 +79,11 @@ type WorkspaceSnapshot = {
   laneFeatures: LaneFeature[];
   isFollowing: boolean;
   layers: LayersState;
+  mapView: MissionUiState['map_view'] | null;
+  coordPrecision: number;
+  grid: AppUiDefaults['measurements']['grid'];
+  segmentLengthsMode: SegmentLengthsMode;
+  styles: AppUiDefaults['styles'];
   isLoaded: boolean;
 };
 
@@ -74,6 +103,23 @@ const DEFAULT_LAYERS: LayersState = {
   scaleBar: true,
   diver: true,
 };
+
+const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
+  follow_diver: defaults.follow_diver,
+  layers: { ...defaults.layers },
+  coordinates: { precision: defaults.coordinates.precision },
+  measurements: {
+    grid: { ...defaults.measurements.grid },
+    segment_lengths_mode: defaults.measurements.segment_lengths_mode,
+  },
+  styles: {
+    track: { ...defaults.styles.track },
+    route: { ...defaults.styles.route },
+    survey_area: { ...defaults.styles.survey_area },
+    lane: { ...defaults.styles.lane },
+    marker: { ...defaults.styles.marker },
+  },
+});
 
 const MapWorkspace = () => {
   const navigate = useNavigate();
@@ -108,6 +154,15 @@ const MapWorkspace = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [cursorPosition, setCursorPosition] = useState({ lat: 59.934, lon: 30.335 });
   const [mapScale, setMapScale] = useState('1:--');
+  const [mapView, setMapView] = useState<MissionUiState['map_view'] | null>(null);
+  const [coordPrecision, setCoordPrecision] = useState(DEFAULT_APP_SETTINGS.defaults.coordinates.precision);
+  const [gridSettings, setGridSettings] = useState<AppUiDefaults['measurements']['grid']>(
+    DEFAULT_APP_SETTINGS.defaults.measurements.grid,
+  );
+  const [segmentLengthsMode, setSegmentLengthsMode] = useState<SegmentLengthsMode>(
+    DEFAULT_APP_SETTINGS.defaults.measurements.segment_lengths_mode,
+  );
+  const [styles, setStyles] = useState<AppUiDefaults['styles']>(DEFAULT_APP_SETTINGS.defaults.styles);
   const [isLoaded, setIsLoaded] = useState(false);
   const [shouldAutoStartRecording, setShouldAutoStartRecording] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<TelemetryConnectionState>('ok');
@@ -125,6 +180,7 @@ const MapWorkspace = () => {
   const lastFixAtRef = useRef<number>(Date.now());
   const connectionStateRef = useRef<TelemetryConnectionState>('ok');
   const simulationEnabledRef = useRef<boolean>(simulationEnabled);
+  const appSettingsRef = useRef<AppSettingsV1>(DEFAULT_APP_SETTINGS);
   const latestSnapshotRef = useRef<WorkspaceSnapshot>({
     missionRootPath: null,
     recordingState: createTrackRecorderState(null, {}, 'stopped'),
@@ -132,6 +188,11 @@ const MapWorkspace = () => {
     laneFeatures: [],
     isFollowing: true,
     layers: DEFAULT_LAYERS,
+    mapView: null,
+    coordPrecision: DEFAULT_APP_SETTINGS.defaults.coordinates.precision,
+    grid: DEFAULT_APP_SETTINGS.defaults.measurements.grid,
+    segmentLengthsMode: DEFAULT_APP_SETTINGS.defaults.measurements.segment_lengths_mode,
+    styles: DEFAULT_APP_SETTINGS.defaults.styles,
     isLoaded: false,
   });
 
@@ -155,6 +216,37 @@ const MapWorkspace = () => {
     return Boolean(outdatedZoneIds[selectedObject.id]);
   }, [outdatedZoneIds, selectedObject]);
 
+  const settingsValue = useMemo<AppUiDefaults>(
+    () => ({
+      follow_diver: isFollowing,
+      layers: {
+        track: layers.track,
+        routes: layers.routes,
+        markers: layers.markers,
+        grid: layers.grid,
+        scale_bar: layers.scaleBar,
+      },
+      coordinates: { precision: coordPrecision },
+      measurements: {
+        grid: { ...gridSettings },
+        segment_lengths_mode: segmentLengthsMode,
+      },
+      styles,
+    }),
+    [
+      coordPrecision,
+      gridSettings,
+      isFollowing,
+      layers.grid,
+      layers.markers,
+      layers.routes,
+      layers.scaleBar,
+      layers.track,
+      segmentLengthsMode,
+      styles,
+    ],
+  );
+
   useEffect(() => {
     latestSnapshotRef.current = {
       missionRootPath,
@@ -163,9 +255,27 @@ const MapWorkspace = () => {
       laneFeatures,
       isFollowing,
       layers,
+      mapView,
+      coordPrecision,
+      grid: gridSettings,
+      segmentLengthsMode,
+      styles,
       isLoaded,
     };
-  }, [missionRootPath, recordingState, objects, laneFeatures, isFollowing, layers, isLoaded]);
+  }, [
+    missionRootPath,
+    recordingState,
+    objects,
+    laneFeatures,
+    isFollowing,
+    layers,
+    mapView,
+    coordPrecision,
+    gridSettings,
+    segmentLengthsMode,
+    styles,
+    isLoaded,
+  ]);
 
   useEffect(() => {
     simulationEnabledRef.current = simulationEnabled;
@@ -187,6 +297,11 @@ const MapWorkspace = () => {
       missionLaneFeatures: LaneFeature[],
       followEnabled: boolean,
       layersState: LayersState,
+      nextMapView: MissionUiState['map_view'] | null,
+      nextCoordPrecision: number,
+      nextGrid: AppUiDefaults['measurements']['grid'],
+      nextSegmentLengthsMode: SegmentLengthsMode,
+      nextStyles: AppUiDefaults['styles'],
     ): MissionBundle => {
       const geo = mapObjectsToGeoJson(missionObjects);
       const nextMission: MissionDocument = {
@@ -200,6 +315,20 @@ const MapWorkspace = () => {
             markers: layersState.markers,
             grid: layersState.grid,
             scale_bar: layersState.scaleBar,
+          },
+          ...(nextMapView ? { map_view: nextMapView } : {}),
+          coordinates: { precision: nextCoordPrecision },
+          measurements: {
+            ...(mission.ui?.measurements ?? {}),
+            grid: { ...nextGrid },
+            segment_lengths_mode: nextSegmentLengthsMode,
+          },
+          styles: {
+            track: { ...nextStyles.track },
+            route: { ...nextStyles.route },
+            survey_area: { ...nextStyles.survey_area },
+            lane: { ...nextStyles.lane },
+            marker: { ...nextStyles.marker },
           },
         },
       };
@@ -237,6 +366,11 @@ const MapWorkspace = () => {
         snapshot.laneFeatures,
         snapshot.isFollowing,
         snapshot.layers,
+        snapshot.mapView,
+        snapshot.coordPrecision,
+        snapshot.grid,
+        snapshot.segmentLengthsMode,
+        snapshot.styles,
       );
       await repository.saveMission(bundle);
     },
@@ -250,6 +384,7 @@ const MapWorkspace = () => {
   }, [persistMissionSnapshot]);
 
   const updateFromBundle = useCallback((bundle: MissionBundle, draftMode: boolean) => {
+    const effective = mergeDefaultsWithMissionUi(appSettingsRef.current.defaults, bundle.mission.ui);
     setMissionRootPath(bundle.rootPath);
     setRecordingState(createTrackRecorderState(bundle.mission, bundle.trackPointsByTrackId));
     setObjects(bundleToMapObjects(bundle));
@@ -257,15 +392,20 @@ const MapWorkspace = () => {
     setOutdatedZoneIds({});
     setMissionName(bundle.mission.name);
     setIsDraft(draftMode);
-    setIsFollowing(bundle.mission.ui?.follow_diver ?? true);
+    setIsFollowing(effective.follow_diver);
     setLayers({
-      track: bundle.mission.ui?.layers?.track ?? true,
-      routes: bundle.mission.ui?.layers?.routes ?? true,
-      markers: bundle.mission.ui?.layers?.markers ?? true,
-      grid: bundle.mission.ui?.layers?.grid ?? false,
-      scaleBar: bundle.mission.ui?.layers?.scale_bar ?? true,
+      track: effective.layers.track,
+      routes: effective.layers.routes,
+      markers: effective.layers.markers,
+      grid: effective.layers.grid,
+      scaleBar: effective.layers.scale_bar,
       diver: true,
     });
+    setCoordPrecision(effective.coordinates.precision);
+    setGridSettings(effective.measurements.grid);
+    setSegmentLengthsMode(effective.measurements.segment_lengths_mode);
+    setStyles(effective.styles);
+    setMapView(bundle.mission.ui?.map_view ?? null);
     setAutoSaveStatus('saved');
     setSelectedObjectId(null);
     setIsLoaded(true);
@@ -287,6 +427,7 @@ const MapWorkspace = () => {
           {
             rootPath: DRAFT_ROOT_PATH,
             name: DRAFT_MISSION_NAME,
+            ui: toMissionUiFromDefaults(appSettingsRef.current.defaults),
           },
           { acquireLock: false },
         );
@@ -304,6 +445,14 @@ const MapWorkspace = () => {
       const missionPath = params.get('mission');
 
       try {
+        const storedSettings = await platform.settings.readJson<unknown>(APP_SETTINGS_STORAGE_KEY);
+        const normalized = normalizeAppSettings(storedSettings);
+        appSettingsRef.current = normalized;
+        setCoordPrecision(normalized.defaults.coordinates.precision);
+        setGridSettings(normalized.defaults.measurements.grid);
+        setSegmentLengthsMode(normalized.defaults.measurements.segment_lengths_mode);
+        setStyles(normalized.defaults.styles);
+
         if (location.pathname === '/create-mission') {
           setShowCreateMission(true);
           await loadDraft(false);
@@ -366,6 +515,11 @@ const MapWorkspace = () => {
           laneFeatures,
           isFollowing,
           layers,
+          mapView,
+          coordPrecision,
+          gridSettings,
+          segmentLengthsMode,
+          styles,
         );
         await repository.saveMission(bundle);
         setAutoSaveStatus('saved');
@@ -390,6 +544,11 @@ const MapWorkspace = () => {
     laneFeatures,
     repository,
     trackPointsByTrackId,
+    mapView,
+    coordPrecision,
+    gridSettings,
+    segmentLengthsMode,
+    styles,
   ]);
 
   const handleTelemetryFix = useCallback((fix: TelemetryFix) => {
@@ -480,6 +639,16 @@ const MapWorkspace = () => {
     setActiveTool(tool);
   };
 
+  const handleMapViewChange = useCallback((next: { center_lat: number; center_lon: number; zoom: number }) => {
+    setMapView((prev) => {
+      if (!prev) return next;
+      const dLat = Math.abs(prev.center_lat - next.center_lat);
+      const dLon = Math.abs(prev.center_lon - next.center_lon);
+      if (dLat < 1e-7 && dLon < 1e-7 && prev.zoom === next.zoom) return prev;
+      return next;
+    });
+  }, []);
+
   const handleLayerToggle = (layer: keyof LayersState) => {
     if (layer === 'diver') return;
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
@@ -519,7 +688,10 @@ const MapWorkspace = () => {
   const handleCreateMission = async (name: string, path: string) => {
     try {
       await releaseCurrentLock();
-      const bundle = await repository.createMission({ rootPath: path, name }, { acquireLock: true });
+      const bundle = await repository.createMission(
+        { rootPath: path, name, ui: toMissionUiFromDefaults(appSettingsRef.current.defaults) },
+        { acquireLock: true },
+      );
       lockOwnerRootRef.current = bundle.rootPath;
       updateFromBundle(bundle, false);
       setShowCreateMission(false);
@@ -541,6 +713,136 @@ const MapWorkspace = () => {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось открыть миссию';
       window.alert(message);
+    }
+  };
+
+  const handleSettingsApply = async (next: AppUiDefaults) => {
+    const nextSettings: AppSettingsV1 = {
+      schema_version: DEFAULT_APP_SETTINGS.schema_version,
+      defaults: next,
+    };
+
+    appSettingsRef.current = nextSettings;
+    await platform.settings.writeJson(APP_SETTINGS_STORAGE_KEY, nextSettings);
+
+    // Apply immediately and let autosave persist mission overrides.
+    setIsFollowing(next.follow_diver);
+    setLayers((prev) => ({
+      ...prev,
+      track: next.layers.track,
+      routes: next.layers.routes,
+      markers: next.layers.markers,
+      grid: next.layers.grid,
+      scaleBar: next.layers.scale_bar,
+      diver: true,
+    }));
+    setCoordPrecision(next.coordinates.precision);
+    setGridSettings(next.measurements.grid);
+    setSegmentLengthsMode(next.measurements.segment_lengths_mode);
+    setStyles(next.styles);
+
+    toast({ title: 'Настройки применены' });
+  };
+
+  const handleSettingsReset = async () => {
+    await handleSettingsApply(DEFAULT_APP_SETTINGS.defaults);
+  };
+
+  const handleExport = async (request: ExportRequest) => {
+    if (!missionRootPath || !missionDocument) {
+      toast({ title: 'Экспорт недоступен', description: 'Откройте миссию перед экспортом.' });
+      return;
+    }
+
+    const exportRoot = request.exportPath.trim() || `${missionRootPath}/exports`;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const baseName = safeFilename(missionName ?? missionDocument.name ?? 'mission');
+    const created: string[] = [];
+
+    try {
+      if (request.tracks) {
+        const metaById = new Map(missionDocument.tracks.map((t, i) => [t.id, { meta: t, name: `Трек ${i + 1}` }]));
+        const resolveActive = (): string[] => {
+          if (missionDocument.active_track_id && metaById.has(missionDocument.active_track_id)) {
+            return [missionDocument.active_track_id];
+          }
+          const last = missionDocument.tracks[missionDocument.tracks.length - 1];
+          return last ? [last.id] : [];
+        };
+
+        const ids =
+          request.tracks.mode === 'all'
+            ? missionDocument.tracks.map((t) => t.id)
+            : request.tracks.mode === 'active'
+              ? resolveActive()
+              : (request.tracks.selectedTrackIds ?? []).filter((id) => metaById.has(id));
+
+        const tracks = ids.map((id) => ({
+          id,
+          name: metaById.get(id)?.name ?? id,
+          points: trackPointsByTrackId[id] ?? [],
+        }));
+
+        const content =
+          request.tracks.format === 'kml'
+            ? tracksToKml(tracks, coordPrecision)
+            : tracksToGpx(tracks, coordPrecision);
+
+        const filename = `${baseName}-${stamp}-tracks.${request.tracks.format}`;
+        const path = joinExportPath(exportRoot, filename);
+        await platform.fileStore.writeText(path, content);
+        created.push(path);
+      }
+
+      if (request.routes) {
+        const allPlanning = objects.filter((o) => o.type === 'route' || o.type === 'zone');
+        const selected =
+          request.routes.mode === 'all'
+            ? allPlanning
+            : allPlanning.filter((o) => (request.routes?.selectedObjectIds ?? []).includes(o.id));
+
+        const selectedZoneIds = new Set(selected.filter((o) => o.type === 'zone').map((o) => o.id));
+        const lanesToExport =
+          request.routes.mode === 'all'
+            ? laneFeatures
+            : laneFeatures.filter((lane) => selectedZoneIds.has(lane.properties.parent_area_id));
+
+        const content =
+          request.routes.format === 'kml'
+            ? routesToKml(selected, lanesToExport, coordPrecision)
+            : routesToGpx(selected, lanesToExport, coordPrecision);
+
+        const filename = `${baseName}-${stamp}-routes.${request.routes.format}`;
+        const path = joinExportPath(exportRoot, filename);
+        await platform.fileStore.writeText(path, content);
+        created.push(path);
+      }
+
+      if (request.markers) {
+        const allMarkers = objects.filter((o) => o.type === 'marker');
+        const selected =
+          request.markers.mode === 'all'
+            ? allMarkers
+            : allMarkers.filter((o) => (request.markers?.selectedObjectIds ?? []).includes(o.id));
+
+        const content =
+          request.markers.format === 'csv'
+            ? markersToCsv(selected, coordPrecision)
+            : markersToGpx(selected, coordPrecision);
+
+        const filename = `${baseName}-${stamp}-markers.${request.markers.format}`;
+        const path = joinExportPath(exportRoot, filename);
+        await platform.fileStore.writeText(path, content);
+        created.push(path);
+      }
+
+      toast({
+        title: `Экспорт завершен (${created.length})`,
+        description: created.length > 0 ? created.join('\n') : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось выполнить экспорт';
+      toast({ title: 'Ошибка экспорта', description: message });
     }
   };
 
@@ -665,8 +967,10 @@ const MapWorkspace = () => {
   };
 
   const getDefaultObjectColor = (type: MapObject['type']): string => {
-    if (type === 'zone') return '#f59e0b';
-    if (type === 'marker') return '#22c55e';
+    if (type === 'zone') return styles.survey_area.stroke_color;
+    if (type === 'marker') return styles.marker.color;
+    if (type === 'lane') return styles.lane.color;
+    if (type === 'route') return styles.route.color;
     return '#0ea5e9';
   };
 
@@ -750,6 +1054,10 @@ const MapWorkspace = () => {
             lanePickMode={lanePickState.mode}
             lanePickZoneId={lanePickState.zoneId}
             layers={layers}
+            grid={gridSettings}
+            segmentLengthsMode={segmentLengthsMode}
+            styles={styles}
+            mapView={mapView}
             objects={objects}
             selectedObjectId={selectedObjectId}
             diverData={diverData}
@@ -772,11 +1080,14 @@ const MapWorkspace = () => {
             onLanePickEdge={handlePickedLaneEdge}
             onLanePickStart={handlePickedLaneStart}
             onMapScaleChange={setMapScale}
+            onMapViewChange={handleMapViewChange}
           />
         </div>
 
         <RightPanel
           diverData={diverData}
+          coordPrecision={coordPrecision}
+          styles={styles}
           connectionStatus={connectionStatus}
           trackStatus={trackStatus}
           trackId={activeTrackNumber}
@@ -792,7 +1103,12 @@ const MapWorkspace = () => {
         />
       </div>
 
-      <StatusBar cursorPosition={cursorPosition} scale={mapScale} activeTool={activeTool} />
+      <StatusBar
+        cursorPosition={cursorPosition}
+        coordPrecision={coordPrecision}
+        scale={mapScale}
+        activeTool={activeTool}
+      />
 
       <CreateMissionDialog
         open={showCreateMission}
@@ -802,9 +1118,25 @@ const MapWorkspace = () => {
 
       <OpenMissionDialog open={showOpenMission} onOpenChange={setShowOpenMission} onConfirm={handleOpenMission} />
 
-      <ExportDialog open={showExport} onOpenChange={setShowExport} />
+      <ExportDialog
+        open={showExport}
+        onOpenChange={setShowExport}
+        missionRootPath={missionRootPath}
+        missionName={missionName}
+        missionDocument={missionDocument}
+        trackPointsByTrackId={trackPointsByTrackId}
+        objects={objects}
+        laneFeatures={laneFeatures}
+        onExport={handleExport}
+      />
 
-      <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
+      <SettingsDialog
+        open={showSettings}
+        onOpenChange={setShowSettings}
+        value={settingsValue}
+        onApply={handleSettingsApply}
+        onReset={handleSettingsReset}
+      />
     </div>
   );
 };

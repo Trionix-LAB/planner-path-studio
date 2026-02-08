@@ -15,6 +15,12 @@ export type FileSystemBridge = {
   pickDirectory: (options?: PickDirectoryOptions) => Promise<string | null>;
 };
 
+export type SettingsBridge = {
+  readJson: <T>(key: string) => Promise<T | null>;
+  writeJson: (key: string, value: unknown) => Promise<void>;
+  remove: (key: string) => Promise<void>;
+};
+
 export type PlatformRuntime = {
   isElectron: boolean;
 };
@@ -32,5 +38,6 @@ export type Platform = {
     tileLayerAttribution: () => string;
   };
   fs: FileSystemBridge;
+  settings: SettingsBridge;
   fileStore: FileStoreBridge;
 };

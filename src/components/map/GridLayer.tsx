@@ -5,6 +5,9 @@ import { computeScaleFromMap } from './scaleUtils';
 interface GridLayerProps {
   visible: boolean;
   step?: number;
+  color?: string;
+  widthPx?: number;
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
 }
 
 const EARTH_RADIUS = 6378137;
@@ -21,7 +24,7 @@ function snapToGrid(value: number, step: number): number {
   return Math.floor(value / step) * step;
 }
 
-export const GridLayer = ({ visible, step }: GridLayerProps) => {
+export const GridLayer = ({ visible, step, color, widthPx, lineStyle }: GridLayerProps) => {
   const map = useMap();
   const [gridLines, setGridLines] = useState<Array<[[number, number], [number, number]]>>([]);
 
@@ -81,6 +84,11 @@ export const GridLayer = ({ visible, step }: GridLayerProps) => {
 
   if (!visible || gridLines.length === 0) return null;
 
+  const dashArray =
+    lineStyle === 'solid' ? undefined :
+    lineStyle === 'dotted' ? '2 6' :
+    '6 6';
+
   return (
     <>
       {gridLines.map((line, index) => (
@@ -88,9 +96,10 @@ export const GridLayer = ({ visible, step }: GridLayerProps) => {
           key={`grid-${index}`}
           positions={line}
           pathOptions={{
-            color: 'rgba(100, 116, 139, 0.4)',
-            weight: 1,
-            dashArray: '4, 4',
+            color: color ?? '#64748b',
+            weight: widthPx ?? 1,
+            dashArray,
+            opacity: 0.55,
           }}
           interactive={false}
         />
