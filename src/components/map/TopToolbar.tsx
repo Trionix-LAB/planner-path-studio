@@ -18,9 +18,8 @@ import {
   MapPin,
   Pause,
   Play,
-  StopCircle,
   Crosshair,
-  Home,
+  Flag,
   Check,
   Loader2,
   AlertCircle,
@@ -38,7 +37,7 @@ interface TopToolbarProps {
   simulationEnabled: boolean;
   simulateConnectionError: boolean;
   onToolChange: (tool: Tool) => void;
-  onTrackAction: (action: 'pause' | 'resume' | 'stop') => void;
+  onTrackAction: (action: 'pause' | 'resume') => void;
   onFollowToggle: () => void;
   onSimulationToggle: () => void;
   onSimulationErrorToggle: () => void;
@@ -46,7 +45,7 @@ interface TopToolbarProps {
   onOpenOpen: () => void;
   onOpenExport: () => void;
   onOpenSettings: () => void;
-  onBackToStart: () => void;
+  onFinishMission: () => void;
 }
 
 const TopToolbar = ({
@@ -67,7 +66,7 @@ const TopToolbar = ({
   onOpenOpen,
   onOpenExport,
   onOpenSettings,
-  onBackToStart,
+  onFinishMission,
 }: TopToolbarProps) => {
   const tools = [
     { id: 'select' as Tool, icon: MousePointer2, label: 'Выбор/Редактирование' },
@@ -103,9 +102,9 @@ const TopToolbar = ({
             Экспорт...
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={onBackToStart}>
-            <Home className="w-4 h-4 mr-2" />
-            На главную
+          <DropdownMenuItem onClick={onFinishMission} disabled={isDraft}>
+            <Flag className="w-4 h-4 mr-2" />
+            Завершить миссию
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -154,7 +153,7 @@ const TopToolbar = ({
             <Pause className="w-4 h-4" />
             <span className="hidden lg:inline text-sm">Пауза</span>
           </Button>
-        ) : trackStatus === 'paused' ? (
+        ) : (
           <Button
             variant="ghost"
             size="sm"
@@ -164,17 +163,7 @@ const TopToolbar = ({
             <Play className="w-4 h-4" />
             <span className="hidden lg:inline text-sm">Возобновить</span>
           </Button>
-        ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 px-3 gap-2"
-          onClick={() => onTrackAction('stop')}
-          disabled={trackStatus === 'stopped'}
-        >
-          <StopCircle className="w-4 h-4" />
-          <span className="hidden lg:inline text-sm">Завершить</span>
-        </Button>
+        )}
       </div>
 
       <div className="w-px h-6 bg-border mx-2" />

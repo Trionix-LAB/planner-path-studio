@@ -5,6 +5,7 @@ import "leaflet/dist/leaflet.css";
 import { AlertTriangle } from "lucide-react";
 
 import type { MapObject, MapObjectGeometry, Tool } from "@/features/map/model/types";
+import type { LaneFeature } from "@/features/mission";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
@@ -27,6 +28,7 @@ L.Icon.Default.mergeOptions({
 
 interface MapCanvasProps {
   activeTool: Tool;
+  laneFeatures?: LaneFeature[];
   layers: {
     track: boolean;
     routes: boolean;
@@ -47,6 +49,8 @@ interface MapCanvasProps {
   trackSegments: Array<Array<[number, number]>>;
   isFollowing: boolean;
   connectionStatus: 'ok' | 'timeout' | 'error';
+  connectionLostSeconds?: number;
+  onToolChange?: (tool: Tool) => void;
   onCursorMove: (pos: { lat: number; lon: number }) => void;
   onObjectSelect: (id: string | null) => void;
   onObjectDoubleClick: (id: string) => void;
@@ -183,6 +187,7 @@ const getObjectColor = (obj: MapObject): string => {
 
 const MapCanvas = ({
   activeTool,
+  laneFeatures = [],
   layers,
   objects,
   selectedObjectId,
@@ -190,6 +195,8 @@ const MapCanvas = ({
   trackSegments,
   isFollowing,
   connectionStatus,
+  connectionLostSeconds,
+  onToolChange,
   onCursorMove,
   onObjectSelect,
   onObjectDoubleClick,
@@ -379,6 +386,9 @@ const MapCanvas = ({
       }
 
       if (e.key === "Escape") {
+        if (activeTool !== 'select') {
+          onToolChange?.('select');
+        }
         if (drawingPoints.length > 0) {
           clearDrawing();
         } else if (selectedObjectId) {
@@ -395,7 +405,7 @@ const MapCanvas = ({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [clearDrawing, drawingPoints.length, selectedObjectId, onObjectSelect, onObjectDelete]);
+  }, [activeTool, clearDrawing, drawingPoints.length, selectedObjectId, onObjectDelete, onObjectSelect, onToolChange]);
 
   // Context menu handler for map objects
   const handleObjectContextMenu = (e: L.LeafletMouseEvent, objectId: string) => {
@@ -408,6 +418,10 @@ const MapCanvas = ({
   };
 
   const selectedObject = useMemo(() => objects.find(o => o.id === selectedObjectId), [objects, selectedObjectId]);
+  const contextObject = useMemo(
+    () => objects.find((object) => object.id === objectMenuState?.objectId),
+    [objectMenuState?.objectId, objects],
+  );
 
   const renderObjects = useMemo(() => {
     const routes: Array<{ obj: MapObject; points: [number, number][] }> = [];
@@ -610,6 +624,38 @@ const MapCanvas = ({
             </Polyline>
           ))}
 
+        {/* Lanes (derived from zone) */}
+        {layers.routes &&
+          laneFeatures.map((lane) => {
+            const parentAreaId = lane.properties.parent_area_id;
+            const isParentSelected = selectedObjectId === parentAreaId;
+            const lanePoints = lane.geometry.coordinates.map(
+              ([lon, lat]) => [lat, lon] as [number, number],
+            );
+
+            return (
+              <Polyline
+                key={lane.properties.id}
+                positions={lanePoints}
+                pathOptions={{
+                  color: 'hsl(38, 92%, 40%)',
+                  weight: isParentSelected ? 3 : 2,
+                  opacity: isParentSelected ? 0.95 : 0.65,
+                  dashArray: '8 6',
+                }}
+                eventHandlers={{
+                  click: (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    onObjectSelect(parentAreaId);
+                  },
+                  contextmenu: (e) => handleObjectContextMenu(e, parentAreaId),
+                }}
+              >
+                <Tooltip sticky>{`Галс ${lane.properties.lane_index}`}</Tooltip>
+              </Polyline>
+            );
+          })}
+
         {/* Zone */}
         {layers.routes &&
           renderObjects.zones.map(({ obj, points }) => (
@@ -750,7 +796,17 @@ const MapCanvas = ({
                 }
               },
             },
-            ...(objects.find((o) => o.id === objectMenuState.objectId)?.type === 'zone'
+            {
+              label: "Переименовать",
+              action: () => {
+                if (!contextObject || !onObjectUpdate) return;
+                const nextName = window.prompt('Новое имя объекта', contextObject.name);
+                const trimmed = nextName?.trim();
+                if (!trimmed || trimmed === contextObject.name) return;
+                onObjectUpdate(contextObject.id, { name: trimmed });
+              },
+            },
+            ...(contextObject?.type === 'zone'
               ? [
                 {
                   label: "Перегенерировать галсы",
@@ -802,7 +858,7 @@ const MapCanvas = ({
       {connectionStatus !== 'ok' && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-destructive/90 text-destructive-foreground px-4 py-2 rounded-md flex items-center gap-2 text-sm">
           <AlertTriangle className="w-4 h-4" />
-          Нет данных от УКБ
+          {`Нет данных ${Math.max(1, connectionLostSeconds ?? 0)} сек`}
         </div>
       )}
 

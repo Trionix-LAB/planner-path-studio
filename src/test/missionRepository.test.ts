@@ -173,4 +173,56 @@ describe('mission repository', () => {
     await repository.releaseLock(rootPath);
     expect(await repository.hasLock(rootPath)).toBe(false);
   });
+
+  it('does not write mission files when lock already exists on create', async () => {
+    const store = createMemoryStore();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/LockedOnCreate';
+    await store.writeText(`${rootPath}/mission.lock`, '{"owner":"other"}');
+
+    await expect(
+      repository.createMission(
+        {
+          rootPath,
+          name: 'Should fail',
+          now: new Date('2026-02-03T10:00:00.000Z'),
+        },
+        { acquireLock: true },
+      ),
+    ).rejects.toThrow('Mission is locked');
+
+    expect(await store.exists(`${rootPath}/mission.json`)).toBe(false);
+    expect(await store.exists(`${rootPath}/routes/routes.geojson`)).toBe(false);
+    expect(await store.exists(`${rootPath}/markers/markers.geojson`)).toBe(false);
+  });
+
+  it('fails when track csv has no required headers', async () => {
+    const store = createMemoryStore();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/BrokenTrack';
+
+    const created = await repository.createMission(
+      {
+        rootPath,
+        name: 'Broken CSV mission',
+        now: new Date('2026-02-03T10:00:00.000Z'),
+      },
+      { acquireLock: false },
+    );
+
+    created.mission.tracks.push({
+      id: 'track-1',
+      file: 'tracks/track-0001.csv',
+      started_at: '2026-02-03T10:01:00.000Z',
+      ended_at: null,
+      note: null,
+    });
+    created.mission.active_track_id = 'track-1';
+    await repository.saveMission(created);
+    await store.writeText(`${rootPath}/tracks/track-0001.csv`, 'timestamp,lat,lon\n2026-02-03T10:01:01.000Z,59.9,30.3');
+
+    await expect(repository.openMission(rootPath, { acquireLock: false })).rejects.toThrow(
+      'missing required headers',
+    );
+  });
 });

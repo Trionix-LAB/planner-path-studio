@@ -40,6 +40,8 @@ const parseNumber = (value: string | undefined): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const REQUIRED_TRACK_HEADERS = ['timestamp', 'lat', 'lon', 'segment_id'] as const;
+
 const parseCsvTrack = (csv: string): TrackPoint[] => {
   const lines = csv.split(/\r?\n/).filter((line) => line.trim().length > 0);
   if (lines.length <= 1) return [];
@@ -48,23 +50,39 @@ const parseCsvTrack = (csv: string): TrackPoint[] => {
   const indexByHeader = new Map<string, number>();
   headers.forEach((header, index) => indexByHeader.set(header.trim(), index));
 
-  return lines.slice(1).map((line) => {
+  const missingHeaders = REQUIRED_TRACK_HEADERS.filter((header) => !indexByHeader.has(header));
+  if (missingHeaders.length > 0) {
+    throw new Error(`Track CSV is missing required headers: ${missingHeaders.join(', ')}`);
+  }
+
+  const points: TrackPoint[] = [];
+  for (const line of lines.slice(1)) {
     const columns = line.split(',');
     const get = (header: string): string | undefined => {
       const index = indexByHeader.get(header);
       return index === undefined ? undefined : columns[index];
     };
 
-    return {
-      timestamp: get('timestamp') ?? '',
-      lat: Number(get('lat') ?? 0),
-      lon: Number(get('lon') ?? 0),
-      segment_id: Number(get('segment_id') ?? 1),
+    const timestamp = get('timestamp')?.trim() ?? '';
+    const lat = Number(get('lat'));
+    const lon = Number(get('lon'));
+    const segmentId = Number(get('segment_id'));
+
+    if (!timestamp || !Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(segmentId)) {
+      continue;
+    }
+
+    points.push({
+      timestamp,
+      lat,
+      lon,
+      segment_id: Math.max(1, Math.trunc(segmentId)),
       depth_m: parseNumber(get('depth_m')),
       sog_mps: parseNumber(get('sog_mps')),
       cog_deg: parseNumber(get('cog_deg')),
-    };
-  });
+    });
+  }
+  return points;
 };
 
 const toCsvTrack = (points: TrackPoint[]): string => {
@@ -176,9 +194,18 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
       trackPointsByTrackId: {},
     };
 
-    await saveMission(bundle);
-    if (options?.acquireLock !== false) {
+    const shouldAcquireLock = options?.acquireLock !== false;
+    if (shouldAcquireLock) {
       await acquireLock(rootPath);
+    }
+
+    try {
+      await saveMission(bundle);
+    } catch (error) {
+      if (shouldAcquireLock) {
+        await releaseLock(rootPath);
+      }
+      throw error;
     }
     return bundle;
   };
@@ -188,47 +215,45 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
     options?: { acquireLock?: boolean },
   ): Promise<MissionBundle> => {
     const rootPath = normalizePath(rootPathInput);
-    if (options?.acquireLock !== false) {
+    const shouldAcquireLock = options?.acquireLock !== false;
+    if (shouldAcquireLock) {
       await acquireLock(rootPath);
-    }
-    const missionPath = joinPath(rootPath, 'mission.json');
-    const mission = await readJson<MissionDocument>(store, missionPath);
-    if (!mission) {
-      if (options?.acquireLock !== false) {
-        await releaseLock(rootPath);
-      }
-      throw new Error(`Mission file not found: ${missionPath}`);
     }
 
     try {
+      const missionPath = joinPath(rootPath, 'mission.json');
+      const mission = await readJson<MissionDocument>(store, missionPath);
+      if (!mission) {
+        throw new Error(`Mission file not found: ${missionPath}`);
+      }
       validateMissionDocument(mission);
+
+      const routesPath = joinPath(rootPath, mission.files.routes);
+      const markersPath = joinPath(rootPath, mission.files.markers);
+
+      const routes = (await readJson<FeatureCollection<RoutesFeature>>(store, routesPath)) ?? emptyRoutes();
+      const markers = (await readJson<FeatureCollection<MarkerFeature>>(store, markersPath)) ?? emptyMarkers();
+
+      const trackPointsByTrackId: Record<string, TrackPoint[]> = {};
+      for (const track of mission.tracks) {
+        const trackPath = joinPath(rootPath, track.file);
+        const trackCsv = await store.readText(trackPath);
+        trackPointsByTrackId[track.id] = trackCsv ? parseCsvTrack(trackCsv) : [];
+      }
+
+      return {
+        rootPath,
+        mission,
+        routes,
+        markers,
+        trackPointsByTrackId,
+      };
     } catch (error) {
-      if (options?.acquireLock !== false) {
+      if (shouldAcquireLock) {
         await releaseLock(rootPath);
       }
       throw error;
     }
-
-    const routesPath = joinPath(rootPath, mission.files.routes);
-    const markersPath = joinPath(rootPath, mission.files.markers);
-
-    const routes = (await readJson<FeatureCollection<RoutesFeature>>(store, routesPath)) ?? emptyRoutes();
-    const markers = (await readJson<FeatureCollection<MarkerFeature>>(store, markersPath)) ?? emptyMarkers();
-
-    const trackPointsByTrackId: Record<string, TrackPoint[]> = {};
-    for (const track of mission.tracks) {
-      const trackPath = joinPath(rootPath, track.file);
-      const trackCsv = await store.readText(trackPath);
-      trackPointsByTrackId[track.id] = trackCsv ? parseCsvTrack(trackCsv) : [];
-    }
-
-    return {
-      rootPath,
-      mission,
-      routes,
-      markers,
-      trackPointsByTrackId,
-    };
   };
 
   const saveMission = async (bundle: MissionBundle): Promise<void> => {

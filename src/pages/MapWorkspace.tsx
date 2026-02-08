@@ -14,53 +14,82 @@ import {
   buildTrackSegments,
   bundleToMapObjects,
   createMissionRepository,
+  createSimulationTelemetryProvider,
+  createTrackRecorderState,
+  generateLanesForZone,
   mapObjectsToGeoJson,
+  trackRecorderReduce,
+  type LaneFeature,
   type MissionBundle,
   type MissionDocument,
-  type TrackPoint,
+  type TelemetryConnectionState,
+  type TelemetryFix,
+  type TrackRecorderState,
 } from '@/features/mission';
 import { platform } from '@/platform';
 
 const DRAFT_ROOT_PATH = 'draft/current';
 const DRAFT_MISSION_NAME = 'Черновик';
 const CONNECTION_TIMEOUT_MS = 5000;
+const AUTOSAVE_DELAY_MS = 1200;
 
-const nowIso = (): string => new Date().toISOString();
+type LayersState = {
+  track: boolean;
+  routes: boolean;
+  markers: boolean;
+  grid: boolean;
+  scaleBar: boolean;
+  diver: boolean;
+};
+
+type WorkspaceSnapshot = {
+  missionRootPath: string | null;
+  recordingState: TrackRecorderState;
+  objects: MapObject[];
+  laneFeatures: LaneFeature[];
+  isFollowing: boolean;
+  layers: LayersState;
+  isLoaded: boolean;
+};
+
+const DEFAULT_DIVER_DATA = {
+  lat: 59.93428,
+  lon: 30.335099,
+  speed: 0.8,
+  course: 45,
+  depth: 12.5,
+};
+
+const DEFAULT_LAYERS: LayersState = {
+  track: true,
+  routes: true,
+  markers: true,
+  grid: false,
+  scaleBar: true,
+  diver: true,
+};
 
 const MapWorkspace = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const repository = useMemo(() => createMissionRepository(platform.fileStore), []);
+  const telemetryProvider = useMemo(
+    () => createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
+    [],
+  );
 
   const [missionRootPath, setMissionRootPath] = useState<string | null>(null);
-  const [missionDocument, setMissionDocument] = useState<MissionDocument | null>(null);
-  const [trackPointsByTrackId, setTrackPointsByTrackId] = useState<Record<string, TrackPoint[]>>({});
-
   const [missionName, setMissionName] = useState<string | null>(null);
   const [isDraft, setIsDraft] = useState(true);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [isFollowing, setIsFollowing] = useState(true);
-  const [trackStatus, setTrackStatus] = useState<'recording' | 'paused' | 'stopped'>('stopped');
-  const [connectionStatus, setConnectionStatus] = useState<'ok' | 'timeout' | 'error'>('ok');
   const [simulationEnabled, setSimulationEnabled] = useState(true);
   const [simulateConnectionError, setSimulateConnectionError] = useState(false);
-  const [diverData, setDiverData] = useState({
-    lat: 59.934280,
-    lon: 30.335099,
-    speed: 0.8,
-    course: 45,
-    depth: 12.5,
-  });
-  const [layers, setLayers] = useState({
-    track: true,
-    routes: true,
-    markers: true,
-    grid: false,
-    scaleBar: true,
-    diver: true,
-  });
+  const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
+  const [layers, setLayers] = useState<LayersState>(DEFAULT_LAYERS);
   const [objects, setObjects] = useState<MapObject[]>([]);
+  const [laneFeatures, setLaneFeatures] = useState<LaneFeature[]>([]);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [showCreateMission, setShowCreateMission] = useState(false);
   const [showOpenMission, setShowOpenMission] = useState(false);
@@ -69,14 +98,31 @@ const MapWorkspace = () => {
   const [cursorPosition, setCursorPosition] = useState({ lat: 59.934, lon: 30.335 });
   const [mapScale, setMapScale] = useState('1:--');
   const [isLoaded, setIsLoaded] = useState(false);
+  const [shouldAutoStartRecording, setShouldAutoStartRecording] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<TelemetryConnectionState>('ok');
+  const [connectionLostSeconds, setConnectionLostSeconds] = useState(0);
+  const [recordingState, setRecordingState] = useState<TrackRecorderState>(() =>
+    createTrackRecorderState(null, {}, 'stopped'),
+  );
 
-  const activeTrackSegmentRef = useRef<Record<string, number>>({});
+  const missionDocument = recordingState.mission;
+  const trackPointsByTrackId = recordingState.trackPointsByTrackId;
+  const trackStatus = recordingState.trackStatus;
+
   const lockOwnerRootRef = useRef<string | null>(null);
   const autosaveTimerRef = useRef<number | null>(null);
-  const lastDataAtRef = useRef<number>(Date.now());
-  const tickRef = useRef<number>(0);
-  const lossTicksRemainingRef = useRef<number>(0);
-  const connectionStateRef = useRef<'ok' | 'timeout' | 'error'>('ok');
+  const lastFixAtRef = useRef<number>(Date.now());
+  const connectionStateRef = useRef<TelemetryConnectionState>('ok');
+  const simulationEnabledRef = useRef<boolean>(simulationEnabled);
+  const latestSnapshotRef = useRef<WorkspaceSnapshot>({
+    missionRootPath: null,
+    recordingState: createTrackRecorderState(null, {}, 'stopped'),
+    objects: [],
+    laneFeatures: [],
+    isFollowing: true,
+    layers: DEFAULT_LAYERS,
+    isLoaded: false,
+  });
 
   const trackSegments = useMemo(() => buildTrackSegments(trackPointsByTrackId), [trackPointsByTrackId]);
   const activeTrackNumber = useMemo(() => {
@@ -90,6 +136,22 @@ const MapWorkspace = () => {
     [objects, selectedObjectId],
   );
 
+  useEffect(() => {
+    latestSnapshotRef.current = {
+      missionRootPath,
+      recordingState,
+      objects,
+      laneFeatures,
+      isFollowing,
+      layers,
+      isLoaded,
+    };
+  }, [missionRootPath, recordingState, objects, laneFeatures, isFollowing, layers, isLoaded]);
+
+  useEffect(() => {
+    simulationEnabledRef.current = simulationEnabled;
+  }, [simulationEnabled]);
+
   const releaseCurrentLock = useCallback(async () => {
     if (!lockOwnerRootRef.current) return;
     const root = lockOwnerRootRef.current;
@@ -97,11 +159,82 @@ const MapWorkspace = () => {
     await repository.releaseLock(root);
   }, [repository]);
 
+  const buildMissionBundle = useCallback(
+    (
+      rootPath: string,
+      mission: MissionDocument,
+      pointsByTrackId: TrackRecorderState['trackPointsByTrackId'],
+      missionObjects: MapObject[],
+      missionLaneFeatures: LaneFeature[],
+      followEnabled: boolean,
+      layersState: LayersState,
+    ): MissionBundle => {
+      const geo = mapObjectsToGeoJson(missionObjects);
+      const nextMission: MissionDocument = {
+        ...mission,
+        ui: {
+          ...(mission.ui ?? {}),
+          follow_diver: followEnabled,
+          layers: {
+            track: layersState.track,
+            routes: layersState.routes,
+            markers: layersState.markers,
+            grid: layersState.grid,
+            scale_bar: layersState.scaleBar,
+          },
+        },
+      };
+
+      return {
+        rootPath,
+        mission: nextMission,
+        routes: {
+          ...geo.routes,
+          features: [...geo.routes.features, ...missionLaneFeatures],
+        },
+        markers: geo.markers,
+        trackPointsByTrackId: pointsByTrackId,
+      };
+    },
+    [],
+  );
+
+  const persistMissionSnapshot = useCallback(
+    async (snapshot: WorkspaceSnapshot, options?: { closeActiveTrack?: boolean }) => {
+      if (!snapshot.isLoaded || !snapshot.missionRootPath || !snapshot.recordingState.mission) {
+        return;
+      }
+
+      const finalizedRecordingState = options?.closeActiveTrack
+        ? trackRecorderReduce(snapshot.recordingState, { type: 'stop' })
+        : snapshot.recordingState;
+      if (!finalizedRecordingState.mission) return;
+
+      const bundle = buildMissionBundle(
+        snapshot.missionRootPath,
+        finalizedRecordingState.mission,
+        finalizedRecordingState.trackPointsByTrackId,
+        snapshot.objects,
+        snapshot.laneFeatures,
+        snapshot.isFollowing,
+        snapshot.layers,
+      );
+      await repository.saveMission(bundle);
+    },
+    [buildMissionBundle, repository],
+  );
+
+  const persistMissionBestEffort = useCallback(() => {
+    void persistMissionSnapshot(latestSnapshotRef.current, { closeActiveTrack: true }).catch(() => {
+      // Best effort on unload/pagehide.
+    });
+  }, [persistMissionSnapshot]);
+
   const updateFromBundle = useCallback((bundle: MissionBundle, draftMode: boolean) => {
     setMissionRootPath(bundle.rootPath);
-    setMissionDocument(bundle.mission);
-    setTrackPointsByTrackId(bundle.trackPointsByTrackId);
+    setRecordingState(createTrackRecorderState(bundle.mission, bundle.trackPointsByTrackId));
     setObjects(bundleToMapObjects(bundle));
+    setLaneFeatures(bundle.routes.features.filter((feature): feature is LaneFeature => feature.properties.kind === 'lane'));
     setMissionName(bundle.mission.name);
     setIsDraft(draftMode);
     setIsFollowing(bundle.mission.ui?.follow_diver ?? true);
@@ -113,136 +246,36 @@ const MapWorkspace = () => {
       scaleBar: bundle.mission.ui?.layers?.scale_bar ?? true,
       diver: true,
     });
-    setTrackStatus(bundle.mission.active_track_id ? 'recording' : 'stopped');
     setAutoSaveStatus('saved');
     setSelectedObjectId(null);
     setIsLoaded(true);
-
-    const segmentMap: Record<string, number> = {};
-    for (const track of bundle.mission.tracks) {
-      const points = bundle.trackPointsByTrackId[track.id] ?? [];
-      const maxSegment = points.reduce((max, point) => Math.max(max, point.segment_id), 1);
-      segmentMap[track.id] = maxSegment;
-    }
-    activeTrackSegmentRef.current = segmentMap;
+    setShouldAutoStartRecording(!draftMode);
   }, []);
 
-  const startNewTrack = useCallback(() => {
-    setMissionDocument((prev) => {
-      if (!prev) return prev;
-      const nextIndex = prev.tracks.length + 1;
-      const file = `tracks/track-${String(nextIndex).padStart(4, '0')}.csv`;
-      const id = `track-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      activeTrackSegmentRef.current[id] = 1;
+  const loadDraft = useCallback(
+    async (recoverOnly: boolean) => {
+      const exists = await platform.fileStore.exists(`${DRAFT_ROOT_PATH}/mission.json`);
+      if (!exists && recoverOnly) {
+        window.alert('Автосохраненный черновик не найден. Создан новый черновик.');
+      }
 
-      return {
-        ...prev,
-        active_track_id: id,
-        tracks: [
-          ...prev.tracks,
+      let bundle: MissionBundle;
+      if (exists) {
+        bundle = await repository.openMission(DRAFT_ROOT_PATH, { acquireLock: false });
+      } else {
+        bundle = await repository.createMission(
           {
-            id,
-            file,
-            started_at: nowIso(),
-            ended_at: null,
-            note: null,
+            rootPath: DRAFT_ROOT_PATH,
+            name: DRAFT_MISSION_NAME,
           },
-        ],
-      };
-    });
-    setTrackStatus('recording');
-  }, []);
-
-  const closeActiveTrack = useCallback(() => {
-    setMissionDocument((prev) => {
-      if (!prev?.active_track_id) return prev;
-      return {
-        ...prev,
-        active_track_id: null,
-        tracks: prev.tracks.map((track) =>
-          track.id === prev.active_track_id ? { ...track, ended_at: nowIso() } : track,
-        ),
-      };
-    });
-  }, []);
-
-  const ensureMissionRecording = useCallback(() => {
-    if (isDraft) return;
-    setMissionDocument((prev) => {
-      if (!prev || prev.active_track_id) return prev;
-      const nextIndex = prev.tracks.length + 1;
-      const file = `tracks/track-${String(nextIndex).padStart(4, '0')}.csv`;
-      const id = `track-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      activeTrackSegmentRef.current[id] = 1;
-      setTrackStatus('recording');
-
-      return {
-        ...prev,
-        active_track_id: id,
-        tracks: [
-          ...prev.tracks,
-          {
-            id,
-            file,
-            started_at: nowIso(),
-            ended_at: null,
-            note: null,
-          },
-        ],
-      };
-    });
-  }, [isDraft]);
-
-  const appendTrackPoint = useCallback((lat: number, lon: number, speed: number, course: number, depth: number) => {
-    setMissionDocument((prevDoc) => {
-      if (!prevDoc?.active_track_id || trackStatus !== 'recording') return prevDoc;
-      const activeTrackId = prevDoc.active_track_id;
-      const segmentId = activeTrackSegmentRef.current[activeTrackId] ?? 1;
-
-      setTrackPointsByTrackId((prevPoints) => {
-        const currentTrackPoints = prevPoints[activeTrackId] ?? [];
-        return {
-          ...prevPoints,
-          [activeTrackId]: [
-            ...currentTrackPoints,
-            {
-              timestamp: nowIso(),
-              lat,
-              lon,
-              segment_id: segmentId,
-              depth_m: depth,
-              sog_mps: speed,
-              cog_deg: course,
-            },
-          ],
-        };
-      });
-
-      return prevDoc;
-    });
-  }, [trackStatus]);
-
-  const loadDraft = useCallback(async (recoverOnly: boolean) => {
-    const exists = await platform.fileStore.exists(`${DRAFT_ROOT_PATH}/mission.json`);
-    if (!exists && recoverOnly) {
-      window.alert('Автосохраненный черновик не найден. Создан новый черновик.');
-    }
-
-    let bundle: MissionBundle;
-    if (exists) {
-      bundle = await repository.openMission(DRAFT_ROOT_PATH, { acquireLock: false });
-    } else {
-      bundle = await repository.createMission(
-        {
-          rootPath: DRAFT_ROOT_PATH,
-          name: DRAFT_MISSION_NAME,
-        },
-        { acquireLock: false },
-      );
-    }
-    await releaseCurrentLock();
-    updateFromBundle(bundle, true);
-  }, [releaseCurrentLock, repository, updateFromBundle]);
+          { acquireLock: false },
+        );
+      }
+      await releaseCurrentLock();
+      updateFromBundle(bundle, true);
+    },
+    [releaseCurrentLock, repository, updateFromBundle],
+  );
 
   useEffect(() => {
     const init = async () => {
@@ -291,10 +324,10 @@ const MapWorkspace = () => {
   }, [loadDraft, location.pathname, location.search, releaseCurrentLock, repository, updateFromBundle]);
 
   useEffect(() => {
-    if (!missionDocument || isDraft || !isLoaded) return;
-    if (missionDocument.active_track_id) return;
-    ensureMissionRecording();
-  }, [missionDocument, isDraft, isLoaded, ensureMissionRecording]);
+    if (!isLoaded || isDraft || !shouldAutoStartRecording) return;
+    setRecordingState((prev) => trackRecorderReduce(prev, { type: 'start' }));
+    setShouldAutoStartRecording(false);
+  }, [isDraft, isLoaded, shouldAutoStartRecording]);
 
   useEffect(() => {
     if (!isLoaded || !missionDocument || !missionRootPath) return;
@@ -304,141 +337,159 @@ const MapWorkspace = () => {
 
     setAutoSaveStatus('saving');
     autosaveTimerRef.current = window.setTimeout(async () => {
-      const geo = mapObjectsToGeoJson(objects);
-      const nextMission: MissionDocument = {
-        ...missionDocument,
-        ui: {
-          ...(missionDocument.ui ?? {}),
-          follow_diver: isFollowing,
-          layers: {
-            track: layers.track,
-            routes: layers.routes,
-            markers: layers.markers,
-            grid: layers.grid,
-            scale_bar: layers.scaleBar,
-          },
-        },
-      };
-
-      const bundle: MissionBundle = {
-        rootPath: missionRootPath,
-        mission: nextMission,
-        routes: geo.routes,
-        markers: geo.markers,
-        trackPointsByTrackId,
-      };
-
       try {
+        const bundle = buildMissionBundle(
+          missionRootPath,
+          missionDocument,
+          trackPointsByTrackId,
+          objects,
+          laneFeatures,
+          isFollowing,
+          layers,
+        );
         await repository.saveMission(bundle);
         setAutoSaveStatus('saved');
       } catch {
         setAutoSaveStatus('error');
       }
-    }, 400);
+    }, AUTOSAVE_DELAY_MS);
 
     return () => {
       if (autosaveTimerRef.current !== null) {
         window.clearTimeout(autosaveTimerRef.current);
       }
     };
-  }, [isLoaded, missionDocument, missionRootPath, objects, trackPointsByTrackId, isFollowing, layers, repository]);
+  }, [
+    buildMissionBundle,
+    isFollowing,
+    isLoaded,
+    layers,
+    missionDocument,
+    missionRootPath,
+    objects,
+    laneFeatures,
+    repository,
+    trackPointsByTrackId,
+  ]);
+
+  const handleTelemetryFix = useCallback((fix: TelemetryFix) => {
+    lastFixAtRef.current = fix.received_at;
+    setConnectionLostSeconds(0);
+    setDiverData({
+      lat: fix.lat,
+      lon: fix.lon,
+      speed: fix.speed,
+      course: Math.round(fix.course),
+      depth: fix.depth,
+    });
+    setRecordingState((prev) =>
+      trackRecorderReduce(prev, {
+        type: 'fixReceived',
+        fix: {
+          lat: fix.lat,
+          lon: fix.lon,
+          speed: fix.speed,
+          course: fix.course,
+          depth: fix.depth,
+          timestamp: new Date(fix.received_at).toISOString(),
+        },
+      }),
+    );
+  }, []);
+
+  const handleConnectionState = useCallback((nextState: TelemetryConnectionState) => {
+    const previousState = connectionStateRef.current;
+    connectionStateRef.current = nextState;
+    setConnectionStatus(nextState);
+
+    if (nextState === 'ok') {
+      if (previousState !== 'ok' && simulationEnabledRef.current) {
+        setRecordingState((prev) => trackRecorderReduce(prev, { type: 'connectionRestored' }));
+      }
+      setConnectionLostSeconds(0);
+      return;
+    }
+
+    setConnectionLostSeconds(Math.max(1, Math.floor((Date.now() - lastFixAtRef.current) / 1000)));
+  }, []);
 
   useEffect(() => {
-    const dataInterval = window.setInterval(() => {
-      if (!simulationEnabled) {
-        return;
-      }
-      if (simulateConnectionError) {
-        connectionStateRef.current = 'error';
-        setConnectionStatus('error');
-        return;
-      }
-
-      tickRef.current += 1;
-      if (lossTicksRemainingRef.current > 0) {
-        lossTicksRemainingRef.current -= 1;
-        return;
-      }
-      if (tickRef.current % 35 === 0) {
-        lossTicksRemainingRef.current = 7;
-        return;
-      }
-
-      setDiverData((prev) => {
-        const next = {
-          lat: prev.lat + 0.00003 * Math.sin(tickRef.current / 6),
-          lon: prev.lon + 0.00003 * Math.cos(tickRef.current / 6),
-          speed: Math.max(0.2, 0.8 + 0.25 * Math.sin(tickRef.current / 4)),
-          course: (prev.course + 12) % 360,
-          depth: Math.max(0, 12 + 2 * Math.sin(tickRef.current / 5)),
-        };
-
-        if (connectionStateRef.current !== 'ok' && missionDocument?.active_track_id) {
-          const activeId = missionDocument.active_track_id;
-          activeTrackSegmentRef.current[activeId] = (activeTrackSegmentRef.current[activeId] ?? 1) + 1;
-        }
-
-        lastDataAtRef.current = Date.now();
-        connectionStateRef.current = 'ok';
-        setConnectionStatus('ok');
-        appendTrackPoint(next.lat, next.lon, next.speed, next.course, next.depth);
-        return next;
-      });
-    }, 1000);
-
-    const timeoutInterval = window.setInterval(() => {
-      if (!simulationEnabled || simulateConnectionError) {
-        return;
-      }
-      if (Date.now() - lastDataAtRef.current > CONNECTION_TIMEOUT_MS) {
-        connectionStateRef.current = 'timeout';
-        setConnectionStatus('timeout');
-      }
-    }, 1000);
-
+    const unsubscribeFix = telemetryProvider.onFix(handleTelemetryFix);
+    const unsubscribeConnection = telemetryProvider.onConnectionState(handleConnectionState);
+    telemetryProvider.start();
     return () => {
-      window.clearInterval(dataInterval);
-      window.clearInterval(timeoutInterval);
+      unsubscribeFix();
+      unsubscribeConnection();
+      telemetryProvider.stop();
     };
-  }, [appendTrackPoint, missionDocument?.active_track_id, simulateConnectionError, simulationEnabled, trackStatus]);
+  }, [handleConnectionState, handleTelemetryFix, telemetryProvider]);
 
   useEffect(() => {
-    if (simulateConnectionError) {
-      connectionStateRef.current = 'error';
-      setConnectionStatus('error');
+    telemetryProvider.setEnabled(simulationEnabled);
+  }, [simulationEnabled, telemetryProvider]);
+
+  useEffect(() => {
+    telemetryProvider.setSimulateConnectionError(simulateConnectionError);
+  }, [simulateConnectionError, telemetryProvider]);
+
+  useEffect(() => {
+    if (connectionStatus === 'ok') {
       return;
     }
+    const intervalId = window.setInterval(() => {
+      setConnectionLostSeconds(Math.max(1, Math.floor((Date.now() - lastFixAtRef.current) / 1000)));
+    }, 1000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [connectionStatus]);
 
-    if (!simulationEnabled) {
-      connectionStateRef.current = 'ok';
-      setConnectionStatus('ok');
-      return;
-    }
-
-    lastDataAtRef.current = Date.now();
-  }, [simulateConnectionError, simulationEnabled]);
+  useEffect(() => {
+    const handlePageHide = () => persistMissionBestEffort();
+    const handleBeforeUnload = () => persistMissionBestEffort();
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      persistMissionBestEffort();
+    };
+  }, [persistMissionBestEffort]);
 
   const handleToolChange = (tool: Tool) => {
     setActiveTool(tool);
   };
 
-  const handleLayerToggle = (layer: keyof typeof layers) => {
+  const handleLayerToggle = (layer: keyof LayersState) => {
     if (layer === 'diver') return;
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
   };
 
-  const handleTrackAction = (action: 'pause' | 'resume' | 'stop') => {
+  const handleTrackAction = (action: 'pause' | 'resume') => {
     if (action === 'pause') {
-      closeActiveTrack();
-      setTrackStatus('paused');
+      setRecordingState((prev) => trackRecorderReduce(prev, { type: 'pause' }));
       return;
     }
-    if (action === 'resume') {
-      startNewTrack();
+    if (isDraft) {
+      setShowCreateMission(true);
       return;
     }
-    closeActiveTrack();
-    setTrackStatus('stopped');
+    setRecordingState((prev) => trackRecorderReduce(prev, { type: 'resume' }));
+  };
+
+  const handleTrackDelete = (trackId: string) => {
+    const track = missionDocument?.tracks.find((item) => item.id === trackId);
+    if (!track) return;
+
+    const isActive = missionDocument?.active_track_id === trackId;
+    const question = isActive
+      ? 'Удалить активный трек? Запись будет остановлена.'
+      : 'Удалить выбранный трек?';
+    if (!window.confirm(question)) {
+      return;
+    }
+
+    setRecordingState((prev) => trackRecorderReduce(prev, { type: 'deleteTrack', trackId }));
   };
 
   const handleObjectSelect = (id: string | null) => {
@@ -473,28 +524,54 @@ const MapWorkspace = () => {
     }
   };
 
-  const handleBackToStart = () => {
-    void releaseCurrentLock().then(() => navigate('/'));
+  const handleFinishMission = () => {
+    if (isDraft) return;
+    if (!window.confirm('Завершить миссию и перейти в черновик?')) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        await persistMissionSnapshot(latestSnapshotRef.current, { closeActiveTrack: true });
+      } catch {
+        // ignore
+      } finally {
+        await loadDraft(false);
+        navigate('/map?mode=draft', { replace: true });
+      }
+    })();
   };
 
   const handleObjectUpdate = (id: string, updates: Partial<MapObject>) => {
     setObjects((prev) => prev.map((obj) => (obj.id === id ? { ...obj, ...updates } : obj)));
   };
   const handleObjectDelete = useCallback((id: string) => {
+    setLaneFeatures((prev) => prev.filter((lane) => lane.properties.parent_area_id !== id));
     setObjects((prev) => prev.filter((obj) => obj.id !== id));
     setSelectedObjectId((prev) => (prev === id ? null : prev));
   }, []);
 
   const handleRegenerateLanes = (id: string) => {
-    console.log('Regenerate lanes for', id);
-    // TODO: Implement lane generation logic
+    const zone = objects.find((obj) => obj.id === id && obj.type === 'zone' && obj.geometry?.type === 'zone');
+    if (!zone || zone.geometry?.type !== 'zone') return;
+
+    const nextLanes = generateLanesForZone({
+      parentAreaId: id,
+      points: zone.geometry.points,
+      laneAngleDeg: zone.laneAngle === 90 ? 90 : 0,
+      laneWidthM: Number.isFinite(zone.laneWidth) ? Math.max(1, zone.laneWidth ?? 5) : 5,
+    });
+    if (nextLanes.length === 0) {
+      window.alert('Не удалось сгенерировать галсы для зоны. Проверьте геометрию и параметры.');
+      return;
+    }
+
+    setLaneFeatures((prev) => [...prev.filter((lane) => lane.properties.parent_area_id !== id), ...nextLanes]);
   };
 
   const getNextObjectName = (type: string) => {
     const prefix = type === 'marker' ? 'Маркер' : type === 'route' ? 'Маршрут' : 'Зона';
-    const existingNames = objects
-      .filter((o) => o.type === type)
-      .map((o) => o.name);
+    const existingNames = objects.filter((o) => o.type === type).map((o) => o.name);
 
     let counter = 1;
     while (existingNames.includes(`${prefix} ${counter}`)) {
@@ -529,7 +606,7 @@ const MapWorkspace = () => {
         onOpenOpen={() => setShowOpenMission(true)}
         onOpenExport={() => setShowExport(true)}
         onOpenSettings={() => setShowSettings(true)}
-        onBackToStart={handleBackToStart}
+        onFinishMission={handleFinishMission}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -537,14 +614,18 @@ const MapWorkspace = () => {
           layers={layers}
           onLayerToggle={handleLayerToggle}
           objects={objects}
+          missionDocument={missionDocument}
+          trackStatus={trackStatus}
           selectedObjectId={selectedObjectId}
           onObjectSelect={handleObjectSelect}
           onObjectDelete={handleObjectDelete}
+          onTrackDelete={handleTrackDelete}
         />
 
         <div className="flex-1 relative">
           <MapCanvas
             activeTool={activeTool}
+            laneFeatures={laneFeatures}
             layers={layers}
             objects={objects}
             selectedObjectId={selectedObjectId}
@@ -552,6 +633,8 @@ const MapWorkspace = () => {
             trackSegments={trackSegments}
             isFollowing={isFollowing}
             connectionStatus={connectionStatus}
+            connectionLostSeconds={connectionLostSeconds}
+            onToolChange={handleToolChange}
             onCursorMove={setCursorPosition}
             onObjectSelect={handleObjectSelect}
             onObjectDoubleClick={(id) => {
@@ -566,7 +649,6 @@ const MapWorkspace = () => {
                 visible: true,
                 geometry: geometry,
                 color: getDefaultObjectColor(geometry.type),
-                // Default values
                 laneAngle: geometry.type === 'zone' ? 0 : undefined,
                 laneWidth: geometry.type === 'zone' ? 5 : undefined,
                 note: '',
@@ -605,11 +687,7 @@ const MapWorkspace = () => {
         onConfirm={handleCreateMission}
       />
 
-      <OpenMissionDialog
-        open={showOpenMission}
-        onOpenChange={setShowOpenMission}
-        onConfirm={handleOpenMission}
-      />
+      <OpenMissionDialog open={showOpenMission} onOpenChange={setShowOpenMission} onConfirm={handleOpenMission} />
 
       <ExportDialog open={showExport} onOpenChange={setShowExport} />
 
