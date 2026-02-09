@@ -34,13 +34,14 @@ interface TopToolbarProps {
   activeTool: Tool;
   trackStatus: 'recording' | 'paused' | 'stopped';
   isFollowing: boolean;
-  simulationEnabled: boolean;
-  simulateConnectionError: boolean;
+  showSimulationControls: boolean;
+  simulationEnabled?: boolean;
+  simulateConnectionError?: boolean;
   onToolChange: (tool: Tool) => void;
   onTrackAction: (action: 'pause' | 'resume') => void;
   onFollowToggle: () => void;
-  onSimulationToggle: () => void;
-  onSimulationErrorToggle: () => void;
+  onSimulationToggle?: () => void;
+  onSimulationErrorToggle?: () => void;
   onOpenCreate: () => void;
   onOpenOpen: () => void;
   onOpenExport: () => void;
@@ -55,8 +56,9 @@ const TopToolbar = ({
   activeTool,
   trackStatus,
   isFollowing,
-  simulationEnabled,
-  simulateConnectionError,
+  showSimulationControls,
+  simulationEnabled = false,
+  simulateConnectionError = false,
   onToolChange,
   onTrackAction,
   onFollowToggle,
@@ -182,29 +184,33 @@ const TopToolbar = ({
         <span className="hidden lg:inline text-sm">Слежение</span>
       </Button>
 
-      <Button
-        variant={simulationEnabled ? 'secondary' : 'outline'}
-        size="sm"
-        className="h-8 px-3"
-        onClick={onSimulationToggle}
-      >
-        <span className="hidden lg:inline text-sm">
-          {simulationEnabled ? 'Стоп симуляции' : 'Старт симуляции'}
-        </span>
-        <span className="lg:hidden text-sm">{simulationEnabled ? 'Стоп' : 'Старт'}</span>
-      </Button>
+      {showSimulationControls ? (
+        <>
+          <Button
+            variant={simulationEnabled ? 'secondary' : 'outline'}
+            size="sm"
+            className="h-8 px-3"
+            onClick={onSimulationToggle}
+          >
+            <span className="hidden lg:inline text-sm">
+              {simulationEnabled ? 'Стоп симуляции' : 'Старт симуляции'}
+            </span>
+            <span className="lg:hidden text-sm">{simulationEnabled ? 'Стоп' : 'Старт'}</span>
+          </Button>
 
-      <Button
-        variant={simulateConnectionError ? 'destructive' : 'outline'}
-        size="sm"
-        className="h-8 px-3"
-        onClick={onSimulationErrorToggle}
-      >
-        <span className="hidden lg:inline text-sm">
-          {simulateConnectionError ? 'Ошибка: ВКЛ' : 'Ошибка: ВЫКЛ'}
-        </span>
-        <span className="lg:hidden text-sm">Ошибка</span>
-      </Button>
+          <Button
+            variant={simulateConnectionError ? 'destructive' : 'outline'}
+            size="sm"
+            className="h-8 px-3"
+            onClick={onSimulationErrorToggle}
+          >
+            <span className="hidden lg:inline text-sm">
+              {simulateConnectionError ? 'Ошибка: ВКЛ' : 'Ошибка: ВЫКЛ'}
+            </span>
+            <span className="lg:hidden text-sm">Ошибка</span>
+          </Button>
+        </>
+      ) : null}
 
       <div className="flex-1" />
 

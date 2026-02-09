@@ -22,3 +22,42 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Build outputs
+dist/
+build/
+release/
+win-unpacked/
+*.asar
+*.exe
+*.msi
+*.zip
+*.7z
+
+# Test coverage
+coverage/
+coverage-report/
+.nyc_output/
+
+# Vite / cache
+.node_modules/.cache
+.cache
+.vite/
+
+# Environment and secret files
+.env
+.env.*.local
+*.p12
+*.pfx
+*.pem
+
+# Logs and temp files
+logs
+*.log
+npm-debug.log*
+
+# OS files
+Thumbs.db
+.DS_Store
+
+

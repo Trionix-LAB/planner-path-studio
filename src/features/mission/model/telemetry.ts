@@ -31,6 +31,37 @@ type SimulationTelemetryOptions = {
 const DEFAULT_INTERVAL_MS = 1000;
 const DEFAULT_TIMEOUT_MS = 5000;
 
+export const createNoopTelemetryProvider = (): TelemetryProvider => {
+  const connectionListeners = new Set<(nextState: TelemetryConnectionState) => void>();
+
+  return {
+    start: () => {
+      // Electron MVP: telemetry stream is disabled, keep stable "ok" state.
+      connectionListeners.forEach((listener) => listener('ok'));
+    },
+    stop: () => {
+      // no-op
+    },
+    setEnabled: () => {
+      // no-op
+    },
+    setSimulateConnectionError: () => {
+      // no-op
+    },
+    onFix: () => {
+      return () => {
+        // no-op
+      };
+    },
+    onConnectionState: (listener) => {
+      connectionListeners.add(listener);
+      return () => {
+        connectionListeners.delete(listener);
+      };
+    },
+  };
+};
+
 export const createSimulationTelemetryProvider = (
   options?: SimulationTelemetryOptions,
 ): TelemetryProvider => {
@@ -161,4 +192,3 @@ export const createSimulationTelemetryProvider = (
     },
   };
 };
-

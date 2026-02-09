@@ -14,7 +14,7 @@ export {
   replaceZoneLanes,
 } from './model/zoneLanes';
 export type { OutdatedZoneIds } from './model/zoneLanes';
-export { createSimulationTelemetryProvider } from './model/telemetry';
+export { createNoopTelemetryProvider, createSimulationTelemetryProvider } from './model/telemetry';
 export type { TelemetryConnectionState, TelemetryFix, TelemetryProvider } from './model/telemetry';
 export { createTrackRecorderState, trackRecorderReduce } from './model/trackRecorder';
 export type { TrackFixPayload, TrackRecorderEvent, TrackRecorderState, TrackRecorderStatus } from './model/trackRecorder';
