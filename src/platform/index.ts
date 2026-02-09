@@ -1,9 +1,9 @@
 import type { Platform } from "@/platform/contracts";
+import { detectElectron } from "@/platform/runtime";
+import { electronPlatform } from "@/platform/electron/platform";
 import { webPlatform } from "@/platform/web/platform";
 
-// For now we only ship a web implementation.
-// When Electron is introduced, keep the same interface and switch the implementation here.
-export const platform: Platform = webPlatform;
+export const platform: Platform = detectElectron() ? electronPlatform : webPlatform;
 
 export type { Platform, PickDirectoryOptions } from "@/platform/contracts";
 

@@ -18,6 +18,7 @@ import {
   countZoneLanes,
   createDefaultDivers,
   createMissionRepository,
+  createNoopTelemetryProvider,
   createSimulationTelemetryProvider,
   createTrackRecorderState,
   didZoneLaneInputsChange,
@@ -129,10 +130,15 @@ const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
 const MapWorkspace = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const isElectronRuntime = platform.runtime.isElectron;
+  const showSimulationControls = !isElectronRuntime;
   const repository = useMemo(() => createMissionRepository(platform.fileStore), []);
   const telemetryProvider = useMemo(
-    () => createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
-    [],
+    () =>
+      isElectronRuntime
+        ? createNoopTelemetryProvider()
+        : createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
+    [isElectronRuntime],
   );
 
   const [missionRootPath, setMissionRootPath] = useState<string | null>(null);
@@ -141,7 +147,7 @@ const MapWorkspace = () => {
   const [autoSaveStatus, setAutoSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [isFollowing, setIsFollowing] = useState(true);
-  const [simulationEnabled, setSimulationEnabled] = useState(true);
+  const [simulationEnabled, setSimulationEnabled] = useState(!isElectronRuntime);
   const [simulateConnectionError, setSimulateConnectionError] = useState(false);
   const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
   const [missionDivers, setMissionDivers] = useState<DiverUiConfig[]>(() => createDefaultDivers(1));
@@ -192,7 +198,6 @@ const MapWorkspace = () => {
   const autosaveTimerRef = useRef<number | null>(null);
   const lastFixAtRef = useRef<number>(Date.now());
   const connectionStateRef = useRef<TelemetryConnectionState>('ok');
-  const simulationEnabledRef = useRef<boolean>(simulationEnabled);
   const appSettingsRef = useRef<AppSettingsV1>(DEFAULT_APP_SETTINGS);
   const latestSnapshotRef = useRef<WorkspaceSnapshot>({
     missionRootPath: null,
@@ -322,10 +327,6 @@ const MapWorkspace = () => {
     styles,
     isLoaded,
   ]);
-
-  useEffect(() => {
-    simulationEnabledRef.current = simulationEnabled;
-  }, [simulationEnabled]);
 
   const releaseCurrentLock = useCallback(async () => {
     if (!lockOwnerRootRef.current) return;
@@ -638,7 +639,7 @@ const MapWorkspace = () => {
     setConnectionStatus(nextState);
 
     if (nextState === 'ok') {
-      if (previousState !== 'ok' && simulationEnabledRef.current) {
+      if (previousState !== 'ok') {
         setRecordingState((prev) => trackRecorderReduce(prev, { type: 'connectionRestored' }));
       }
       setConnectionLostSeconds(0);
@@ -660,12 +661,14 @@ const MapWorkspace = () => {
   }, [handleConnectionState, handleTelemetryFix, telemetryProvider]);
 
   useEffect(() => {
+    if (isElectronRuntime) return;
     telemetryProvider.setEnabled(simulationEnabled);
-  }, [simulationEnabled, telemetryProvider]);
+  }, [isElectronRuntime, simulationEnabled, telemetryProvider]);
 
   useEffect(() => {
+    if (isElectronRuntime) return;
     telemetryProvider.setSimulateConnectionError(simulateConnectionError);
-  }, [simulateConnectionError, telemetryProvider]);
+  }, [isElectronRuntime, simulateConnectionError, telemetryProvider]);
 
   useEffect(() => {
     if (connectionStatus === 'ok') {
@@ -1088,13 +1091,16 @@ const MapWorkspace = () => {
         activeTool={activeTool}
         trackStatus={trackStatus}
         isFollowing={isFollowing}
-        simulationEnabled={simulationEnabled}
-        simulateConnectionError={simulateConnectionError}
+        showSimulationControls={showSimulationControls}
+        simulationEnabled={showSimulationControls ? simulationEnabled : undefined}
+        simulateConnectionError={showSimulationControls ? simulateConnectionError : undefined}
         onToolChange={handleToolChange}
         onTrackAction={handleTrackAction}
         onFollowToggle={() => setIsFollowing(!isFollowing)}
-        onSimulationToggle={() => setSimulationEnabled((prev) => !prev)}
-        onSimulationErrorToggle={() => setSimulateConnectionError((prev) => !prev)}
+        onSimulationToggle={showSimulationControls ? () => setSimulationEnabled((prev) => !prev) : undefined}
+        onSimulationErrorToggle={
+          showSimulationControls ? () => setSimulateConnectionError((prev) => !prev) : undefined
+        }
         onOpenCreate={() => setShowCreateMission(true)}
         onOpenOpen={() => setShowOpenMission(true)}
         onOpenExport={() => setShowExport(true)}
