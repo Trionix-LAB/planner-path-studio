@@ -6,6 +6,7 @@ import { Route, Routes } from "react-router-dom";
 import StartScreen from "./pages/StartScreen";
 import MapWorkspace from "./pages/MapWorkspace";
 import NotFound from "./pages/NotFound";
+import EquipmentScreen from "./pages/EquipmentScreen";
 import { AppRouter } from "@/platform/router";
 
 const queryClient = new QueryClient();
@@ -21,6 +22,7 @@ const App = () => (
           <Route path="/map" element={<MapWorkspace />} />
           <Route path="/create-mission" element={<MapWorkspace />} />
           <Route path="/open-mission" element={<MapWorkspace />} />
+          <Route path="/equipment" element={<EquipmentScreen />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

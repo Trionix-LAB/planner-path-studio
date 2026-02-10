@@ -1,0 +1,63 @@
+Zima2R:
+  ipAddress:
+    label: IP-адрес
+    inputForm: text-line
+    inputMask: 0.0.0.0
+    defaultValue: 127.0.0.1
+  commandPort:
+    label: Входной порт команд
+    inputForm: text-line
+    inputMask: none
+    enabledBy: useCommandPort
+    defaultValue: 28128
+  dataPort:
+    label: Выходной порт данных
+    inputForm: text-line
+    inputMask: none
+    defaultValue: 28127
+  gnssBaud:
+    label: Скорость порта ГНСС
+    inputForm: text-line
+    inputMask: none
+    enabledBy: useExternalGnss
+    defaultValue: 115200
+  useExternalGnss:
+    label: Использование внешнего ГНСС
+    inputForm: boolean
+    inputMask: none
+    defaultValue: false
+  useCommandPort:
+    label: Использование порта команд
+    inputForm: boolean
+    inputMask: none
+    defaultValue: false
+  latitude:
+    label: Широта
+    inputForm: text-line
+    inputMask: dd.mmmmmm
+    enabledBy: '!useExternalGnss'
+    defaultValue: ''
+    validation:
+      type: number
+      min: -90
+      max: 90
+  longitude:
+    label: Долгота
+    inputForm: text-line
+    inputMask: ddd.mmmmmm
+    enabledBy: '!useExternalGnss'
+    defaultValue: ''
+    validation:
+      type: number
+      min: -180
+      max: 180
+  azimuth:
+    label: Азимут
+    inputForm: text-line
+    inputMask: none
+    enabledBy: '!useExternalGnss'
+    defaultValue: ''
+    validation:
+      type: number
+      min: 0
+      max: 360
