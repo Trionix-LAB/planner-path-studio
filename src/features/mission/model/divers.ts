@@ -28,8 +28,8 @@ const normalizeText = (value: unknown, fallback: string): string => {
 
 export const createDefaultDiver = (index: number): DiverUiConfig => ({
   uid: crypto.randomUUID(),
-  id: `diver-${index + 1}`,
-  title: `Водолаз ${index + 1}`,
+  id: `${index + 1}`,
+  title: `Маяк ${index + 1}`,
   marker_color: DEFAULT_DIVER_MARKER_COLOR,
   marker_size_px: DEFAULT_DIVER_MARKER_SIZE,
   track_color: DEFAULT_DIVER_TRACK_COLOR,

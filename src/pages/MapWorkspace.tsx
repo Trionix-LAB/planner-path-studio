@@ -10,6 +10,7 @@ import OpenMissionDialog from '@/components/dialogs/OpenMissionDialog';
 import ExportDialog from '@/components/dialogs/ExportDialog';
 import SettingsDialog from '@/components/dialogs/SettingsDialog';
 import type { MapObject, Tool } from '@/features/map/model/types';
+
 import {
   buildEquipmentRuntime,
   EQUIPMENT_RUNTIME_STORAGE_KEY,
@@ -25,7 +26,6 @@ import {
   countZoneLanes,
   createDefaultDivers,
   createMissionRepository,
-  createNoopTelemetryProvider,
   createSimulationTelemetryProvider,
   createTrackRecorderState,
   didZoneLaneInputsChange,
@@ -141,8 +141,9 @@ const MapWorkspace = () => {
   const showSimulationControls = !isElectronRuntime;
   const repository = useMemo(() => createMissionRepository(platform.fileStore), []);
   const telemetryProvider = useMemo(
-    () => createNoopTelemetryProvider(), []
-);
+    () => createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
+    [isElectronRuntime],
+  );
 
   const [missionRootPath, setMissionRootPath] = useState<string | null>(null);
   const [missionName, setMissionName] = useState<string | null>(null);
@@ -673,6 +674,7 @@ const MapWorkspace = () => {
     if (isElectronRuntime) return;
     telemetryProvider.setSimulateConnectionError(simulateConnectionError);
   }, [isElectronRuntime, simulateConnectionError, telemetryProvider]);
+
 
   useEffect(() => {
     if (!isElectronRuntime || !showSettings) return;
