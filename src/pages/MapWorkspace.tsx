@@ -10,7 +10,9 @@ import OpenMissionDialog from '@/components/dialogs/OpenMissionDialog';
 import ExportDialog from '@/components/dialogs/ExportDialog';
 import SettingsDialog from '@/components/dialogs/SettingsDialog';
 import type { MapObject, Tool } from '@/features/map/model/types';
+
 import {
+  createElectronZimaTelemetryProvider,
   buildTrackSegments,
   bundleToMapObjects,
   cascadeDeleteZone,
@@ -18,7 +20,6 @@ import {
   countZoneLanes,
   createDefaultDivers,
   createMissionRepository,
-  createNoopTelemetryProvider,
   createSimulationTelemetryProvider,
   createTrackRecorderState,
   didZoneLaneInputsChange,
@@ -134,10 +135,7 @@ const MapWorkspace = () => {
   const showSimulationControls = !isElectronRuntime;
   const repository = useMemo(() => createMissionRepository(platform.fileStore), []);
   const telemetryProvider = useMemo(
-    () =>
-      isElectronRuntime
-        ? createNoopTelemetryProvider()
-        : createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
+    () => createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
     [isElectronRuntime],
   );
 
@@ -148,6 +146,8 @@ const MapWorkspace = () => {
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [isFollowing, setIsFollowing] = useState(true);
   const [simulationEnabled, setSimulationEnabled] = useState(!isElectronRuntime);
+  const [equipmentEnabled, setEquipmentEnabled] = useState(false);
+  const [selectedEquipmentName, setSelectedEquipmentName] = useState<string>('Zima2R');
   const [simulateConnectionError, setSimulateConnectionError] = useState(false);
   const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
   const [missionDivers, setMissionDivers] = useState<DiverUiConfig[]>(() => createDefaultDivers(1));
@@ -661,14 +661,14 @@ const MapWorkspace = () => {
   }, [handleConnectionState, handleTelemetryFix, telemetryProvider]);
 
   useEffect(() => {
-    if (isElectronRuntime) return;
-    telemetryProvider.setEnabled(simulationEnabled);
-  }, [isElectronRuntime, simulationEnabled, telemetryProvider]);
+    telemetryProvider.setEnabled(isElectronRuntime ? equipmentEnabled : simulationEnabled);
+  }, [equipmentEnabled, isElectronRuntime, simulationEnabled, telemetryProvider]);
 
   useEffect(() => {
     if (isElectronRuntime) return;
     telemetryProvider.setSimulateConnectionError(simulateConnectionError);
   }, [isElectronRuntime, simulateConnectionError, telemetryProvider]);
+
 
   useEffect(() => {
     if (connectionStatus === 'ok') {
@@ -818,6 +818,11 @@ const MapWorkspace = () => {
 
   const handleDiversReset = () => {
     setMissionDivers(createDefaultDivers(1));
+  };
+
+  const handleToggleEquipmentConnection = (enabled: boolean) => {
+    setEquipmentEnabled(enabled);
+    toast({ title: enabled ? 'Оборудование включено' : 'Оборудование выключено' });
   };
 
   const handleExport = async (request: ExportRequest) => {
@@ -1112,7 +1117,7 @@ const MapWorkspace = () => {
         <LeftPanel
           layers={layers}
           primaryDiverTitle={
-            missionDivers[0]?.title?.trim() || missionDivers[0]?.id?.trim() || 'Водолаз 1'
+            missionDivers[0]?.title?.trim() || missionDivers[0]?.id?.trim() || 'Маяк 1'
           }
           primaryTrackColor={missionDivers[0]?.track_color ?? '#a855f7'}
           onLayerToggle={handleLayerToggle}
@@ -1221,6 +1226,7 @@ const MapWorkspace = () => {
         onApplyDivers={handleDiversApply}
         onReset={handleSettingsReset}
         onResetDivers={handleDiversReset}
+        
       />
     </div>
   );
