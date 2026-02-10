@@ -10,13 +10,7 @@ import OpenMissionDialog from '@/components/dialogs/OpenMissionDialog';
 import ExportDialog from '@/components/dialogs/ExportDialog';
 import SettingsDialog from '@/components/dialogs/SettingsDialog';
 import type { MapObject, Tool } from '@/features/map/model/types';
-import {
-  buildEquipmentRuntime,
-  EQUIPMENT_RUNTIME_STORAGE_KEY,
-  EQUIPMENT_SETTINGS_STORAGE_KEY,
-  loadDeviceSchemas,
-  normalizeEquipmentSettings,
-} from '@/features/devices';
+
 import {
   createElectronZimaTelemetryProvider,
   buildTrackSegments,
@@ -141,55 +135,7 @@ const MapWorkspace = () => {
   const showSimulationControls = !isElectronRuntime;
   const repository = useMemo(() => createMissionRepository(platform.fileStore), []);
   const telemetryProvider = useMemo(
-    () =>
-      isElectronRuntime
-        ? createElectronZimaTelemetryProvider({
-            timeoutMs: CONNECTION_TIMEOUT_MS,
-            readConfig: async () => {
-              const storedRuntime = await platform.settings.readJson<{
-                schema_version?: number;
-                zima?: {
-                  ipAddress?: string;
-                  dataPort?: number;
-                  commandPort?: number;
-                  useCommandPort?: boolean;
-                  useExternalGnss?: boolean;
-                  latitude?: number | null;
-                  longitude?: number | null;
-                  azimuth?: number | null;
-                };
-              }>(EQUIPMENT_RUNTIME_STORAGE_KEY);
-
-              if (storedRuntime?.zima) {
-                return {
-                  ipAddress: storedRuntime.zima.ipAddress ?? '127.0.0.1',
-                  dataPort: storedRuntime.zima.dataPort ?? 28127,
-                  commandPort: storedRuntime.zima.commandPort ?? 28128,
-                  useCommandPort: Boolean(storedRuntime.zima.useCommandPort),
-                  useExternalGnss: Boolean(storedRuntime.zima.useExternalGnss),
-                  latitude: storedRuntime.zima.latitude ?? null,
-                  longitude: storedRuntime.zima.longitude ?? null,
-                  azimuth: storedRuntime.zima.azimuth ?? null,
-                };
-              }
-
-              const equipmentRaw = await platform.settings.readJson<unknown>(EQUIPMENT_SETTINGS_STORAGE_KEY);
-              const runtime = buildEquipmentRuntime(normalizeEquipmentSettings(equipmentRaw));
-              if (!runtime.zima) return null;
-
-              return {
-                ipAddress: runtime.zima.ipAddress,
-                dataPort: runtime.zima.dataPort,
-                commandPort: runtime.zima.commandPort,
-                useCommandPort: runtime.zima.useCommandPort,
-                useExternalGnss: runtime.zima.useExternalGnss,
-                latitude: runtime.zima.latitude,
-                longitude: runtime.zima.longitude,
-                azimuth: runtime.zima.azimuth,
-              };
-            },
-          })
-        : createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
+    () => createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
     [isElectronRuntime],
   );
 
@@ -723,16 +669,6 @@ const MapWorkspace = () => {
     telemetryProvider.setSimulateConnectionError(simulateConnectionError);
   }, [isElectronRuntime, simulateConnectionError, telemetryProvider]);
 
-  useEffect(() => {
-    if (!isElectronRuntime || !showSettings) return;
-    void (async () => {
-      const equipmentRaw = await platform.settings.readJson<unknown>(EQUIPMENT_SETTINGS_STORAGE_KEY);
-      const normalized = normalizeEquipmentSettings(equipmentRaw);
-      const schemas = loadDeviceSchemas();
-      const selected = schemas.find((schema) => schema.id === normalized.selected_device_id);
-      setSelectedEquipmentName(selected?.title ?? 'Не выбрано');
-    })();
-  }, [isElectronRuntime, showSettings]);
 
   useEffect(() => {
     if (connectionStatus === 'ok') {
@@ -1290,18 +1226,7 @@ const MapWorkspace = () => {
         onApplyDivers={handleDiversApply}
         onReset={handleSettingsReset}
         onResetDivers={handleDiversReset}
-        equipmentName={selectedEquipmentName}
-        equipmentEnabled={equipmentEnabled}
-        equipmentStatusText={
-          equipmentEnabled
-            ? connectionStatus === 'ok'
-              ? 'Подключено'
-              : connectionStatus === 'timeout'
-                ? `Нет данных ${connectionLostSeconds} сек`
-                : 'Ошибка'
-            : 'Выключено'
-        }
-        onToggleEquipment={isElectronRuntime ? handleToggleEquipmentConnection : undefined}
+        
       />
     </div>
   );
