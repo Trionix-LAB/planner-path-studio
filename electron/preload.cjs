@@ -14,6 +14,25 @@ const CHANNELS = {
     writeJson: 'planner:settings:writeJson',
     remove: 'planner:settings:remove',
   },
+  zima: {
+    start: 'planner:zima:start',
+    stop: 'planner:zima:stop',
+    sendCommand: 'planner:zima:sendCommand',
+    status: 'planner:zima:status',
+    events: {
+      data: 'planner:zima:data',
+      status: 'planner:zima:statusChanged',
+      error: 'planner:zima:error',
+    },
+  },
+};
+
+const subscribe = (channel, listener) => {
+  const wrapped = (_event, payload) => {
+    listener(payload);
+  };
+  ipcRenderer.on(channel, wrapped);
+  return () => ipcRenderer.removeListener(channel, wrapped);
 };
 
 const api = {
@@ -29,6 +48,15 @@ const api = {
     readJson: (key) => ipcRenderer.invoke(CHANNELS.settings.readJson, key),
     writeJson: (key, value) => ipcRenderer.invoke(CHANNELS.settings.writeJson, key, value),
     remove: (key) => ipcRenderer.invoke(CHANNELS.settings.remove, key),
+  },
+  zima: {
+    start: (config) => ipcRenderer.invoke(CHANNELS.zima.start, config),
+    stop: () => ipcRenderer.invoke(CHANNELS.zima.stop),
+    sendCommand: (command) => ipcRenderer.invoke(CHANNELS.zima.sendCommand, command),
+    status: () => ipcRenderer.invoke(CHANNELS.zima.status),
+    onData: (listener) => subscribe(CHANNELS.zima.events.data, listener),
+    onStatus: (listener) => subscribe(CHANNELS.zima.events.status, listener),
+    onError: (listener) => subscribe(CHANNELS.zima.events.error, listener),
   },
 };
 

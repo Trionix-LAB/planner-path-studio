@@ -34,6 +34,10 @@ interface SettingsDialogProps {
   onApplyDivers: (next: DiverUiConfig[]) => Promise<void> | void;
   onReset: () => Promise<void> | void;
   onResetDivers: () => Promise<void> | void;
+  equipmentName?: string;
+  equipmentEnabled?: boolean;
+  equipmentStatusText?: string;
+  onToggleEquipment?: (enabled: boolean) => Promise<void> | void;
 }
 
 const clampNumber = (value: string, fallback: number, min: number, max: number): number => {
@@ -51,6 +55,10 @@ const SettingsDialog = ({
   onApplyDivers,
   onReset,
   onResetDivers,
+  equipmentName,
+  equipmentEnabled = false,
+  equipmentStatusText,
+  onToggleEquipment,
 }: SettingsDialogProps) => {
   const initial = useMemo(() => value, [value]);
   const [draft, setDraft] = useState<AppUiDefaults>(initial);
@@ -89,8 +97,8 @@ const SettingsDialog = ({
       ...diversDraft,
       {
         uid: crypto.randomUUID(),
-        id: `diver-${index + 1}`,
-        title: `Водолаз ${index + 1}`,
+        id: `${index + 1}`,
+        title: `Маяк ${index + 1}`,
         marker_color: '#0ea5e9',
         marker_size_px: 32,
         track_color: '#a855f7',
@@ -143,7 +151,7 @@ const SettingsDialog = ({
             <TabsTrigger value="coordinates">Координаты</TabsTrigger>
             <TabsTrigger value="styles">Стили</TabsTrigger>
             <TabsTrigger value="defaults">По умолчанию</TabsTrigger>
-            <TabsTrigger value="connection">Подключение</TabsTrigger>
+            <TabsTrigger value="connection">Агенты</TabsTrigger>
           </TabsList>
 
           <div className="mt-4 flex-1 min-h-0 overflow-y-auto pr-1">
@@ -573,41 +581,30 @@ const SettingsDialog = ({
             </TabsContent>
 
             <TabsContent value="connection" className="mt-0 space-y-6">
-              <div className="space-y-2">
-                <Label>Хост</Label>
-                <Input
-                  value={draft.connection.host}
-                  onChange={(e) =>
-                    update({
-                      ...draft,
-                      connection: { ...draft.connection, host: e.target.value },
-                    })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Порт</Label>
-                <Input
-                  inputMode="numeric"
-                  value={String(draft.connection.port)}
-                  onChange={(e) =>
-                    update({
-                      ...draft,
-                      connection: {
-                        ...draft.connection,
-                        port: clampNumber(e.target.value, 9000, 1, 65535),
-                      },
-                    })
-                  }
-                />
+              <div className="rounded-md border border-border bg-secondary/40 p-3 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="font-medium text-foreground">Оборудование</div>
+                    <div className="text-muted-foreground">{equipmentName ?? 'Не выбрано'}</div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant={equipmentEnabled ? 'destructive' : 'default'}
+                    size="sm"
+                    onClick={() => onToggleEquipment?.(!equipmentEnabled)}
+                    disabled={!onToggleEquipment}
+                  >
+                    {equipmentEnabled ? 'Выключить' : 'Включить'}
+                  </Button>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">Статус: {equipmentStatusText ?? 'Выключено'}</div>
               </div>
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-medium">Водолазы</div>
                   <Button type="button" variant="outline" size="sm" onClick={handleAddDiver}>
-                    Добавить водолаза
+                    Добавить маяк
                   </Button>
                 </div>
 

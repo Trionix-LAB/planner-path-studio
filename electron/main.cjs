@@ -1,6 +1,7 @@
 const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
+const dgram = require('dgram');
 
 const CHANNELS = {
   pickDirectory: 'planner:pickDirectory',
@@ -16,8 +17,26 @@ const CHANNELS = {
     writeJson: 'planner:settings:writeJson',
     remove: 'planner:settings:remove',
   },
+  zima: {
+    start: 'planner:zima:start',
+    stop: 'planner:zima:stop',
+    sendCommand: 'planner:zima:sendCommand',
+    status: 'planner:zima:status',
+    events: {
+      data: 'planner:zima:data',
+      status: 'planner:zima:statusChanged',
+      error: 'planner:zima:error',
+    },
+  },
 };
 const FILE_STORE_ROOT_DIR = 'planner.fs';
+
+const DEFAULT_ZIMA_CONFIG = {
+  ipAddress: '127.0.0.1',
+  dataPort: 28127,
+  commandPort: 28128,
+  useCommandPort: false,
+};
 
 const normalizeInputPath = (value) => {
   if (typeof value !== 'string') throw new Error('Invalid path');
@@ -86,6 +105,156 @@ const writeSettingsFile = async (settingsPath, data) => {
   await fs.writeFile(settingsPath, JSON.stringify(data, null, 2), 'utf8');
 };
 
+const clampPort = (value, fallback) => {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) return fallback;
+  return n;
+};
+
+const normalizeHost = (value, fallback) => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+};
+
+const normalizeBoolean = (value, fallback) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return fallback;
+};
+
+const normalizeZimaConfig = (input) => {
+  const source = input && typeof input === 'object' ? input : {};
+  return {
+    ipAddress: normalizeHost(source.ipAddress, DEFAULT_ZIMA_CONFIG.ipAddress),
+    dataPort: clampPort(source.dataPort, DEFAULT_ZIMA_CONFIG.dataPort),
+    commandPort: clampPort(source.commandPort, DEFAULT_ZIMA_CONFIG.commandPort),
+    useCommandPort: normalizeBoolean(source.useCommandPort, DEFAULT_ZIMA_CONFIG.useCommandPort),
+  };
+};
+
+const emitToRenderer = (channel, payload) => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(channel, payload);
+    }
+  }
+};
+
+const createZimaUdpBridge = () => {
+  let socket = null;
+  let status = 'stopped';
+  let config = { ...DEFAULT_ZIMA_CONFIG };
+
+  const emitStatus = (nextStatus) => {
+    if (status === nextStatus) return;
+    status = nextStatus;
+    emitToRenderer(CHANNELS.zima.events.status, { status, config });
+  };
+
+  const emitError = (message) => {
+    emitToRenderer(CHANNELS.zima.events.error, { message, status, config });
+  };
+
+  const stop = async () => {
+    if (!socket) {
+      emitStatus('stopped');
+      return { status, config };
+    }
+
+    const current = socket;
+    socket = null;
+    await new Promise((resolve) => {
+      try {
+        current.close(() => resolve());
+      } catch {
+        resolve();
+      }
+    });
+    emitStatus('stopped');
+    return { status, config };
+  };
+
+  const start = async (input) => {
+    config = normalizeZimaConfig(input);
+    await stop();
+
+    socket = dgram.createSocket('udp4');
+
+    socket.on('message', (buffer, remote) => {
+      const message = Buffer.from(buffer).toString('ascii');
+      emitToRenderer(CHANNELS.zima.events.data, {
+        message,
+        receivedAt: Date.now(),
+        remote: {
+          address: remote.address,
+          family: remote.family,
+          port: remote.port,
+          size: remote.size,
+        },
+      });
+    });
+
+    socket.on('error', (error) => {
+      emitStatus('error');
+      emitError(error instanceof Error ? error.message : String(error));
+    });
+
+    await new Promise((resolve, reject) => {
+      socket.once('listening', resolve);
+      socket.once('error', reject);
+      socket.bind(config.dataPort);
+    });
+
+    emitStatus('running');
+    return { status, config };
+  };
+
+  const sendCommand = async (command) => {
+    const payload = typeof command === 'string' ? command.trim() : '';
+    if (!payload) {
+      throw new Error('Command is empty');
+    }
+    if (payload.length > 256) {
+      throw new Error('Command is too long');
+    }
+
+    const sender = dgram.createSocket('udp4');
+    const bytes = Buffer.from(payload, 'ascii');
+
+    await new Promise((resolve, reject) => {
+      sender.send(bytes, config.commandPort, config.ipAddress, (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    }).finally(() => {
+      try {
+        sender.close();
+      } catch {
+        // ignore
+      }
+    });
+
+    return { ok: true };
+  };
+
+  const getStatus = () => ({ status, config });
+
+  return {
+    start,
+    stop,
+    sendCommand,
+    getStatus,
+  };
+};
+
 const createMainWindow = async () => {
   const win = new BrowserWindow({
     width: 1280,
@@ -118,6 +287,7 @@ const createMainWindow = async () => {
 const registerIpcHandlers = () => {
   const userDataPath = app.getPath('userData');
   const settingsPath = path.join(userDataPath, 'settings.json');
+  const zimaBridge = createZimaUdpBridge();
 
   ipcMain.handle(CHANNELS.pickDirectory, async (_event, options) => {
     const title = options?.title;
@@ -218,6 +388,22 @@ const registerIpcHandlers = () => {
     const settings = await readSettingsFile(settingsPath);
     delete settings[key];
     await writeSettingsFile(settingsPath, settings);
+  });
+
+  ipcMain.handle(CHANNELS.zima.start, async (_event, input) => {
+    return zimaBridge.start(input);
+  });
+
+  ipcMain.handle(CHANNELS.zima.stop, async () => {
+    return zimaBridge.stop();
+  });
+
+  ipcMain.handle(CHANNELS.zima.sendCommand, async (_event, command) => {
+    return zimaBridge.sendCommand(command);
+  });
+
+  ipcMain.handle(CHANNELS.zima.status, async () => {
+    return zimaBridge.getStatus();
   });
 };
 
