@@ -1,10 +1,3 @@
-Я отвечу как **world-famous PhD по software architecture и AI-assisted engineering**, лауреат **ACM SIGSOFT Distinguished Paper Award**.
-
-Ниже — **финальный, цельный документ процесса**, рассчитанный на маленький проект с ИИ-агентами.
-Его можно сохранить как `PROCESS.md` в корне репозитория.
-
----
-
 # ENGINEERING PROCESS
 
 ## 1. Цель
@@ -382,10 +375,3 @@ gh pr merge --squash --delete-branch
 * идеально для маленькой команды и ИИ-агентов
 
 ---
-
-Если хочешь, я могу следующим шагом:
-
-* дать готовый `spec.md` шаблон
-* дать `.github` templates
-* написать CI workflow для enforcement
-* или упростить документ ещё сильнее (если цель — ультра-lean)

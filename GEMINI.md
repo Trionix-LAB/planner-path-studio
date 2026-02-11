@@ -1,11 +1,11 @@
 # Repository Guidelines
 
 ## Product Docs (source of truth)
-- MVP product/UX requirements live in `docs/`:
-  - `docs/spec.md` - map MVP scope, behaviors, performance targets.
+- MVP product/UX requirements live in `spec/`:
+  - `spec/spec.md` - map MVP scope, behaviors, performance targets.
   - `docs/screens.md` - screens, layout, navigation flows.
   - `docs/mission-format.md` - on-disk mission folder + `mission.json`/CSV/GeoJSON formats.
-- When implementing mission persistence, geometry, or UI flows, prefer the rules in `docs/` over assumptions.
+- When implementing mission persistence, geometry, or UI flows, prefer the rules in `spec/` and `docs/` over assumptions.
 
 ## Project Structure & Module Organization
 - App source lives in `src/`.
@@ -20,7 +20,7 @@
 ## Domain & Data Conventions (MVP)
 
 ### Core entities (naming)
-- Prefer terminology from `docs/spec.md`: base station, diver, track, route, survey area, lane, marker, layer, mission, draft.
+- Prefer terminology from `spec/spec.md`: base station, diver, track, route, survey area, lane, marker, layer, mission, draft.
 - When persisting to GeoJSON, use `kind` values from `docs/mission-format.md` (`route`, `survey_area`, `lane`, `marker`).
 
 ### Coordinates & Projections
@@ -28,7 +28,7 @@
 - OSM tiles are Web Mercator (EPSG:3857); convert as needed only at the rendering/measurement layer.
 - GeoJSON coordinate order is `[lon, lat]` (standard GeoJSON).
 - Coordinate display defaults (per docs): decimal degrees with 6 digits after the decimal point.
-- Meter grid (if implemented) should be computed in meters in a local UTM zone and rendered back in WGS84; small visual error is acceptable for MVP (see `docs/spec.md`).
+- Meter grid (if implemented) should be computed in meters in a local UTM zone and rendered back in WGS84; small visual error is acceptable for MVP (see `spec/spec.md`).
 
 ### Mission persistence (on-disk format)
 - Mission is a folder containing at least `mission.json`, `tracks/*.csv`, `routes/routes.geojson`, `markers/markers.geojson` (see `docs/mission-format.md`).
@@ -46,7 +46,7 @@
 - Parallel open protection: prefer a `mission.lock` file approach as described in `docs/mission-format.md`.
 
 ### Draft mode
-- Draft state is “unsaved mission”. Autosave/restore behavior is described in `docs/spec.md` and `docs/screens.md`.
+- Draft state is “unsaved mission”. Autosave/restore behavior is described in `spec/spec.md` and `docs/screens.md`.
 - Keep draft storage behind `src/platform/*` (do not write to the repo workspace).
 
 ## UX & Interaction Notes (MVP)
@@ -57,7 +57,7 @@
 - Prefer explicit, non-blocking feedback for connection loss, paused recording, and file errors.
 
 ## Performance Targets (MVP)
-- Track rendering should target up to ~200k points without UI stalls; consider geometry simplification by zoom if needed (see `docs/spec.md`).
+- Track rendering should target up to ~200k points without UI stalls; consider geometry simplification by zoom if needed (see `spec/spec.md`).
 - Planning geometry should stay responsive up to ~1k total vertices (routes + polygons).
 
 ## Build, Test, and Development Commands

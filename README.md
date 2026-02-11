@@ -14,9 +14,10 @@ npm run dev
 
 ## Документация
 
-Ссылки на внутреннюю документацию в папке `docs/` (ключевые файлы):
+Ссылки на внутреннюю документацию (ключевые файлы):
 
-- [spec.md](docs/spec.md) — область MVP, поведение и целевые показатели производительности
+- [docs/PROCESS.md](docs/PROCESS.md) — инженерный процесс и правила работы с requirements/issues/PR
+- [spec/spec.md](spec/spec.md) — область MVP, поведение и целевые показатели производительности
 - [screens.md](docs/screens.md) — экраны, макеты и навигационные потоки
 - [mission-format.md](docs/mission-format.md) — формат хранения миссии на диске (`mission.json`, `routes/*.geojson`, `tracks/*.csv`)
 - [electron-telemetry-provider.md](docs/electron-telemetry-provider.md) — заметки о телеметрии для сборки Electron
