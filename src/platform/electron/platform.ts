@@ -51,6 +51,17 @@ type ElectronApi = {
     onStatus: (listener: (payload: { status?: string }) => void) => () => void;
     onError: (listener: (payload: { message?: string }) => void) => () => void;
   };
+  gnss?: {
+    start: (config: {
+      ipAddress: string;
+      dataPort: number;
+    }) => Promise<unknown>;
+    stop: () => Promise<unknown>;
+    status: () => Promise<unknown>;
+    onData: (listener: (payload: { message?: string; receivedAt?: number }) => void) => () => void;
+    onStatus: (listener: (payload: { status?: string }) => void) => () => void;
+    onError: (listener: (payload: { message?: string }) => void) => () => void;
+  };
 };
 
 const getApi = (): ElectronApi | null => {

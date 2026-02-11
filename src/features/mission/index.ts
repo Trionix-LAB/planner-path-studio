@@ -14,7 +14,12 @@ export {
   replaceZoneLanes,
 } from './model/zoneLanes';
 export type { OutdatedZoneIds } from './model/zoneLanes';
-export { createElectronZimaTelemetryProvider, createNoopTelemetryProvider, createSimulationTelemetryProvider } from './model/telemetry';
+export {
+  createElectronGnssTelemetryProvider,
+  createElectronZimaTelemetryProvider,
+  createNoopTelemetryProvider,
+  createSimulationTelemetryProvider,
+} from './model/telemetry';
 export type { TelemetryConnectionState, TelemetryFix, TelemetryProvider } from './model/telemetry';
 export { createTrackRecorderState, trackRecorderReduce } from './model/trackRecorder';
 export type { TrackFixPayload, TrackRecorderEvent, TrackRecorderState, TrackRecorderStatus } from './model/trackRecorder';
@@ -33,6 +38,7 @@ export {
   type RoutesFeature,
   type SurveyAreaFeature,
   type LaneFeature,
+  type NavigationSourceId,
   type DiverUiConfig,
   type TrackPoint,
 } from './model/types';

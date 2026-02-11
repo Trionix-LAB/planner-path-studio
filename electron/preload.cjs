@@ -25,6 +25,16 @@ const CHANNELS = {
       error: 'planner:zima:error',
     },
   },
+  gnss: {
+    start: 'planner:gnss:start',
+    stop: 'planner:gnss:stop',
+    status: 'planner:gnss:status',
+    events: {
+      data: 'planner:gnss:data',
+      status: 'planner:gnss:statusChanged',
+      error: 'planner:gnss:error',
+    },
+  },
 };
 
 const subscribe = (channel, listener) => {
@@ -57,6 +67,14 @@ const api = {
     onData: (listener) => subscribe(CHANNELS.zima.events.data, listener),
     onStatus: (listener) => subscribe(CHANNELS.zima.events.status, listener),
     onError: (listener) => subscribe(CHANNELS.zima.events.error, listener),
+  },
+  gnss: {
+    start: (config) => ipcRenderer.invoke(CHANNELS.gnss.start, config),
+    stop: () => ipcRenderer.invoke(CHANNELS.gnss.stop),
+    status: () => ipcRenderer.invoke(CHANNELS.gnss.status),
+    onData: (listener) => subscribe(CHANNELS.gnss.events.data, listener),
+    onStatus: (listener) => subscribe(CHANNELS.gnss.events.status, listener),
+    onError: (listener) => subscribe(CHANNELS.gnss.events.error, listener),
   },
 };
 

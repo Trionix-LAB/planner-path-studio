@@ -28,6 +28,16 @@ const CHANNELS = {
       error: 'planner:zima:error',
     },
   },
+  gnss: {
+    start: 'planner:gnss:start',
+    stop: 'planner:gnss:stop',
+    status: 'planner:gnss:status',
+    events: {
+      data: 'planner:gnss:data',
+      status: 'planner:gnss:statusChanged',
+      error: 'planner:gnss:error',
+    },
+  },
 };
 const FILE_STORE_ROOT_DIR = 'planner.fs';
 
@@ -36,6 +46,11 @@ const DEFAULT_ZIMA_CONFIG = {
   dataPort: 28127,
   commandPort: 28128,
   useCommandPort: false,
+};
+
+const DEFAULT_GNSS_CONFIG = {
+  ipAddress: '127.0.0.1',
+  dataPort: 28128,
 };
 
 const normalizeInputPath = (value) => {
@@ -134,6 +149,14 @@ const normalizeZimaConfig = (input) => {
     dataPort: clampPort(source.dataPort, DEFAULT_ZIMA_CONFIG.dataPort),
     commandPort: clampPort(source.commandPort, DEFAULT_ZIMA_CONFIG.commandPort),
     useCommandPort: normalizeBoolean(source.useCommandPort, DEFAULT_ZIMA_CONFIG.useCommandPort),
+  };
+};
+
+const normalizeGnssConfig = (input) => {
+  const source = input && typeof input === 'object' ? input : {};
+  return {
+    ipAddress: normalizeHost(source.ipAddress, DEFAULT_GNSS_CONFIG.ipAddress),
+    dataPort: clampPort(source.dataPort, DEFAULT_GNSS_CONFIG.dataPort),
   };
 };
 
@@ -255,6 +278,84 @@ const createZimaUdpBridge = () => {
   };
 };
 
+const createGnssUdpBridge = () => {
+  let socket = null;
+  let status = 'stopped';
+  let config = { ...DEFAULT_GNSS_CONFIG };
+
+  const emitStatus = (nextStatus) => {
+    if (status === nextStatus) return;
+    status = nextStatus;
+    emitToRenderer(CHANNELS.gnss.events.status, { status, config });
+  };
+
+  const emitError = (message) => {
+    emitToRenderer(CHANNELS.gnss.events.error, { message, status, config });
+  };
+
+  const stop = async () => {
+    if (!socket) {
+      emitStatus('stopped');
+      return { status, config };
+    }
+
+    const current = socket;
+    socket = null;
+    await new Promise((resolve) => {
+      try {
+        current.close(() => resolve());
+      } catch {
+        resolve();
+      }
+    });
+    emitStatus('stopped');
+    return { status, config };
+  };
+
+  const start = async (input) => {
+    config = normalizeGnssConfig(input);
+    await stop();
+
+    socket = dgram.createSocket('udp4');
+
+    socket.on('message', (buffer, remote) => {
+      const message = Buffer.from(buffer).toString('ascii');
+      emitToRenderer(CHANNELS.gnss.events.data, {
+        message,
+        receivedAt: Date.now(),
+        remote: {
+          address: remote.address,
+          family: remote.family,
+          port: remote.port,
+          size: remote.size,
+        },
+      });
+    });
+
+    socket.on('error', (error) => {
+      emitStatus('error');
+      emitError(error instanceof Error ? error.message : String(error));
+    });
+
+    await new Promise((resolve, reject) => {
+      socket.once('listening', resolve);
+      socket.once('error', reject);
+      socket.bind(config.dataPort);
+    });
+
+    emitStatus('running');
+    return { status, config };
+  };
+
+  const getStatus = () => ({ status, config });
+
+  return {
+    start,
+    stop,
+    getStatus,
+  };
+};
+
 const createMainWindow = async () => {
   const win = new BrowserWindow({
     width: 1280,
@@ -288,6 +389,7 @@ const registerIpcHandlers = () => {
   const userDataPath = app.getPath('userData');
   const settingsPath = path.join(userDataPath, 'settings.json');
   const zimaBridge = createZimaUdpBridge();
+  const gnssBridge = createGnssUdpBridge();
 
   ipcMain.handle(CHANNELS.pickDirectory, async (_event, options) => {
     const title = options?.title;
@@ -404,6 +506,18 @@ const registerIpcHandlers = () => {
 
   ipcMain.handle(CHANNELS.zima.status, async () => {
     return zimaBridge.getStatus();
+  });
+
+  ipcMain.handle(CHANNELS.gnss.start, async (_event, input) => {
+    return gnssBridge.start(input);
+  });
+
+  ipcMain.handle(CHANNELS.gnss.stop, async () => {
+    return gnssBridge.stop();
+  });
+
+  ipcMain.handle(CHANNELS.gnss.status, async () => {
+    return gnssBridge.getStatus();
   });
 };
 

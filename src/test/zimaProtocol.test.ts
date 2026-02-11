@@ -26,6 +26,7 @@ describe('zima protocol parser', () => {
     expect(parsed.remoteAddress).toBe(1);
     expect(parsed.lat).toBeCloseTo(59.9301);
     expect(parsed.lon).toBeCloseTo(30.3002);
+    expect(parsed.depth).toBeCloseTo(5.2);
     expect(parsed.isTimeout).toBe(false);
   });
 

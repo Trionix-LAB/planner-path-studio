@@ -1,4 +1,4 @@
-export const EQUIPMENT_SETTINGS_SCHEMA_VERSION = 1 as const;
+export const EQUIPMENT_SETTINGS_SCHEMA_VERSION = 2 as const;
 export const EQUIPMENT_SETTINGS_STORAGE_KEY = 'planner.equipmentSettings.v1';
 export const EQUIPMENT_RUNTIME_STORAGE_KEY = 'planner.equipmentRuntime.v1';
 export const DEVICE_CHANGED_EVENT = 'device:changed';
@@ -36,14 +36,27 @@ export type DeviceSchema = {
 
 export type DeviceConfig = Record<string, string | number | boolean>;
 
-export type EquipmentSettingsV1 = {
+export type EquipmentProfile = {
+  id: string;
+  name: string;
+  device_ids: string[];
+};
+
+export type EquipmentSettingsV2 = {
   schema_version: typeof EQUIPMENT_SETTINGS_SCHEMA_VERSION;
+  selected_profile_id: string;
   selected_device_id: string;
+  profiles: EquipmentProfile[];
   devices: Record<string, DeviceConfig>;
 };
 
-export type EquipmentRuntimeV1 = {
-  schema_version: 1;
+export type EquipmentRuntimeV2 = {
+  schema_version: 2;
+  active_profile: {
+    id: string;
+    name: string;
+    device_ids: string[];
+  } | null;
   zima?: {
     interface: 'udp';
     ipAddress: string;
@@ -56,9 +69,15 @@ export type EquipmentRuntimeV1 = {
     longitude: number | null;
     azimuth: number | null;
   };
+  gnss_udp?: {
+    interface: 'udp';
+    protocol: 'nmea0183';
+    ipAddress: string;
+    dataPort: number;
+  };
 };
 
 export type DeviceChangedPayload = {
-  settings: EquipmentSettingsV1;
-  runtime: EquipmentRuntimeV1;
+  settings: EquipmentSettingsV2;
+  runtime: EquipmentRuntimeV2;
 };

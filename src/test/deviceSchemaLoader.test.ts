@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { createDefaultDeviceConfig, loadDeviceSchemas } from '@/features/devices';
 
 describe('device schema loader', () => {
-  it('loads zima2r schema from file', () => {
+  it('loads zima2r and gnss-udp schemas from files', () => {
     const schemas = loadDeviceSchemas();
     const zima = schemas.find((schema) => schema.id === 'zima2r');
+    const gnss = schemas.find((schema) => schema.id === 'gnss-udp');
 
     expect(zima).toBeTruthy();
+    expect(gnss).toBeTruthy();
     expect(zima?.title).toBe('Zima2R');
+    expect(gnss?.title).toBe('GNSS-UDP');
     expect(zima?.fields.map((field) => field.key)).toEqual([
       'ipAddress',
       'commandPort',
@@ -26,6 +29,7 @@ describe('device schema loader', () => {
     expect(commandPortField?.enabledBy).toBe('useCommandPort');
     expect(gnssBaudField?.enabledBy).toBe('useExternalGnss');
     expect(latitudeField?.enabledBy).toBe('!useExternalGnss');
+    expect(gnss?.fields.map((field) => field.key)).toEqual(['ipAddress', 'dataPort']);
   });
 
   it('builds default config from schema defaults', () => {

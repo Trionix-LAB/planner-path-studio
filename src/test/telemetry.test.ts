@@ -1,4 +1,120 @@
-import { createNoopTelemetryProvider } from '@/features/mission';
+import {
+  createElectronGnssTelemetryProvider,
+  createElectronZimaTelemetryProvider,
+  createNoopTelemetryProvider,
+} from '@/features/mission';
+
+type ZimaDataPayload = { message?: string; receivedAt?: number };
+type ZimaStatusPayload = { status?: string };
+type ZimaErrorPayload = { message?: string };
+type ZimaDataListener = (payload: ZimaDataPayload) => void;
+type ZimaStatusListener = (payload: ZimaStatusPayload) => void;
+type ZimaErrorListener = (payload: ZimaErrorPayload) => void;
+type GnssDataPayload = { message?: string; receivedAt?: number };
+type GnssStatusPayload = { status?: string };
+type GnssErrorPayload = { message?: string };
+type GnssDataListener = (payload: GnssDataPayload) => void;
+type GnssStatusListener = (payload: GnssStatusPayload) => void;
+type GnssErrorListener = (payload: GnssErrorPayload) => void;
+
+type MockZimaApi = {
+  start: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+  sendCommand: ReturnType<typeof vi.fn>;
+  onData: (listener: ZimaDataListener) => () => void;
+  onStatus: (listener: ZimaStatusListener) => () => void;
+  onError: (listener: ZimaErrorListener) => () => void;
+  emitData: (payload: ZimaDataPayload) => void;
+};
+
+type MockGnssApi = {
+  start: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+  onData: (listener: GnssDataListener) => () => void;
+  onStatus: (listener: GnssStatusListener) => () => void;
+  onError: (listener: GnssErrorListener) => () => void;
+  emitData: (payload: GnssDataPayload) => void;
+};
+
+const createMockZimaApi = (): MockZimaApi => {
+  const dataListeners = new Set<ZimaDataListener>();
+  const statusListeners = new Set<ZimaStatusListener>();
+  const errorListeners = new Set<ZimaErrorListener>();
+
+  return {
+    start: vi.fn(async () => ({ ok: true })),
+    stop: vi.fn(async () => ({ ok: true })),
+    sendCommand: vi.fn(async () => ({ ok: true })),
+    onData: (listener) => {
+      dataListeners.add(listener);
+      return () => {
+        dataListeners.delete(listener);
+      };
+    },
+    onStatus: (listener) => {
+      statusListeners.add(listener);
+      return () => {
+        statusListeners.delete(listener);
+      };
+    },
+    onError: (listener) => {
+      errorListeners.add(listener);
+      return () => {
+        errorListeners.delete(listener);
+      };
+    },
+    emitData: (payload) => {
+      dataListeners.forEach((listener) => listener(payload));
+    },
+  };
+};
+
+const createMockGnssApi = (): MockGnssApi => {
+  const dataListeners = new Set<GnssDataListener>();
+  const statusListeners = new Set<GnssStatusListener>();
+  const errorListeners = new Set<GnssErrorListener>();
+
+  return {
+    start: vi.fn(async () => ({ ok: true })),
+    stop: vi.fn(async () => ({ ok: true })),
+    onData: (listener) => {
+      dataListeners.add(listener);
+      return () => {
+        dataListeners.delete(listener);
+      };
+    },
+    onStatus: (listener) => {
+      statusListeners.add(listener);
+      return () => {
+        statusListeners.delete(listener);
+      };
+    },
+    onError: (listener) => {
+      errorListeners.add(listener);
+      return () => {
+        errorListeners.delete(listener);
+      };
+    },
+    emitData: (payload) => {
+      dataListeners.forEach((listener) => listener(payload));
+    },
+  };
+};
+
+const flushMicrotasks = async (turns = 8) => {
+  for (let i = 0; i < turns; i += 1) {
+    await Promise.resolve();
+  }
+};
+
+const setElectronApi = (api: { zima?: MockZimaApi; gnss?: MockGnssApi } | undefined) => {
+  const target = window as unknown as { electronAPI?: { zima?: MockZimaApi; gnss?: MockGnssApi } };
+  if (!api || (!api.zima && !api.gnss)) {
+    delete target.electronAPI;
+    return;
+  }
+  target.electronAPI = { ...api };
+};
 
 describe('noop telemetry provider', () => {
   it('does not emit fixes and keeps connection state stable', () => {
@@ -23,5 +139,155 @@ describe('noop telemetry provider', () => {
     unsubscribeFix();
     unsubscribeConnection();
     vi.useRealTimers();
+  });
+});
+
+describe('electron zima telemetry provider', () => {
+  it('starts bridge and processes AZMLOC fixes with command channel', async () => {
+    const api = createMockZimaApi();
+    setElectronApi({ zima: api });
+
+    const provider = createElectronZimaTelemetryProvider({
+      readConfig: async () => ({
+        ipAddress: '127.0.0.1',
+        dataPort: 28127,
+        commandPort: 28128,
+        useCommandPort: true,
+        useExternalGnss: false,
+        latitude: 59.9375,
+        longitude: 30.3086,
+        azimuth: 120,
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    expect(api.start).toHaveBeenCalledTimes(1);
+    expect(api.sendCommand).toHaveBeenCalledWith('OCON');
+    expect(api.sendCommand).toHaveBeenCalledWith('LHOV,59.9375,30.3086,120');
+
+    api.emitData({
+      message:
+        '@AZMLOC,1013.2,10.5,12.3,0.1,-0.2,0,59.937500,30.308600,120.0,0.8,0,130.0,0,0,0,10.5,1.2,0\r\n',
+      receivedAt: 1739318400000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(1);
+    expect(onFix).toHaveBeenCalledWith({
+      lat: 59.9375,
+      lon: 30.3086,
+      speed: 0.8,
+      course: 120,
+      depth: 10.5,
+      received_at: 1739318400000,
+      source: 'AZMLOC',
+    });
+
+    provider.stop();
+    await flushMicrotasks();
+
+    expect(api.sendCommand).toHaveBeenCalledWith('CCON');
+    expect(api.stop).toHaveBeenCalledTimes(1);
+    setElectronApi(undefined);
+  });
+
+  it('buffers split datagrams and emits fix from AZMREM', async () => {
+    const api = createMockZimaApi();
+    setElectronApi({ zima: api });
+
+    const provider = createElectronZimaTelemetryProvider({
+      readConfig: async () => ({
+        ipAddress: '127.0.0.1',
+        dataPort: 28127,
+        commandPort: 28128,
+        useCommandPort: false,
+        useExternalGnss: true,
+        latitude: null,
+        longitude: null,
+        azimuth: null,
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    api.emitData({
+      message:
+        '@AZMREM,1,120.3,45.2,0.7,24.5,0,5.2,0,120.3,0,30.1,0,80.4,0,20.0,0,9.9,0,14.3,0,59.9301,30.3002,0,100.5,0,msg,0,1,2',
+      receivedAt: 1739318401000,
+    });
+    expect(onFix).not.toHaveBeenCalled();
+
+    api.emitData({
+      message: ',3,false\r\n',
+      receivedAt: 1739318402000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(1);
+    expect(onFix).toHaveBeenCalledWith({
+      lat: 59.9301,
+      lon: 30.3002,
+      speed: 0,
+      course: 0,
+      depth: 5.2,
+      received_at: 1739318402000,
+      remoteAddress: 1,
+      source: 'AZMREM',
+    });
+
+    provider.stop();
+    setElectronApi(undefined);
+  });
+});
+
+describe('electron gnss telemetry provider', () => {
+  it('starts bridge and emits fix from RMC line', async () => {
+    const api = createMockGnssApi();
+    setElectronApi({ gnss: api });
+
+    const provider = createElectronGnssTelemetryProvider({
+      readConfig: async () => ({
+        ipAddress: '127.0.0.1',
+        dataPort: 28128,
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    expect(api.start).toHaveBeenCalledTimes(1);
+
+    api.emitData({
+      message: '$GPRMC,123519,A,5956.2500,N,03018.5160,E,1.94,84.4,230394,,*1B\r\n',
+      receivedAt: 1739318403000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(1);
+    const payload = onFix.mock.calls[0]?.[0];
+    expect(payload.source).toBe('GNSS');
+    expect(payload.received_at).toBe(1739318403000);
+    expect(payload.lat).toBeCloseTo(59.9375, 5);
+    expect(payload.lon).toBeCloseTo(30.3086, 5);
+    expect(payload.speed).toBeCloseTo(0.998, 3);
+    expect(payload.course).toBeCloseTo(84.4, 3);
+    expect(payload.depth).toBe(0);
+
+    provider.stop();
+    await flushMicrotasks();
+    expect(api.stop).toHaveBeenCalledTimes(1);
+    setElectronApi(undefined);
   });
 });

@@ -23,7 +23,7 @@ import {
   normalizeAppSettings,
   type AppUiDefaults,
 } from '@/features/settings';
-import type { DiverUiConfig } from '@/features/mission';
+import type { DiverUiConfig, NavigationSourceId } from '@/features/mission';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -34,10 +34,18 @@ interface SettingsDialogProps {
   onApplyDivers: (next: DiverUiConfig[]) => Promise<void> | void;
   onReset: () => Promise<void> | void;
   onResetDivers: () => Promise<void> | void;
-  equipmentName?: string;
-  equipmentEnabled?: boolean;
-  equipmentStatusText?: string;
-  onToggleEquipment?: (enabled: boolean) => Promise<void> | void;
+  equipmentItems?: Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    statusText: string;
+    canToggle?: boolean;
+  }>;
+  navigationSourceOptions?: Array<{
+    id: NavigationSourceId;
+    label: string;
+  }>;
+  onToggleEquipment?: (id: string, enabled: boolean) => Promise<void> | void;
 }
 
 const clampNumber = (value: string, fallback: number, min: number, max: number): number => {
@@ -55,9 +63,8 @@ const SettingsDialog = ({
   onApplyDivers,
   onReset,
   onResetDivers,
-  equipmentName,
-  equipmentEnabled = false,
-  equipmentStatusText,
+  equipmentItems = [],
+  navigationSourceOptions = [],
   onToggleEquipment,
 }: SettingsDialogProps) => {
   const initial = useMemo(() => value, [value]);
@@ -102,6 +109,7 @@ const SettingsDialog = ({
         marker_color: '#0ea5e9',
         marker_size_px: 32,
         track_color: '#a855f7',
+        navigation_source: navigationSourceOptions[0]?.id ?? 'zima2r',
       },
     ]);
   };
@@ -582,22 +590,35 @@ const SettingsDialog = ({
 
             <TabsContent value="connection" className="mt-0 space-y-6">
               <div className="rounded-md border border-border bg-secondary/40 p-3 text-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <div className="font-medium text-foreground">Оборудование</div>
-                    <div className="text-muted-foreground">{equipmentName ?? 'Не выбрано'}</div>
+                <div className="font-medium text-foreground">Оборудование</div>
+                {equipmentItems.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {equipmentItems.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between gap-4 rounded-md border border-border bg-card px-3 py-2">
+                        <div>
+                          <div>{item.name}</div>
+                          <div className="text-xs text-muted-foreground">Статус: {item.statusText}</div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant={item.enabled ? 'destructive' : 'default'}
+                          size="sm"
+                          onClick={() => onToggleEquipment?.(item.id, !item.enabled)}
+                          disabled={!onToggleEquipment || item.canToggle === false}
+                        >
+                          {item.enabled ? 'Выключить' : 'Включить'}
+                        </Button>
+                      </div>
+                    ))}
                   </div>
-                  <Button
-                    type="button"
-                    variant={equipmentEnabled ? 'destructive' : 'default'}
-                    size="sm"
-                    onClick={() => onToggleEquipment?.(!equipmentEnabled)}
-                    disabled={!onToggleEquipment}
-                  >
-                    {equipmentEnabled ? 'Выключить' : 'Включить'}
-                  </Button>
-                </div>
-                <div className="mt-2 text-xs text-muted-foreground">Статус: {equipmentStatusText ?? 'Выключено'}</div>
+                ) : (
+                  <div className="mt-2 text-muted-foreground">Не выбрано</div>
+                )}
+                {equipmentItems.some((item) => item.canToggle === false) ? (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    Отдельные устройства доступны только после реализации интеграции.
+                  </div>
+                ) : null}
               </div>
 
               <div className="space-y-3">
@@ -639,6 +660,28 @@ const SettingsDialog = ({
                             onChange={(e) => updateDiver(index, { title: e.target.value })}
                           />
                         </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>Источник навигации</Label>
+                        <Select
+                          value={diver.navigation_source}
+                          onValueChange={(value) =>
+                            updateDiver(index, { navigation_source: value as NavigationSourceId })
+                          }
+                          disabled={navigationSourceOptions.length === 0}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {navigationSourceOptions.map((option) => (
+                              <SelectItem key={option.id} value={option.id}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
 
                       <div className="grid grid-cols-3 gap-3">

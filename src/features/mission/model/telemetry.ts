@@ -1,4 +1,5 @@
-import { parseZimaLine, splitZimaDatagram } from '@/features/devices/zima2r/protocol';
+import { parseZimaLine } from '@/features/devices/zima2r/protocol';
+import { parseNmeaLine } from '@/features/devices/gnss-udp/protocol';
 
 export type TelemetryConnectionState = 'ok' | 'timeout' | 'error';
 
@@ -9,6 +10,8 @@ export type TelemetryFix = {
   course: number;
   depth: number;
   received_at: number;
+  remoteAddress?: number | null;
+  source?: 'AZMLOC' | 'AZMREM' | 'GNSS' | 'SIM';
 };
 
 export type TelemetryProvider = {
@@ -45,6 +48,24 @@ type ElectronTelemetryOptions = {
   readConfig: () => Promise<ElectronZimaConfig | null>;
 };
 
+type ElectronGnssConfig = {
+  ipAddress: string;
+  dataPort: number;
+};
+
+type ElectronGnssApi = {
+  start: (config: ElectronGnssConfig) => Promise<unknown>;
+  stop: () => Promise<unknown>;
+  onData: (listener: (payload: { message?: string; receivedAt?: number }) => void) => () => void;
+  onStatus: (listener: (payload: { status?: string }) => void) => () => void;
+  onError: (listener: (payload: { message?: string }) => void) => () => void;
+};
+
+type ElectronGnssTelemetryOptions = {
+  timeoutMs?: number;
+  readConfig: () => Promise<ElectronGnssConfig | null>;
+};
+
 type SimulationTelemetryOptions = {
   intervalMs?: number;
   timeoutMs?: number;
@@ -57,6 +78,33 @@ type SimulationTelemetryOptions = {
 
 const DEFAULT_INTERVAL_MS = 1000;
 const DEFAULT_TIMEOUT_MS = 5000;
+const MAX_BUFFERED_ZIMA_BYTES = 16 * 1024;
+const MAX_BUFFERED_NMEA_BYTES = 16 * 1024;
+
+const isValidLatLon = (lat: number | null, lon: number | null): lat is number =>
+  lat !== null &&
+  lon !== null &&
+  Number.isFinite(lat) &&
+  Number.isFinite(lon) &&
+  lat >= -90 &&
+  lat <= 90 &&
+  lon >= -180 &&
+  lon <= 180 &&
+  !(lat === 0 && lon === 0);
+
+const splitBufferedLines = (
+  previousBuffer: string,
+  chunk: string,
+): { lines: string[]; rest: string } => {
+  const merged = `${previousBuffer}${chunk}`;
+  const parts = merged.split(/\r?\n/);
+  const lines = parts
+    .slice(0, -1)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const rest = parts[parts.length - 1] ?? '';
+  return { lines, rest };
+};
 
 export const createNoopTelemetryProvider = (): TelemetryProvider => {
   const connectionListeners = new Set<(nextState: TelemetryConnectionState) => void>();
@@ -152,7 +200,7 @@ export const createSimulationTelemetryProvider = (
 
     lastFixAt = Date.now();
     emitConnectionState('ok');
-    emitFix({ ...state, received_at: lastFixAt });
+    emitFix({ ...state, received_at: lastFixAt, source: 'SIM' });
   };
 
   const runTimeoutTick = () => {
@@ -231,6 +279,8 @@ export const createElectronZimaTelemetryProvider = (
   let activeConfig: ElectronZimaConfig | null = null;
   let connectionState: TelemetryConnectionState = 'ok';
   let lastFixAt = 0;
+  let lineBuffer = '';
+  let latestMotion = { speed: 0, course: 0, depth: 0 };
 
   let timeoutIntervalId: number | null = null;
   let unsubscribeData: (() => void) | null = null;
@@ -267,22 +317,47 @@ export const createElectronZimaTelemetryProvider = (
     const message = payload.message ?? '';
     if (!message) return;
 
-    const lines = splitZimaDatagram(message);
+    const { lines, rest } = splitBufferedLines(lineBuffer, message);
+    lineBuffer = rest.slice(-MAX_BUFFERED_ZIMA_BYTES);
+
     for (const line of lines) {
       const parsed = parseZimaLine(line);
-      if (parsed.kind !== 'AZMLOC') continue;
-
       const receivedAt = payload.receivedAt ?? Date.now();
-      lastFixAt = receivedAt;
-      emitConnectionState('ok');
-      emitFix({
-        lat: parsed.lat,
-        lon: parsed.lon,
-        speed: parsed.speed,
-        course: parsed.course,
-        depth: parsed.depth,
-        received_at: receivedAt,
-      });
+
+      if (parsed.kind === 'AZMLOC') {
+        latestMotion = {
+          speed: parsed.speed,
+          course: parsed.course,
+          depth: parsed.depth,
+        };
+        lastFixAt = receivedAt;
+        emitConnectionState('ok');
+        emitFix({
+          lat: parsed.lat,
+          lon: parsed.lon,
+          speed: parsed.speed,
+          course: parsed.course,
+          depth: parsed.depth,
+          received_at: receivedAt,
+          source: 'AZMLOC',
+        });
+        continue;
+      }
+
+      if (parsed.kind === 'AZMREM' && parsed.isTimeout !== true && isValidLatLon(parsed.lat, parsed.lon)) {
+        lastFixAt = receivedAt;
+        emitConnectionState('ok');
+        emitFix({
+          lat: parsed.lat,
+          lon: parsed.lon,
+          speed: latestMotion.speed,
+          course: latestMotion.course,
+          depth: parsed.depth ?? latestMotion.depth,
+          received_at: receivedAt,
+          remoteAddress: parsed.remoteAddress,
+          source: 'AZMREM',
+        });
+      }
     }
   };
 
@@ -302,6 +377,8 @@ export const createElectronZimaTelemetryProvider = (
     const shouldCloseConnections = connected && activeConfig?.useCommandPort;
     connected = false;
     activeConfig = null;
+    lineBuffer = '';
+    latestMotion = { speed: 0, course: 0, depth: 0 };
     clearIntervals();
     if (api) {
       if (shouldCloseConnections) {
@@ -359,6 +436,235 @@ export const createElectronZimaTelemetryProvider = (
           }
         }
       }
+      connected = true;
+      lastFixAt = Date.now();
+      emitConnectionState('ok');
+      startTimeoutWatchdog();
+    } catch {
+      connected = false;
+      emitConnectionState('error');
+    }
+  };
+
+  const stop = () => {
+    started = false;
+    disconnectBridge();
+    detachListeners();
+  };
+
+  const start = () => {
+    if (started) return;
+    started = true;
+
+    const api = getApi();
+    if (!api) {
+      emitConnectionState('error');
+      return;
+    }
+
+    unsubscribeData = api.onData((payload) => handleData(payload));
+    unsubscribeStatus = api.onStatus((payload) => {
+      if (!payload?.status) return;
+      if (payload.status === 'running' && !simulateConnectionError) {
+        emitConnectionState('ok');
+      } else if (payload.status === 'error') {
+        emitConnectionState('error');
+      }
+    });
+    unsubscribeError = api.onError(() => {
+      emitConnectionState('error');
+    });
+
+    void connectBridge();
+  };
+
+  return {
+    start,
+    stop,
+    setEnabled: (nextEnabled: boolean) => {
+      enabled = nextEnabled;
+      if (!enabled) {
+        disconnectBridge();
+        emitConnectionState('ok');
+        return;
+      }
+      if (started) {
+        void connectBridge();
+      }
+    },
+    setSimulateConnectionError: (nextValue: boolean) => {
+      simulateConnectionError = nextValue;
+      if (simulateConnectionError) {
+        emitConnectionState('error');
+        return;
+      }
+      if (enabled) {
+        emitConnectionState('ok');
+      }
+    },
+    onFix: (listener) => {
+      fixListeners.add(listener);
+      return () => {
+        fixListeners.delete(listener);
+      };
+    },
+    onConnectionState: (listener) => {
+      connectionListeners.add(listener);
+      return () => {
+        connectionListeners.delete(listener);
+      };
+    },
+  };
+};
+
+export const createElectronGnssTelemetryProvider = (
+  options: ElectronGnssTelemetryOptions,
+): TelemetryProvider => {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let enabled = false;
+  let simulateConnectionError = false;
+  let started = false;
+  let connected = false;
+  let connectionState: TelemetryConnectionState = 'ok';
+  let lastFixAt = 0;
+  let lineBuffer = '';
+  let latestMotion = { speed: 0, course: 0 };
+  let latestHeading = 0;
+
+  let timeoutIntervalId: number | null = null;
+  let unsubscribeData: (() => void) | null = null;
+  let unsubscribeStatus: (() => void) | null = null;
+  let unsubscribeError: (() => void) | null = null;
+
+  const fixListeners = new Set<(fix: TelemetryFix) => void>();
+  const connectionListeners = new Set<(nextState: TelemetryConnectionState) => void>();
+
+  const emitConnectionState = (nextState: TelemetryConnectionState) => {
+    if (connectionState === nextState) return;
+    connectionState = nextState;
+    connectionListeners.forEach((listener) => listener(nextState));
+  };
+
+  const emitFix = (fix: TelemetryFix) => {
+    fixListeners.forEach((listener) => listener(fix));
+  };
+
+  const clearIntervals = () => {
+    if (timeoutIntervalId !== null) {
+      window.clearInterval(timeoutIntervalId);
+      timeoutIntervalId = null;
+    }
+  };
+
+  const getApi = (): ElectronGnssApi | null => {
+    const api = (window as unknown as { electronAPI?: { gnss?: ElectronGnssApi } }).electronAPI?.gnss;
+    return api ?? null;
+  };
+
+  const handleData = (payload: { message?: string; receivedAt?: number }) => {
+    if (!enabled || simulateConnectionError) return;
+    const message = payload.message ?? '';
+    if (!message) return;
+
+    const { lines, rest } = splitBufferedLines(lineBuffer, message);
+    lineBuffer = rest.slice(-MAX_BUFFERED_NMEA_BYTES);
+
+    for (const line of lines) {
+      const parsed = parseNmeaLine(line);
+      const receivedAt = payload.receivedAt ?? Date.now();
+
+      if (parsed.kind === 'HDT' && parsed.headingDeg !== null) {
+        latestHeading = parsed.headingDeg;
+        continue;
+      }
+
+      if (parsed.kind !== 'RMC' && parsed.kind !== 'GGA' && parsed.kind !== 'GNS') {
+        continue;
+      }
+
+      if (!parsed.hasFix || !isValidLatLon(parsed.lat, parsed.lon)) {
+        continue;
+      }
+
+      if (parsed.speedMps !== null) {
+        latestMotion.speed = Math.max(0, parsed.speedMps);
+      }
+      if (parsed.courseDeg !== null) {
+        latestMotion.course = parsed.courseDeg;
+      } else if (latestHeading !== null) {
+        latestMotion.course = latestHeading;
+      }
+
+      lastFixAt = receivedAt;
+      emitConnectionState('ok');
+      emitFix({
+        lat: parsed.lat,
+        lon: parsed.lon,
+        speed: latestMotion.speed,
+        course: latestMotion.course,
+        depth: 0,
+        received_at: receivedAt,
+        source: 'GNSS',
+      });
+    }
+  };
+
+  const startTimeoutWatchdog = () => {
+    clearIntervals();
+    timeoutIntervalId = window.setInterval(() => {
+      if (!enabled || simulateConnectionError) return;
+      if (lastFixAt === 0) return;
+      if (Date.now() - lastFixAt > timeoutMs) {
+        emitConnectionState('timeout');
+      }
+    }, 1000);
+  };
+
+  const disconnectBridge = () => {
+    const api = getApi();
+    connected = false;
+    lineBuffer = '';
+    latestMotion = { speed: 0, course: 0 };
+    latestHeading = 0;
+    clearIntervals();
+    if (api) {
+      void api.stop().catch(() => {
+        // ignore
+      });
+    }
+  };
+
+  const detachListeners = () => {
+    if (unsubscribeData) {
+      unsubscribeData();
+      unsubscribeData = null;
+    }
+    if (unsubscribeStatus) {
+      unsubscribeStatus();
+      unsubscribeStatus = null;
+    }
+    if (unsubscribeError) {
+      unsubscribeError();
+      unsubscribeError = null;
+    }
+  };
+
+  const connectBridge = async () => {
+    if (!started || !enabled || connected || simulateConnectionError) return;
+    const api = getApi();
+    if (!api) {
+      emitConnectionState('error');
+      return;
+    }
+
+    try {
+      const config = await options.readConfig();
+      if (!config) {
+        emitConnectionState('error');
+        return;
+      }
+
+      await api.start(config);
       connected = true;
       lastFixAt = Date.now();
       emitConnectionState('ok');

@@ -1,0 +1,11 @@
+GNSS-UDP:
+  ipAddress:
+    label: IP-адрес
+    inputForm: text-line
+    inputMask: 0.0.0.0
+    defaultValue: 127.0.0.1
+  dataPort:
+    label: Выходной порт данных
+    inputForm: text-line
+    inputMask: none
+    defaultValue: 28128

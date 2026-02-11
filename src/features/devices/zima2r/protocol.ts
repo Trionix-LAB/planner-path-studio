@@ -17,6 +17,7 @@ export type AzmRemMessage = {
   remoteAddress: number | null;
   lat: number | null;
   lon: number | null;
+  depth: number | null;
   isTimeout: boolean | null;
 };
 
@@ -31,6 +32,12 @@ const parseNumber = (value: string | undefined): number | null => {
   if (typeof value !== 'string') return null;
   const parsed = Number(value.trim());
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const parseInteger = (value: string | undefined): number | null => {
+  const parsed = parseNumber(value);
+  if (parsed === null || !Number.isInteger(parsed)) return null;
+  return parsed;
 };
 
 const parseBoolean = (value: string | undefined): boolean | null => {
@@ -86,9 +93,10 @@ const parseAzmRem = (line: string): ParsedZimaMessage => {
   return {
     kind: 'AZMREM',
     raw: line,
-    remoteAddress: parseNumber(parts[1]),
+    remoteAddress: parseInteger(parts[1]),
     lat: parseNumber(parts[21]),
     lon: parseNumber(parts[22]),
+    depth: parseNumber(parts[7]),
     isTimeout: parseBoolean(parts[31]),
   };
 };

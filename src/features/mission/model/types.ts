@@ -3,6 +3,7 @@ export const MISSION_SCHEMA_VERSION = 1;
 export type IsoUtcString = string;
 
 export type SegmentLengthsMode = 'off' | 'on-select' | 'always';
+export type NavigationSourceId = 'zima2r' | 'gnss-udp' | 'simulation';
 
 export type DiverUiConfig = {
   uid: string;
@@ -11,6 +12,7 @@ export type DiverUiConfig = {
   marker_color: string;
   marker_size_px: number;
   track_color: string;
+  navigation_source: NavigationSourceId;
 };
 
 export type MissionTrackMeta = {
