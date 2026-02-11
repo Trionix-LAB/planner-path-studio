@@ -1,8 +1,9 @@
-import type { DiverUiConfig } from './types';
+import type { DiverUiConfig, NavigationSourceId } from './types';
 
 const DEFAULT_DIVER_MARKER_COLOR = '#0ea5e9';
 const DEFAULT_DIVER_TRACK_COLOR = '#a855f7';
 const DEFAULT_DIVER_MARKER_SIZE = 32;
+const DEFAULT_NAVIGATION_SOURCE: NavigationSourceId = 'zima2r';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -26,13 +27,20 @@ const normalizeText = (value: unknown, fallback: string): string => {
   return trimmed.length > 0 ? trimmed : fallback;
 };
 
+const isNavigationSourceId = (value: unknown): value is NavigationSourceId =>
+  value === 'zima2r' || value === 'gnss-udp' || value === 'simulation';
+
+const normalizeNavigationSource = (value: unknown, fallback: NavigationSourceId): NavigationSourceId =>
+  isNavigationSourceId(value) ? value : fallback;
+
 export const createDefaultDiver = (index: number): DiverUiConfig => ({
   uid: crypto.randomUUID(),
-  id: `diver-${index + 1}`,
-  title: `Водолаз ${index + 1}`,
+  id: `${index + 1}`,
+  title: `Маяк ${index + 1}`,
   marker_color: DEFAULT_DIVER_MARKER_COLOR,
   marker_size_px: DEFAULT_DIVER_MARKER_SIZE,
   track_color: DEFAULT_DIVER_TRACK_COLOR,
+  navigation_source: DEFAULT_NAVIGATION_SOURCE,
 });
 
 export const createDefaultDivers = (count = 1): DiverUiConfig[] => {
@@ -53,6 +61,7 @@ export const normalizeDivers = (raw: unknown): DiverUiConfig[] => {
       marker_color: normalizeHexColor(item.marker_color, fallback.marker_color),
       marker_size_px: clampInt(item.marker_size_px, fallback.marker_size_px, 12, 64),
       track_color: normalizeHexColor(item.track_color, fallback.track_color),
+      navigation_source: normalizeNavigationSource(item.navigation_source, fallback.navigation_source),
     } satisfies DiverUiConfig;
   });
 

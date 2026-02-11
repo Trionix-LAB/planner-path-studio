@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { FilePlus, FolderOpen, FileText, RotateCcw, Clock, ChevronRight } from 'lucide-react';
+import { FilePlus, FolderOpen, FileText, RotateCcw, Clock, ChevronRight, Cpu } from 'lucide-react';
 import { platform } from '@/platform';
 
 const recentMissions = [
@@ -88,6 +88,18 @@ const StartScreen = () => {
               </div>
             </Button>
           )}
+
+          <Button
+            variant="outline"
+            className="h-auto py-6 px-6 flex flex-col items-center gap-3 bg-card hover:bg-secondary border-border hover:border-primary/50 transition-all"
+            onClick={() => navigate('/equipment')}
+          >
+            <Cpu className="w-8 h-8 text-primary" />
+            <div>
+              <div className="font-medium text-foreground">Оборудование</div>
+              <div className="text-xs text-muted-foreground">Настройка устройств</div>
+            </div>
+          </Button>
         </div>
 
         {/* Recent Missions */}

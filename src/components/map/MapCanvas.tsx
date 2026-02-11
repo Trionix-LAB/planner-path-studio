@@ -57,6 +57,14 @@ interface MapCanvasProps {
     depth: number;
   };
   divers: DiverUiConfig[];
+  diverPositionsById?: Record<
+    string,
+    {
+      lat: number;
+      lon: number;
+      course?: number;
+    }
+  >;
   trackSegments: Array<Array<[number, number]>>;
   isFollowing: boolean;
   connectionStatus: 'ok' | 'timeout' | 'error';
@@ -358,6 +366,7 @@ const MapCanvas = ({
   centerRequest,
   diverData,
   divers,
+  diverPositionsById = {},
   trackSegments,
   isFollowing,
   connectionStatus,
@@ -402,13 +411,43 @@ const MapCanvas = ({
   const pendingCursor = useRef<{ lat: number; lon: number } | null>(null);
   const cursorRaf = useRef<number | null>(null);
 
-  const diverPosition: [number, number] = [diverData.lat, diverData.lon];
+  const normalizedDiverPositions = useMemo(() => {
+    const next: Record<string, { lat: number; lon: number; course?: number }> = {};
+    for (const [id, value] of Object.entries(diverPositionsById)) {
+      const key = id.trim();
+      if (!key) continue;
+      next[key] = value;
+    }
+    return next;
+  }, [diverPositionsById]);
+
+  const primaryDiverId = divers[0]?.id?.trim() ?? '';
+  const primaryTelemetry = primaryDiverId ? normalizedDiverPositions[primaryDiverId] : undefined;
+  const diverPosition: [number, number] = primaryTelemetry
+    ? [primaryTelemetry.lat, primaryTelemetry.lon]
+    : [diverData.lat, diverData.lon];
   const offsetStep = 0.00008;
-  const getDiverPosition = (index: number): [number, number] => {
+  const getDiverPosition = (diver: DiverUiConfig, index: number): [number, number] => {
+    const diverId = diver.id.trim();
+    const telemetry = diverId ? normalizedDiverPositions[diverId] : undefined;
+    if (telemetry) {
+      return [telemetry.lat, telemetry.lon];
+    }
     if (index === 0) return diverPosition;
     const ring = Math.ceil(index / 2);
     const sign = index % 2 === 0 ? -1 : 1;
     return [diverPosition[0] + ring * offsetStep * sign, diverPosition[1] + ring * offsetStep * sign];
+  };
+  const getDiverCourse = (diver: DiverUiConfig, index: number): number => {
+    const diverId = diver.id.trim();
+    const telemetry = diverId ? normalizedDiverPositions[diverId] : undefined;
+    if (telemetry && typeof telemetry.course === 'number' && Number.isFinite(telemetry.course)) {
+      return telemetry.course;
+    }
+    if (index === 0) {
+      return diverData.course;
+    }
+    return 0;
   };
   const baseStationPosition: [number, number] = [59.935, 30.333];
   const { toast } = useToast();
@@ -1437,8 +1476,8 @@ const MapCanvas = ({
         {/* Diver */}
         {layers.diver &&
           divers.map((diver, index) => {
-            const position = getDiverPosition(index);
-            const course = index === 0 ? diverData.course : 0;
+            const position = getDiverPosition(diver, index);
+            const course = getDiverCourse(diver, index);
             return (
               <Marker
                 key={diver.uid}

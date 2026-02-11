@@ -23,7 +23,7 @@ import {
   normalizeAppSettings,
   type AppUiDefaults,
 } from '@/features/settings';
-import type { DiverUiConfig } from '@/features/mission';
+import type { DiverUiConfig, NavigationSourceId } from '@/features/mission';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -34,6 +34,18 @@ interface SettingsDialogProps {
   onApplyDivers: (next: DiverUiConfig[]) => Promise<void> | void;
   onReset: () => Promise<void> | void;
   onResetDivers: () => Promise<void> | void;
+  equipmentItems?: Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    statusText: string;
+    canToggle?: boolean;
+  }>;
+  navigationSourceOptions?: Array<{
+    id: NavigationSourceId;
+    label: string;
+  }>;
+  onToggleEquipment?: (id: string, enabled: boolean) => Promise<void> | void;
 }
 
 const clampNumber = (value: string, fallback: number, min: number, max: number): number => {
@@ -51,6 +63,9 @@ const SettingsDialog = ({
   onApplyDivers,
   onReset,
   onResetDivers,
+  equipmentItems = [],
+  navigationSourceOptions = [],
+  onToggleEquipment,
 }: SettingsDialogProps) => {
   const initial = useMemo(() => value, [value]);
   const [draft, setDraft] = useState<AppUiDefaults>(initial);
@@ -89,11 +104,12 @@ const SettingsDialog = ({
       ...diversDraft,
       {
         uid: crypto.randomUUID(),
-        id: `diver-${index + 1}`,
-        title: `Водолаз ${index + 1}`,
+        id: `${index + 1}`,
+        title: `Маяк ${index + 1}`,
         marker_color: '#0ea5e9',
         marker_size_px: 32,
         track_color: '#a855f7',
+        navigation_source: navigationSourceOptions[0]?.id ?? 'zima2r',
       },
     ]);
   };
@@ -143,7 +159,7 @@ const SettingsDialog = ({
             <TabsTrigger value="coordinates">Координаты</TabsTrigger>
             <TabsTrigger value="styles">Стили</TabsTrigger>
             <TabsTrigger value="defaults">По умолчанию</TabsTrigger>
-            <TabsTrigger value="connection">Подключение</TabsTrigger>
+            <TabsTrigger value="connection">Агенты</TabsTrigger>
           </TabsList>
 
           <div className="mt-4 flex-1 min-h-0 overflow-y-auto pr-1">
@@ -573,41 +589,43 @@ const SettingsDialog = ({
             </TabsContent>
 
             <TabsContent value="connection" className="mt-0 space-y-6">
-              <div className="space-y-2">
-                <Label>Хост</Label>
-                <Input
-                  value={draft.connection.host}
-                  onChange={(e) =>
-                    update({
-                      ...draft,
-                      connection: { ...draft.connection, host: e.target.value },
-                    })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Порт</Label>
-                <Input
-                  inputMode="numeric"
-                  value={String(draft.connection.port)}
-                  onChange={(e) =>
-                    update({
-                      ...draft,
-                      connection: {
-                        ...draft.connection,
-                        port: clampNumber(e.target.value, 9000, 1, 65535),
-                      },
-                    })
-                  }
-                />
+              <div className="rounded-md border border-border bg-secondary/40 p-3 text-sm">
+                <div className="font-medium text-foreground">Оборудование</div>
+                {equipmentItems.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {equipmentItems.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between gap-4 rounded-md border border-border bg-card px-3 py-2">
+                        <div>
+                          <div>{item.name}</div>
+                          <div className="text-xs text-muted-foreground">Статус: {item.statusText}</div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant={item.enabled ? 'destructive' : 'default'}
+                          size="sm"
+                          onClick={() => onToggleEquipment?.(item.id, !item.enabled)}
+                          disabled={!onToggleEquipment || item.canToggle === false}
+                        >
+                          {item.enabled ? 'Выключить' : 'Включить'}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-2 text-muted-foreground">Не выбрано</div>
+                )}
+                {equipmentItems.some((item) => item.canToggle === false) ? (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    Отдельные устройства доступны только после реализации интеграции.
+                  </div>
+                ) : null}
               </div>
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-medium">Водолазы</div>
                   <Button type="button" variant="outline" size="sm" onClick={handleAddDiver}>
-                    Добавить водолаза
+                    Добавить маяк
                   </Button>
                 </div>
 
@@ -642,6 +660,28 @@ const SettingsDialog = ({
                             onChange={(e) => updateDiver(index, { title: e.target.value })}
                           />
                         </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>Источник навигации</Label>
+                        <Select
+                          value={diver.navigation_source}
+                          onValueChange={(value) =>
+                            updateDiver(index, { navigation_source: value as NavigationSourceId })
+                          }
+                          disabled={navigationSourceOptions.length === 0}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {navigationSourceOptions.map((option) => (
+                              <SelectItem key={option.id} value={option.id}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
 
                       <div className="grid grid-cols-3 gap-3">

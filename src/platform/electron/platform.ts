@@ -33,6 +33,35 @@ type ElectronApi = {
     writeJson: (key: string, value: unknown) => Promise<void>;
     remove: (key: string) => Promise<void>;
   };
+  zima?: {
+    start: (config: {
+      ipAddress: string;
+      dataPort: number;
+      commandPort: number;
+      useCommandPort: boolean;
+      useExternalGnss: boolean;
+      latitude: number | null;
+      longitude: number | null;
+      azimuth: number | null;
+    }) => Promise<unknown>;
+    stop: () => Promise<unknown>;
+    sendCommand: (command: string) => Promise<unknown>;
+    status: () => Promise<unknown>;
+    onData: (listener: (payload: { message?: string; receivedAt?: number }) => void) => () => void;
+    onStatus: (listener: (payload: { status?: string }) => void) => () => void;
+    onError: (listener: (payload: { message?: string }) => void) => () => void;
+  };
+  gnss?: {
+    start: (config: {
+      ipAddress: string;
+      dataPort: number;
+    }) => Promise<unknown>;
+    stop: () => Promise<unknown>;
+    status: () => Promise<unknown>;
+    onData: (listener: (payload: { message?: string; receivedAt?: number }) => void) => () => void;
+    onStatus: (listener: (payload: { status?: string }) => void) => () => void;
+    onError: (listener: (payload: { message?: string }) => void) => () => void;
+  };
 };
 
 const getApi = (): ElectronApi | null => {

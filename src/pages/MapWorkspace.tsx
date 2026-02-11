@@ -10,15 +10,24 @@ import OpenMissionDialog from '@/components/dialogs/OpenMissionDialog';
 import ExportDialog from '@/components/dialogs/ExportDialog';
 import SettingsDialog from '@/components/dialogs/SettingsDialog';
 import type { MapObject, Tool } from '@/features/map/model/types';
+
+import {
+  buildEquipmentRuntime,
+  EQUIPMENT_RUNTIME_STORAGE_KEY,
+  EQUIPMENT_SETTINGS_STORAGE_KEY,
+  loadDeviceSchemas,
+  normalizeEquipmentSettings,
+} from '@/features/devices';
 import {
   buildTrackSegments,
   bundleToMapObjects,
   cascadeDeleteZone,
   clearZoneLanesOutdated,
   countZoneLanes,
+  createElectronGnssTelemetryProvider,
+  createElectronZimaTelemetryProvider,
   createDefaultDivers,
   createMissionRepository,
-  createNoopTelemetryProvider,
   createSimulationTelemetryProvider,
   createTrackRecorderState,
   didZoneLaneInputsChange,
@@ -33,6 +42,7 @@ import {
   type MissionBundle,
   type MissionDocument,
   type MissionUiState,
+  type NavigationSourceId,
   type SegmentLengthsMode,
   type TelemetryConnectionState,
   type TelemetryFix,
@@ -127,18 +137,188 @@ const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   },
 });
 
+type ElectronZimaTelemetryConfig = {
+  ipAddress: string;
+  dataPort: number;
+  commandPort: number;
+  useCommandPort: boolean;
+  useExternalGnss: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  azimuth: number | null;
+};
+
+type ElectronGnssTelemetryConfig = {
+  ipAddress: string;
+  dataPort: number;
+};
+
+type DiverTelemetryState = {
+  lat: number;
+  lon: number;
+  speed: number;
+  course: number;
+  depth: number;
+  received_at: number;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const normalizePort = (value: unknown, fallback: number): number => {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) return fallback;
+  return n;
+};
+
+const normalizeBoolean = (value: unknown, fallback: boolean): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return fallback;
+};
+
+const normalizeNullableNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return n;
+};
+
+const normalizeZimaTelemetryConfig = (raw: unknown): ElectronZimaTelemetryConfig | null => {
+  if (!isRecord(raw)) return null;
+
+  const ipAddressRaw = typeof raw.ipAddress === 'string' ? raw.ipAddress.trim() : '';
+  return {
+    ipAddress: ipAddressRaw || '127.0.0.1',
+    dataPort: normalizePort(raw.dataPort, 28127),
+    commandPort: normalizePort(raw.commandPort, 28128),
+    useCommandPort: normalizeBoolean(raw.useCommandPort, false),
+    useExternalGnss: normalizeBoolean(raw.useExternalGnss, false),
+    latitude: normalizeNullableNumber(raw.latitude),
+    longitude: normalizeNullableNumber(raw.longitude),
+    azimuth: normalizeNullableNumber(raw.azimuth),
+  };
+};
+
+const normalizeGnssTelemetryConfig = (raw: unknown): ElectronGnssTelemetryConfig | null => {
+  if (!isRecord(raw)) return null;
+
+  const ipAddressRaw = typeof raw.ipAddress === 'string' ? raw.ipAddress.trim() : '';
+  return {
+    ipAddress: ipAddressRaw || '127.0.0.1',
+    dataPort: normalizePort(raw.dataPort, 28128),
+  };
+};
+
+const isNavigationSourceId = (value: unknown): value is NavigationSourceId =>
+  value === 'zima2r' || value === 'gnss-udp' || value === 'simulation';
+
+const normalizeBeaconBindingKey = (value: unknown): string | null => {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+  const n = Number(normalized);
+  if (!Number.isInteger(n) || n < 1 || n > 16) return null;
+  return String(n);
+};
+
+const isSameTelemetryState = (
+  a: DiverTelemetryState | undefined,
+  b: DiverTelemetryState | undefined,
+): boolean => {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    a.lat === b.lat &&
+    a.lon === b.lon &&
+    a.speed === b.speed &&
+    a.course === b.course &&
+    a.depth === b.depth &&
+    a.received_at === b.received_at
+  );
+};
+
 const MapWorkspace = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const isElectronRuntime = platform.runtime.isElectron;
   const showSimulationControls = !isElectronRuntime;
   const repository = useMemo(() => createMissionRepository(platform.fileStore), []);
-  const telemetryProvider = useMemo(
+  const deviceSchemas = useMemo(() => loadDeviceSchemas(), []);
+  const loadActiveEquipmentProfile = useCallback(async () => {
+    const equipmentRaw = await platform.settings.readJson<unknown>(EQUIPMENT_SETTINGS_STORAGE_KEY);
+    const normalized = normalizeEquipmentSettings(equipmentRaw, deviceSchemas);
+    const selectedProfile =
+      normalized.profiles.find((profile) => profile.id === normalized.selected_profile_id) ?? normalized.profiles[0] ?? null;
+    const deviceIds = selectedProfile?.device_ids ?? [];
+    setSelectedEquipmentProfileName(selectedProfile?.name ?? 'Не выбрано');
+    setSelectedEquipmentDeviceIds(deviceIds);
+    setEquipmentEnabledByDevice((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const [deviceId, enabled] of Object.entries(prev)) {
+        next[deviceId] = deviceIds.includes(deviceId) ? enabled : false;
+      }
+      for (const deviceId of deviceIds) {
+        if (next[deviceId] === undefined) {
+          next[deviceId] = false;
+        }
+      }
+      return next;
+    });
+  }, [deviceSchemas]);
+
+  const readElectronZimaConfig = useCallback(async (): Promise<ElectronZimaTelemetryConfig | null> => {
+    const runtimeRaw = await platform.settings.readJson<unknown>(EQUIPMENT_RUNTIME_STORAGE_KEY);
+    if (isRecord(runtimeRaw)) {
+      const runtimeConfig = normalizeZimaTelemetryConfig(runtimeRaw.zima);
+      if (runtimeConfig) {
+        return runtimeConfig;
+      }
+    }
+
+    const settingsRaw = await platform.settings.readJson<unknown>(EQUIPMENT_SETTINGS_STORAGE_KEY);
+    const normalizedSettings = normalizeEquipmentSettings(settingsRaw, deviceSchemas);
+    const runtime = buildEquipmentRuntime(normalizedSettings, deviceSchemas);
+    return normalizeZimaTelemetryConfig(runtime.zima);
+  }, [deviceSchemas]);
+  const readElectronGnssConfig = useCallback(async (): Promise<ElectronGnssTelemetryConfig | null> => {
+    const runtimeRaw = await platform.settings.readJson<unknown>(EQUIPMENT_RUNTIME_STORAGE_KEY);
+    if (isRecord(runtimeRaw)) {
+      const runtimeConfig = normalizeGnssTelemetryConfig(runtimeRaw.gnss_udp);
+      if (runtimeConfig) {
+        return runtimeConfig;
+      }
+    }
+
+    const settingsRaw = await platform.settings.readJson<unknown>(EQUIPMENT_SETTINGS_STORAGE_KEY);
+    const normalizedSettings = normalizeEquipmentSettings(settingsRaw, deviceSchemas);
+    const runtime = buildEquipmentRuntime(normalizedSettings, deviceSchemas);
+    return normalizeGnssTelemetryConfig(runtime.gnss_udp);
+  }, [deviceSchemas]);
+
+  const zimaTelemetryProvider = useMemo(
     () =>
-      isElectronRuntime
-        ? createNoopTelemetryProvider()
-        : createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
-    [isElectronRuntime],
+      createElectronZimaTelemetryProvider({
+        timeoutMs: CONNECTION_TIMEOUT_MS,
+        readConfig: readElectronZimaConfig,
+      }),
+    [readElectronZimaConfig],
+  );
+  const gnssTelemetryProvider = useMemo(
+    () =>
+      createElectronGnssTelemetryProvider({
+        timeoutMs: CONNECTION_TIMEOUT_MS,
+        readConfig: readElectronGnssConfig,
+      }),
+    [readElectronGnssConfig],
+  );
+  const simulationTelemetryProvider = useMemo(
+    () => createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
+    [],
   );
 
   const [missionRootPath, setMissionRootPath] = useState<string | null>(null);
@@ -148,8 +328,15 @@ const MapWorkspace = () => {
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [isFollowing, setIsFollowing] = useState(true);
   const [simulationEnabled, setSimulationEnabled] = useState(!isElectronRuntime);
+  const [equipmentEnabledByDevice, setEquipmentEnabledByDevice] = useState<Record<string, boolean>>({
+    zima2r: false,
+    'gnss-udp': false,
+  });
+  const [selectedEquipmentProfileName, setSelectedEquipmentProfileName] = useState<string>('Не выбрано');
+  const [selectedEquipmentDeviceIds, setSelectedEquipmentDeviceIds] = useState<string[]>([]);
   const [simulateConnectionError, setSimulateConnectionError] = useState(false);
   const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
+  const [diverTelemetryById, setDiverTelemetryById] = useState<Record<string, DiverTelemetryState>>({});
   const [missionDivers, setMissionDivers] = useState<DiverUiConfig[]>(() => createDefaultDivers(1));
   const [layers, setLayers] = useState<LayersState>(DEFAULT_LAYERS);
   const [objects, setObjects] = useState<MapObject[]>([]);
@@ -186,6 +373,15 @@ const MapWorkspace = () => {
   const [shouldAutoStartRecording, setShouldAutoStartRecording] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<TelemetryConnectionState>('ok');
   const [connectionLostSeconds, setConnectionLostSeconds] = useState(0);
+  const [deviceConnectionStatus, setDeviceConnectionStatus] = useState<Record<'zima2r' | 'gnss-udp', TelemetryConnectionState>>({
+    zima2r: 'ok',
+    'gnss-udp': 'ok',
+  });
+  const [simulationConnectionStatus, setSimulationConnectionStatus] = useState<TelemetryConnectionState>('ok');
+  const [deviceConnectionLostSeconds, setDeviceConnectionLostSeconds] = useState<Record<'zima2r' | 'gnss-udp', number>>({
+    zima2r: 0,
+    'gnss-udp': 0,
+  });
   const [recordingState, setRecordingState] = useState<TrackRecorderState>(() =>
     createTrackRecorderState(null, {}, 'stopped'),
   );
@@ -198,6 +394,18 @@ const MapWorkspace = () => {
   const autosaveTimerRef = useRef<number | null>(null);
   const lastFixAtRef = useRef<number>(Date.now());
   const connectionStateRef = useRef<TelemetryConnectionState>('ok');
+  const primaryNavigationSourceRef = useRef<NavigationSourceId>('simulation');
+  const lastFixAtBySourceRef = useRef<Record<NavigationSourceId, number>>({
+    zima2r: Date.now(),
+    'gnss-udp': Date.now(),
+    simulation: Date.now(),
+  });
+  const zimaAzmLocFixRef = useRef<DiverTelemetryState | null>(null);
+  const zimaRemFixByBeaconRef = useRef<Record<string, DiverTelemetryState>>({});
+  const gnssFixRef = useRef<DiverTelemetryState | null>(null);
+  const simulationFixRef = useRef<DiverTelemetryState | null>(null);
+  const lastRecordedPrimaryFixAtRef = useRef<number>(0);
+  const missionDiversRef = useRef<DiverUiConfig[]>(createDefaultDivers(1));
   const appSettingsRef = useRef<AppSettingsV1>(DEFAULT_APP_SETTINGS);
   const latestSnapshotRef = useRef<WorkspaceSnapshot>({
     missionRootPath: null,
@@ -234,6 +442,37 @@ const MapWorkspace = () => {
     if (!selectedObject || selectedObject.type !== 'zone') return false;
     return Boolean(outdatedZoneIds[selectedObject.id]);
   }, [outdatedZoneIds, selectedObject]);
+
+  const availableNavigationSources = useMemo<NavigationSourceId[]>(() => {
+    if (!isElectronRuntime) return ['simulation'];
+    const next: NavigationSourceId[] = [];
+    if (selectedEquipmentDeviceIds.includes('zima2r')) next.push('zima2r');
+    if (selectedEquipmentDeviceIds.includes('gnss-udp')) next.push('gnss-udp');
+    return next.length > 0 ? next : ['zima2r'];
+  }, [isElectronRuntime, selectedEquipmentDeviceIds]);
+
+  const primaryNavigationSource = useMemo<NavigationSourceId>(() => {
+    const preferred = missionDivers[0]?.navigation_source;
+    if (isNavigationSourceId(preferred) && availableNavigationSources.includes(preferred)) {
+      return preferred;
+    }
+    return availableNavigationSources[0] ?? 'simulation';
+  }, [availableNavigationSources, missionDivers]);
+
+  const navigationSourceOptions = useMemo(
+    () =>
+      availableNavigationSources.map((sourceId) => {
+        if (sourceId === 'simulation') {
+          return { id: sourceId, label: 'Simulation' };
+        }
+        const schema = deviceSchemas.find((item) => item.id === sourceId);
+        return {
+          id: sourceId,
+          label: schema?.title ?? sourceId,
+        };
+      }),
+    [availableNavigationSources, deviceSchemas],
+  );
 
   const effectiveTrackColor = missionDivers[0]?.track_color ?? styles.track.color;
   const effectiveStyles = useMemo<AppUiDefaults['styles']>(
@@ -327,6 +566,29 @@ const MapWorkspace = () => {
     styles,
     isLoaded,
   ]);
+
+  useEffect(() => {
+    missionDiversRef.current = missionDivers;
+  }, [missionDivers]);
+
+  useEffect(() => {
+    setMissionDivers((prev) => {
+      let changed = false;
+      const fallbackSource = availableNavigationSources[0] ?? 'simulation';
+      const next = prev.map((diver) => {
+        const current = diver.navigation_source;
+        if (isNavigationSourceId(current) && availableNavigationSources.includes(current)) {
+          return diver;
+        }
+        changed = true;
+        return {
+          ...diver,
+          navigation_source: fallbackSource,
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [availableNavigationSources]);
 
   const releaseCurrentLock = useCallback(async () => {
     if (!lockOwnerRootRef.current) return;
@@ -443,6 +705,12 @@ const MapWorkspace = () => {
     setMissionName(bundle.mission.name);
     setIsDraft(draftMode);
     setMissionDivers(normalizeDivers(bundle.mission.ui?.divers));
+    setDiverTelemetryById({});
+    zimaAzmLocFixRef.current = null;
+    zimaRemFixByBeaconRef.current = {};
+    gnssFixRef.current = null;
+    simulationFixRef.current = null;
+    lastRecordedPrimaryFixAtRef.current = 0;
     setIsFollowing(effective.follow_diver);
     setCenterOnObjectSelect(effective.interactions.center_on_object_select);
     setLayers({
@@ -608,32 +876,7 @@ const MapWorkspace = () => {
     styles,
   ]);
 
-  const handleTelemetryFix = useCallback((fix: TelemetryFix) => {
-    lastFixAtRef.current = fix.received_at;
-    setConnectionLostSeconds(0);
-    setDiverData({
-      lat: fix.lat,
-      lon: fix.lon,
-      speed: fix.speed,
-      course: Math.round(fix.course),
-      depth: fix.depth,
-    });
-    setRecordingState((prev) =>
-      trackRecorderReduce(prev, {
-        type: 'fixReceived',
-        fix: {
-          lat: fix.lat,
-          lon: fix.lon,
-          speed: fix.speed,
-          course: fix.course,
-          depth: fix.depth,
-          timestamp: new Date(fix.received_at).toISOString(),
-        },
-      }),
-    );
-  }, []);
-
-  const handleConnectionState = useCallback((nextState: TelemetryConnectionState) => {
+  const applyPrimaryConnectionState = useCallback((nextState: TelemetryConnectionState) => {
     const previousState = connectionStateRef.current;
     connectionStateRef.current = nextState;
     setConnectionStatus(nextState);
@@ -649,26 +892,226 @@ const MapWorkspace = () => {
     setConnectionLostSeconds(Math.max(1, Math.floor((Date.now() - lastFixAtRef.current) / 1000)));
   }, []);
 
+  const syncDiverTelemetry = useCallback(() => {
+    const divers = missionDiversRef.current;
+    const nextById: Record<string, DiverTelemetryState> = {};
+    let primaryFix: DiverTelemetryState | null = null;
+
+    divers.forEach((diver, index) => {
+      const source = diver.navigation_source;
+      let telemetry: DiverTelemetryState | null = null;
+
+      if (source === 'gnss-udp') {
+        telemetry = gnssFixRef.current;
+      } else if (source === 'simulation') {
+        telemetry = simulationFixRef.current;
+      } else {
+        const beaconKey = normalizeBeaconBindingKey(diver.id);
+        if (beaconKey) {
+          telemetry = zimaRemFixByBeaconRef.current[beaconKey] ?? null;
+        }
+        if (!telemetry && index === 0) {
+          telemetry = zimaAzmLocFixRef.current;
+        }
+      }
+
+      if (index === 0) {
+        primaryFix = telemetry;
+      }
+
+      const diverKey = diver.id.trim();
+      if (telemetry && diverKey) {
+        nextById[diverKey] = telemetry;
+      }
+    });
+
+    setDiverTelemetryById((prev) => {
+      const keys = new Set([...Object.keys(prev), ...Object.keys(nextById)]);
+      for (const key of keys) {
+        if (!isSameTelemetryState(prev[key], nextById[key])) {
+          return nextById;
+        }
+      }
+      return prev;
+    });
+
+    if (!primaryFix) return;
+
+    setDiverData({
+      lat: primaryFix.lat,
+      lon: primaryFix.lon,
+      speed: primaryFix.speed,
+      course: Math.round(primaryFix.course),
+      depth: primaryFix.depth,
+    });
+
+    if (primaryFix.received_at === lastRecordedPrimaryFixAtRef.current) return;
+    lastRecordedPrimaryFixAtRef.current = primaryFix.received_at;
+    setRecordingState((prev) =>
+      trackRecorderReduce(prev, {
+        type: 'fixReceived',
+        fix: {
+          lat: primaryFix.lat,
+          lon: primaryFix.lon,
+          speed: primaryFix.speed,
+          course: primaryFix.course,
+          depth: primaryFix.depth,
+          timestamp: new Date(primaryFix.received_at).toISOString(),
+        },
+      }),
+    );
+  }, []);
+
+  const handleTelemetryFix = useCallback(
+    (sourceId: NavigationSourceId, fix: TelemetryFix) => {
+      lastFixAtBySourceRef.current[sourceId] = fix.received_at;
+
+      const telemetryState: DiverTelemetryState = {
+        lat: fix.lat,
+        lon: fix.lon,
+        speed: fix.speed,
+        course: fix.course,
+        depth: fix.depth,
+        received_at: fix.received_at,
+      };
+
+      if (sourceId === 'zima2r') {
+        if (fix.source === 'AZMLOC') {
+          zimaAzmLocFixRef.current = telemetryState;
+        } else if (fix.source === 'AZMREM' && fix.remoteAddress !== null && fix.remoteAddress !== undefined) {
+          const beaconKey = normalizeBeaconBindingKey(fix.remoteAddress);
+          if (beaconKey) {
+            zimaRemFixByBeaconRef.current[beaconKey] = telemetryState;
+          }
+        }
+      } else if (sourceId === 'gnss-udp') {
+        gnssFixRef.current = telemetryState;
+      } else {
+        simulationFixRef.current = telemetryState;
+      }
+
+      if (primaryNavigationSourceRef.current === sourceId) {
+        lastFixAtRef.current = fix.received_at;
+        setConnectionLostSeconds(0);
+      }
+
+      syncDiverTelemetry();
+    },
+    [syncDiverTelemetry],
+  );
+
   useEffect(() => {
-    const unsubscribeFix = telemetryProvider.onFix(handleTelemetryFix);
-    const unsubscribeConnection = telemetryProvider.onConnectionState(handleConnectionState);
-    telemetryProvider.start();
+    syncDiverTelemetry();
+  }, [missionDivers, syncDiverTelemetry]);
+
+  const handleDeviceConnectionState = useCallback(
+    (sourceId: NavigationSourceId, nextState: TelemetryConnectionState) => {
+      if (sourceId === 'zima2r' || sourceId === 'gnss-udp') {
+        setDeviceConnectionStatus((prev) => ({ ...prev, [sourceId]: nextState }));
+      } else {
+        setSimulationConnectionStatus(nextState);
+      }
+      if (primaryNavigationSourceRef.current === sourceId) {
+        applyPrimaryConnectionState(nextState);
+      }
+    },
+    [applyPrimaryConnectionState],
+  );
+
+  useEffect(() => {
+    primaryNavigationSourceRef.current = primaryNavigationSource;
+    lastFixAtRef.current = lastFixAtBySourceRef.current[primaryNavigationSource] ?? Date.now();
+
+    const nextStatus =
+      primaryNavigationSource === 'zima2r' || primaryNavigationSource === 'gnss-udp'
+        ? deviceConnectionStatus[primaryNavigationSource]
+        : simulationConnectionStatus;
+    applyPrimaryConnectionState(nextStatus ?? 'ok');
+    syncDiverTelemetry();
+  }, [
+    applyPrimaryConnectionState,
+    deviceConnectionStatus,
+    primaryNavigationSource,
+    simulationConnectionStatus,
+    syncDiverTelemetry,
+  ]);
+
+  useEffect(() => {
+    if (isElectronRuntime) {
+      const unsubscribeZimaFix = zimaTelemetryProvider.onFix((fix) => handleTelemetryFix('zima2r', fix));
+      const unsubscribeZimaConnection = zimaTelemetryProvider.onConnectionState((state) =>
+        handleDeviceConnectionState('zima2r', state),
+      );
+      const unsubscribeGnssFix = gnssTelemetryProvider.onFix((fix) => handleTelemetryFix('gnss-udp', fix));
+      const unsubscribeGnssConnection = gnssTelemetryProvider.onConnectionState((state) =>
+        handleDeviceConnectionState('gnss-udp', state),
+      );
+      zimaTelemetryProvider.start();
+      gnssTelemetryProvider.start();
+
+      return () => {
+        unsubscribeZimaFix();
+        unsubscribeZimaConnection();
+        unsubscribeGnssFix();
+        unsubscribeGnssConnection();
+        zimaTelemetryProvider.stop();
+        gnssTelemetryProvider.stop();
+      };
+    }
+
+    const unsubscribeSimulationFix = simulationTelemetryProvider.onFix((fix) => handleTelemetryFix('simulation', fix));
+    const unsubscribeSimulationConnection = simulationTelemetryProvider.onConnectionState((state) =>
+      handleDeviceConnectionState('simulation', state),
+    );
+    simulationTelemetryProvider.start();
     return () => {
-      unsubscribeFix();
-      unsubscribeConnection();
-      telemetryProvider.stop();
+      unsubscribeSimulationFix();
+      unsubscribeSimulationConnection();
+      simulationTelemetryProvider.stop();
     };
-  }, [handleConnectionState, handleTelemetryFix, telemetryProvider]);
+  }, [
+    gnssTelemetryProvider,
+    handleDeviceConnectionState,
+    handleTelemetryFix,
+    isElectronRuntime,
+    simulationTelemetryProvider,
+    zimaTelemetryProvider,
+  ]);
+
+  useEffect(() => {
+    if (isElectronRuntime) {
+      const zimaEnabled = selectedEquipmentDeviceIds.includes('zima2r') && (equipmentEnabledByDevice.zima2r ?? false);
+      const gnssEnabled =
+        selectedEquipmentDeviceIds.includes('gnss-udp') && Boolean(equipmentEnabledByDevice['gnss-udp']);
+      zimaTelemetryProvider.setEnabled(zimaEnabled);
+      gnssTelemetryProvider.setEnabled(gnssEnabled);
+      return;
+    }
+    simulationTelemetryProvider.setEnabled(simulationEnabled);
+  }, [
+    equipmentEnabledByDevice,
+    gnssTelemetryProvider,
+    isElectronRuntime,
+    selectedEquipmentDeviceIds,
+    simulationEnabled,
+    simulationTelemetryProvider,
+    zimaTelemetryProvider,
+  ]);
 
   useEffect(() => {
     if (isElectronRuntime) return;
-    telemetryProvider.setEnabled(simulationEnabled);
-  }, [isElectronRuntime, simulationEnabled, telemetryProvider]);
+    simulationTelemetryProvider.setSimulateConnectionError(simulateConnectionError);
+  }, [isElectronRuntime, simulateConnectionError, simulationTelemetryProvider]);
 
   useEffect(() => {
-    if (isElectronRuntime) return;
-    telemetryProvider.setSimulateConnectionError(simulateConnectionError);
-  }, [isElectronRuntime, simulateConnectionError, telemetryProvider]);
+    if (!isElectronRuntime) return;
+    void loadActiveEquipmentProfile();
+  }, [isElectronRuntime, loadActiveEquipmentProfile]);
+
+  useEffect(() => {
+    if (!isElectronRuntime || !showSettings) return;
+    void loadActiveEquipmentProfile();
+  }, [isElectronRuntime, loadActiveEquipmentProfile, showSettings]);
 
   useEffect(() => {
     if (connectionStatus === 'ok') {
@@ -681,6 +1124,24 @@ const MapWorkspace = () => {
       window.clearInterval(intervalId);
     };
   }, [connectionStatus]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setDeviceConnectionLostSeconds({
+        zima2r:
+          deviceConnectionStatus.zima2r === 'ok'
+            ? 0
+            : Math.max(1, Math.floor((Date.now() - lastFixAtBySourceRef.current.zima2r) / 1000)),
+        'gnss-udp':
+          deviceConnectionStatus['gnss-udp'] === 'ok'
+            ? 0
+            : Math.max(1, Math.floor((Date.now() - lastFixAtBySourceRef.current['gnss-udp']) / 1000)),
+      });
+    }, 1000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [deviceConnectionStatus]);
 
   useEffect(() => {
     const handlePageHide = () => persistMissionBestEffort();
@@ -818,6 +1279,13 @@ const MapWorkspace = () => {
 
   const handleDiversReset = () => {
     setMissionDivers(createDefaultDivers(1));
+  };
+
+  const handleToggleEquipmentConnection = (deviceId: string, enabled: boolean) => {
+    setEquipmentEnabledByDevice((prev) => ({ ...prev, [deviceId]: enabled }));
+    const schema = deviceSchemas.find((item) => item.id === deviceId);
+    const title = schema?.title ?? deviceId;
+    toast({ title: `${title}: ${enabled ? 'включено' : 'выключено'}` });
   };
 
   const handleExport = async (request: ExportRequest) => {
@@ -1112,7 +1580,7 @@ const MapWorkspace = () => {
         <LeftPanel
           layers={layers}
           primaryDiverTitle={
-            missionDivers[0]?.title?.trim() || missionDivers[0]?.id?.trim() || 'Водолаз 1'
+            missionDivers[0]?.title?.trim() || missionDivers[0]?.id?.trim() || 'Маяк 1'
           }
           primaryTrackColor={missionDivers[0]?.track_color ?? '#a855f7'}
           onLayerToggle={handleLayerToggle}
@@ -1143,6 +1611,7 @@ const MapWorkspace = () => {
             centerRequest={centerRequest}
             diverData={diverData}
             divers={missionDivers}
+            diverPositionsById={diverTelemetryById}
             trackSegments={trackSegments}
             isFollowing={isFollowing}
             connectionStatus={connectionStatus}
@@ -1221,6 +1690,38 @@ const MapWorkspace = () => {
         onApplyDivers={handleDiversApply}
         onReset={handleSettingsReset}
         onResetDivers={handleDiversReset}
+        navigationSourceOptions={navigationSourceOptions}
+        equipmentItems={
+          isElectronRuntime
+            ? selectedEquipmentDeviceIds.map((deviceId) => {
+                const schema = deviceSchemas.find((item) => item.id === deviceId);
+                const enabled = Boolean(equipmentEnabledByDevice[deviceId]);
+                const deviceState =
+                  deviceId === 'zima2r' || deviceId === 'gnss-udp'
+                    ? deviceConnectionStatus[deviceId]
+                    : 'ok';
+                const lostSeconds =
+                  deviceId === 'zima2r' || deviceId === 'gnss-udp'
+                    ? deviceConnectionLostSeconds[deviceId]
+                    : 0;
+                const statusText = enabled
+                  ? deviceState === 'ok'
+                    ? `Подключено (${selectedEquipmentProfileName})`
+                    : deviceState === 'timeout'
+                      ? `Нет данных ${lostSeconds} сек`
+                      : 'Ошибка'
+                  : 'Выключено';
+                return {
+                  id: deviceId,
+                  name: schema?.title ?? deviceId,
+                  enabled,
+                  statusText,
+                  canToggle: true,
+                };
+              })
+            : []
+        }
+        onToggleEquipment={isElectronRuntime ? handleToggleEquipmentConnection : undefined}
       />
     </div>
   );

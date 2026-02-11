@@ -14,6 +14,35 @@ const CHANNELS = {
     writeJson: 'planner:settings:writeJson',
     remove: 'planner:settings:remove',
   },
+  zima: {
+    start: 'planner:zima:start',
+    stop: 'planner:zima:stop',
+    sendCommand: 'planner:zima:sendCommand',
+    status: 'planner:zima:status',
+    events: {
+      data: 'planner:zima:data',
+      status: 'planner:zima:statusChanged',
+      error: 'planner:zima:error',
+    },
+  },
+  gnss: {
+    start: 'planner:gnss:start',
+    stop: 'planner:gnss:stop',
+    status: 'planner:gnss:status',
+    events: {
+      data: 'planner:gnss:data',
+      status: 'planner:gnss:statusChanged',
+      error: 'planner:gnss:error',
+    },
+  },
+};
+
+const subscribe = (channel, listener) => {
+  const wrapped = (_event, payload) => {
+    listener(payload);
+  };
+  ipcRenderer.on(channel, wrapped);
+  return () => ipcRenderer.removeListener(channel, wrapped);
 };
 
 const api = {
@@ -29,6 +58,23 @@ const api = {
     readJson: (key) => ipcRenderer.invoke(CHANNELS.settings.readJson, key),
     writeJson: (key, value) => ipcRenderer.invoke(CHANNELS.settings.writeJson, key, value),
     remove: (key) => ipcRenderer.invoke(CHANNELS.settings.remove, key),
+  },
+  zima: {
+    start: (config) => ipcRenderer.invoke(CHANNELS.zima.start, config),
+    stop: () => ipcRenderer.invoke(CHANNELS.zima.stop),
+    sendCommand: (command) => ipcRenderer.invoke(CHANNELS.zima.sendCommand, command),
+    status: () => ipcRenderer.invoke(CHANNELS.zima.status),
+    onData: (listener) => subscribe(CHANNELS.zima.events.data, listener),
+    onStatus: (listener) => subscribe(CHANNELS.zima.events.status, listener),
+    onError: (listener) => subscribe(CHANNELS.zima.events.error, listener),
+  },
+  gnss: {
+    start: (config) => ipcRenderer.invoke(CHANNELS.gnss.start, config),
+    stop: () => ipcRenderer.invoke(CHANNELS.gnss.stop),
+    status: () => ipcRenderer.invoke(CHANNELS.gnss.status),
+    onData: (listener) => subscribe(CHANNELS.gnss.events.data, listener),
+    onStatus: (listener) => subscribe(CHANNELS.gnss.events.status, listener),
+    onError: (listener) => subscribe(CHANNELS.gnss.events.error, listener),
   },
 };
 
