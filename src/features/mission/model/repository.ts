@@ -169,8 +169,12 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
         track: true,
         routes: true,
         markers: true,
+        base_station: true,
         grid: false,
         scale_bar: true,
+      },
+      base_station: {
+        navigation_source: null,
       },
     };
 

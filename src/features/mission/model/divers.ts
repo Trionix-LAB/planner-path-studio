@@ -33,9 +33,17 @@ const isNavigationSourceId = (value: unknown): value is NavigationSourceId =>
 const normalizeNavigationSource = (value: unknown, fallback: NavigationSourceId): NavigationSourceId =>
   isNavigationSourceId(value) ? value : fallback;
 
+const normalizeBeaconId = (value: unknown, fallback: string): string => {
+  const normalized = normalizeText(value, fallback);
+  const n = Number(normalized);
+  if (!Number.isInteger(n) || n < 0 || n > 15) return fallback;
+  return String(n);
+};
+
 export const createDefaultDiver = (index: number): DiverUiConfig => ({
   uid: crypto.randomUUID(),
   id: `${index + 1}`,
+  beacon_id: String(Math.max(0, Math.min(15, index + 1))),
   title: `Маяк ${index + 1}`,
   marker_color: DEFAULT_DIVER_MARKER_COLOR,
   marker_size_px: DEFAULT_DIVER_MARKER_SIZE,
@@ -54,9 +62,15 @@ export const normalizeDivers = (raw: unknown): DiverUiConfig[] => {
   const parsed = raw.map((item, index) => {
     const fallback = createDefaultDiver(index);
     if (!isRecord(item)) return fallback;
+    const id = normalizeText(item.id, fallback.id);
+    const beacon_id = normalizeBeaconId(
+      item.beacon_id ?? item.id,
+      fallback.beacon_id,
+    );
     return {
       uid: normalizeText(item.uid, crypto.randomUUID()),
-      id: normalizeText(item.id, fallback.id),
+      id,
+      beacon_id,
       title: normalizeText(item.title, fallback.title),
       marker_color: normalizeHexColor(item.marker_color, fallback.marker_color),
       marker_size_px: clampInt(item.marker_size_px, fallback.marker_size_px, 12, 64),

@@ -30,8 +30,10 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   value: AppUiDefaults;
   missionDivers: DiverUiConfig[];
+  baseStationNavigationSource: NavigationSourceId | null;
   onApply: (next: AppUiDefaults) => Promise<void> | void;
   onApplyDivers: (next: DiverUiConfig[]) => Promise<void> | void;
+  onApplyBaseStationNavigationSource: (next: NavigationSourceId | null) => Promise<void> | void;
   onReset: () => Promise<void> | void;
   onResetDivers: () => Promise<void> | void;
   equipmentItems?: Array<{
@@ -59,8 +61,10 @@ const SettingsDialog = ({
   onOpenChange,
   value,
   missionDivers,
+  baseStationNavigationSource,
   onApply,
   onApplyDivers,
+  onApplyBaseStationNavigationSource,
   onReset,
   onResetDivers,
   equipmentItems = [],
@@ -70,6 +74,9 @@ const SettingsDialog = ({
   const initial = useMemo(() => value, [value]);
   const [draft, setDraft] = useState<AppUiDefaults>(initial);
   const [diversDraft, setDiversDraft] = useState<DiverUiConfig[]>(missionDivers);
+  const [baseStationSourceDraft, setBaseStationSourceDraft] = useState<NavigationSourceId | null>(
+    baseStationNavigationSource,
+  );
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -77,8 +84,9 @@ const SettingsDialog = ({
     if (!open) return;
     setDraft(value);
     setDiversDraft(missionDivers);
+    setBaseStationSourceDraft(baseStationNavigationSource);
     setIsDirty(false);
-  }, [open, value, missionDivers]);
+  }, [open, value, missionDivers, baseStationNavigationSource]);
 
   const update = (next: AppUiDefaults) => {
     setDraft(next);
@@ -87,6 +95,11 @@ const SettingsDialog = ({
 
   const updateDivers = (next: DiverUiConfig[]) => {
     setDiversDraft(next);
+    setIsDirty(true);
+  };
+
+  const updateBaseStationSource = (next: NavigationSourceId | null) => {
+    setBaseStationSourceDraft(next);
     setIsDirty(true);
   };
 
@@ -100,11 +113,13 @@ const SettingsDialog = ({
 
   const handleAddDiver = () => {
     const index = diversDraft.length;
+    const defaultBeaconId = String(Math.max(0, Math.min(15, index + 1)));
     updateDivers([
       ...diversDraft,
       {
         uid: crypto.randomUUID(),
         id: `${index + 1}`,
+        beacon_id: defaultBeaconId,
         title: `Маяк ${index + 1}`,
         marker_color: '#0ea5e9',
         marker_size_px: 32,
@@ -128,6 +143,7 @@ const SettingsDialog = ({
       }).defaults;
       await onApply(normalized);
       await onApplyDivers(diversDraft);
+      await onApplyBaseStationNavigationSource(baseStationSourceDraft);
       setIsDirty(false);
       onOpenChange(false);
     } finally {
@@ -140,6 +156,8 @@ const SettingsDialog = ({
     try {
       await onReset();
       await onResetDivers();
+      await onApplyBaseStationNavigationSource(null);
+      setBaseStationSourceDraft(null);
       setIsDirty(false);
     } finally {
       setIsSaving(false);
@@ -585,6 +603,16 @@ const SettingsDialog = ({
                   />
                   <span>Маркеры</span>
                 </label>
+
+                <label className="flex items-center gap-3">
+                  <Checkbox
+                    checked={draft.layers.base_station}
+                    onCheckedChange={(c) =>
+                      update({ ...draft, layers: { ...draft.layers, base_station: c as boolean } })
+                    }
+                  />
+                  <span>Базовая станция</span>
+                </label>
               </div>
             </TabsContent>
 
@@ -622,6 +650,34 @@ const SettingsDialog = ({
               </div>
 
               <div className="space-y-3">
+                <div className="border border-border rounded-md p-3 space-y-2">
+                  <div className="text-sm font-medium">Базовая станция</div>
+                  <div className="space-y-1.5">
+                    <Label>Источник навигации</Label>
+                    <Select
+                      value={baseStationSourceDraft ?? '__none__'}
+                      onValueChange={(value) =>
+                        updateBaseStationSource(value === '__none__' ? null : (value as NavigationSourceId))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Не назначен</SelectItem>
+                        {navigationSourceOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="text-xs text-muted-foreground">
+                      Если источник не назначен, метка базовой станции скрывается на карте.
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-medium">Водолазы</div>
                   <Button type="button" variant="outline" size="sm" onClick={handleAddDiver}>
@@ -645,13 +701,22 @@ const SettingsDialog = ({
                         </Button>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-3 gap-3">
                         <div className="space-y-1.5">
-                          <Label>ID</Label>
+                          <Label>ID агента</Label>
                           <Input
                             value={diver.id}
                             onChange={(e) => updateDiver(index, { id: e.target.value })}
                           />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>ID маяка</Label>
+                          <Input
+                            inputMode="numeric"
+                            value={diver.beacon_id}
+                            onChange={(e) => updateDiver(index, { beacon_id: e.target.value })}
+                          />
+                          <div className="text-xs text-muted-foreground">Диапазон: 0-15</div>
                         </div>
                         <div className="space-y-1.5">
                           <Label>Заголовок</Label>

@@ -38,6 +38,7 @@ interface MapCanvasProps {
     track: boolean;
     routes: boolean;
     markers: boolean;
+    baseStation: boolean;
     grid: boolean;
     scaleBar: boolean;
     diver: boolean;
@@ -56,6 +57,13 @@ interface MapCanvasProps {
     course: number;
     depth: number;
   };
+  baseStationData: {
+    lat: number;
+    lon: number;
+    heading: number | null;
+    sourceId: string | null;
+  } | null;
+  isBaseStationSourceAssigned: boolean;
   divers: DiverUiConfig[];
   diverPositionsById?: Record<
     string,
@@ -108,17 +116,36 @@ const createDiverIcon = (course: number, isFollowing: boolean, color: string, si
   });
 };
 
-// Custom base station icon
-const baseStationIcon = L.divIcon({
-  className: "base-station-marker",
-  html: `
-    <div class="w-6 h-6 bg-muted border border-white flex items-center justify-center text-white text-xs font-bold">
-      B
-    </div>
-  `,
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-});
+const createBaseStationIcon = (headingDeg: number | null): L.DivIcon => {
+  const normalizedHeading =
+    typeof headingDeg === "number" && Number.isFinite(headingDeg)
+      ? ((headingDeg % 360) + 360) % 360
+      : null;
+  return L.divIcon({
+    className: "base-station-marker",
+    html: `
+      <div style="position: relative; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;">
+        ${
+          normalizedHeading === null
+            ? ""
+            : `<div style="position:absolute; top:-2px; left:50%; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:9px solid #0f172a; transform: translateX(-50%) rotate(${normalizedHeading}deg); transform-origin: 50% 18px; opacity:0.9;"></div>`
+        }
+        <div style="width: 26px; height: 26px; border-radius: 9999px; background: #f8fafc; border: 2px solid #0f172a; display:flex; align-items:center; justify-content:center; box-shadow: 0 1px 6px rgba(15,23,42,0.35);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 2V9" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="12" cy="10" r="2.1" stroke="#0f172a" stroke-width="2" fill="none"/>
+            <path d="M5 13C5 16.3 7.7 19 11 19" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
+            <path d="M19 13C19 16.3 16.3 19 13 19" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
+            <path d="M12 12V22" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
+            <path d="M9 19L12 22L15 19" stroke="#0f172a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+      </div>
+    `,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
+  });
+};
 
 // Custom marker icon
 const createMarkerIcon = (color: string, isSelected: boolean) => {
@@ -365,6 +392,8 @@ const MapCanvas = ({
   selectedObjectId,
   centerRequest,
   diverData,
+  baseStationData,
+  isBaseStationSourceAssigned,
   divers,
   diverPositionsById = {},
   trackSegments,
@@ -449,7 +478,13 @@ const MapCanvas = ({
     }
     return 0;
   };
-  const baseStationPosition: [number, number] = [59.935, 30.333];
+  const baseStationPosition: [number, number] | null = baseStationData
+    ? [baseStationData.lat, baseStationData.lon]
+    : null;
+  const baseStationIcon = useMemo(
+    () => createBaseStationIcon(baseStationData?.heading ?? null),
+    [baseStationData?.heading],
+  );
   const { toast } = useToast();
 
   const handleMissingGeometry = useCallback(
@@ -1488,10 +1523,15 @@ const MapCanvas = ({
           })}
 
         {/* Base station */}
-        <Marker
-          position={baseStationPosition}
-          icon={baseStationIcon}
-        />
+        {layers.baseStation && isBaseStationSourceAssigned && baseStationPosition ? (
+          <Marker position={baseStationPosition} icon={baseStationIcon}>
+            <Tooltip direction="top" offset={[10, -10]}>
+              {baseStationData?.sourceId
+                ? `Базовая станция · ${baseStationData.sourceId}`
+                : "Базовая станция"}
+            </Tooltip>
+          </Marker>
+        ) : null}
       </MapContainer>
 
       {/* Object Context Menu */}

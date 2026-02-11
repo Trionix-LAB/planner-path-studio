@@ -81,9 +81,21 @@ type LayersState = {
   track: boolean;
   routes: boolean;
   markers: boolean;
+  baseStation: boolean;
   grid: boolean;
   scaleBar: boolean;
   diver: boolean;
+};
+
+type BaseStationTelemetryState = {
+  lat: number;
+  lon: number;
+  speed: number;
+  course: number;
+  heading: number | null;
+  depth: number;
+  received_at: number;
+  sourceId: NavigationSourceId | null;
 };
 
 type WorkspaceSnapshot = {
@@ -94,6 +106,8 @@ type WorkspaceSnapshot = {
   isFollowing: boolean;
   layers: LayersState;
   divers: DiverUiConfig[];
+  baseStationNavigationSource: NavigationSourceId | null;
+  baseStationTelemetry: BaseStationTelemetryState | null;
   mapView: MissionUiState['map_view'] | null;
   coordPrecision: number;
   grid: AppUiDefaults['measurements']['grid'];
@@ -114,6 +128,7 @@ const DEFAULT_LAYERS: LayersState = {
   track: true,
   routes: true,
   markers: true,
+  baseStation: true,
   grid: false,
   scaleBar: true,
   diver: true,
@@ -123,6 +138,9 @@ const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   follow_diver: defaults.follow_diver,
   divers: createDefaultDivers(1),
   layers: { ...defaults.layers },
+  base_station: {
+    navigation_source: null,
+  },
   coordinates: { precision: defaults.coordinates.precision },
   measurements: {
     grid: { ...defaults.measurements.grid },
@@ -158,6 +176,7 @@ type DiverTelemetryState = {
   lon: number;
   speed: number;
   course: number;
+  heading: number | null;
   depth: number;
   received_at: number;
 };
@@ -222,7 +241,7 @@ const normalizeBeaconBindingKey = (value: unknown): string | null => {
   const normalized = String(value).trim();
   if (!normalized) return null;
   const n = Number(normalized);
-  if (!Number.isInteger(n) || n < 1 || n > 16) return null;
+  if (!Number.isInteger(n) || n < 0 || n > 15) return null;
   return String(n);
 };
 
@@ -237,6 +256,7 @@ const isSameTelemetryState = (
     a.lon === b.lon &&
     a.speed === b.speed &&
     a.course === b.course &&
+    a.heading === b.heading &&
     a.depth === b.depth &&
     a.received_at === b.received_at
   );
@@ -338,6 +358,8 @@ const MapWorkspace = () => {
   const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
   const [diverTelemetryById, setDiverTelemetryById] = useState<Record<string, DiverTelemetryState>>({});
   const [missionDivers, setMissionDivers] = useState<DiverUiConfig[]>(() => createDefaultDivers(1));
+  const [baseStationNavigationSource, setBaseStationNavigationSource] = useState<NavigationSourceId | null>(null);
+  const [baseStationTelemetry, setBaseStationTelemetry] = useState<BaseStationTelemetryState | null>(null);
   const [layers, setLayers] = useState<LayersState>(DEFAULT_LAYERS);
   const [objects, setObjects] = useState<MapObject[]>([]);
   const [laneFeatures, setLaneFeatures] = useState<LaneFeature[]>([]);
@@ -415,6 +437,8 @@ const MapWorkspace = () => {
     isFollowing: true,
     layers: DEFAULT_LAYERS,
     divers: createDefaultDivers(1),
+    baseStationNavigationSource: null,
+    baseStationTelemetry: null,
     mapView: null,
     coordPrecision: DEFAULT_APP_SETTINGS.defaults.coordinates.precision,
     grid: DEFAULT_APP_SETTINGS.defaults.measurements.grid,
@@ -494,6 +518,7 @@ const MapWorkspace = () => {
         track: layers.track,
         routes: layers.routes,
         markers: layers.markers,
+        base_station: layers.baseStation,
         grid: layers.grid,
         scale_bar: layers.scaleBar,
       },
@@ -511,6 +536,7 @@ const MapWorkspace = () => {
       gridSettings,
       isFollowing,
       layers.grid,
+      layers.baseStation,
       layers.markers,
       layers.routes,
       layers.scaleBar,
@@ -544,6 +570,8 @@ const MapWorkspace = () => {
       isFollowing,
       layers,
       divers: missionDivers,
+      baseStationNavigationSource,
+      baseStationTelemetry,
       mapView,
       coordPrecision,
       grid: gridSettings,
@@ -559,6 +587,8 @@ const MapWorkspace = () => {
     isFollowing,
     layers,
     missionDivers,
+    baseStationNavigationSource,
+    baseStationTelemetry,
     mapView,
     coordPrecision,
     gridSettings,
@@ -590,6 +620,15 @@ const MapWorkspace = () => {
     });
   }, [availableNavigationSources]);
 
+  useEffect(() => {
+    setBaseStationNavigationSource((prev) => {
+      if (prev && availableNavigationSources.includes(prev)) {
+        return prev;
+      }
+      return null;
+    });
+  }, [availableNavigationSources]);
+
   const releaseCurrentLock = useCallback(async () => {
     if (!lockOwnerRootRef.current) return;
     const root = lockOwnerRootRef.current;
@@ -607,6 +646,8 @@ const MapWorkspace = () => {
       followEnabled: boolean,
       layersState: LayersState,
       diversState: DiverUiConfig[],
+      baseStationSourceState: NavigationSourceId | null,
+      baseStationTelemetryState: BaseStationTelemetryState | null,
       nextMapView: MissionUiState['map_view'] | null,
       nextCoordPrecision: number,
       nextGrid: AppUiDefaults['measurements']['grid'],
@@ -624,8 +665,21 @@ const MapWorkspace = () => {
             track: layersState.track,
             routes: layersState.routes,
             markers: layersState.markers,
+            base_station: layersState.baseStation,
             grid: layersState.grid,
             scale_bar: layersState.scaleBar,
+          },
+          base_station: {
+            navigation_source: baseStationSourceState,
+            ...(baseStationTelemetryState
+              ? {
+                  lat: baseStationTelemetryState.lat,
+                  lon: baseStationTelemetryState.lon,
+                  heading_deg: baseStationTelemetryState.heading,
+                  updated_at: new Date(baseStationTelemetryState.received_at).toISOString(),
+                  source_id: baseStationTelemetryState.sourceId,
+                }
+              : {}),
           },
           ...(nextMapView ? { map_view: nextMapView } : {}),
           coordinates: { precision: nextCoordPrecision },
@@ -678,6 +732,8 @@ const MapWorkspace = () => {
         snapshot.isFollowing,
         snapshot.layers,
         snapshot.divers,
+        snapshot.baseStationNavigationSource,
+        snapshot.baseStationTelemetry,
         snapshot.mapView,
         snapshot.coordPrecision,
         snapshot.grid,
@@ -717,10 +773,39 @@ const MapWorkspace = () => {
       track: effective.layers.track,
       routes: effective.layers.routes,
       markers: effective.layers.markers,
+      baseStation: effective.layers.base_station,
       grid: effective.layers.grid,
       scaleBar: effective.layers.scale_bar,
       diver: true,
     });
+    const baseStationUi = bundle.mission.ui?.base_station;
+    const nextBaseStationSource =
+      baseStationUi?.navigation_source ??
+      baseStationUi?.source_id ??
+      null;
+    setBaseStationNavigationSource(
+      nextBaseStationSource && isNavigationSourceId(nextBaseStationSource) ? nextBaseStationSource : null,
+    );
+    const baseLat = typeof baseStationUi?.lat === 'number' ? baseStationUi.lat : null;
+    const baseLon = typeof baseStationUi?.lon === 'number' ? baseStationUi.lon : null;
+    const baseHeadingRaw = baseStationUi?.heading_deg;
+    const baseHeading =
+      typeof baseHeadingRaw === 'number' && Number.isFinite(baseHeadingRaw) ? baseHeadingRaw : null;
+    const updatedAt = baseStationUi?.updated_at ? Date.parse(baseStationUi.updated_at) : NaN;
+    if (baseLat !== null && baseLon !== null && Number.isFinite(baseLat) && Number.isFinite(baseLon)) {
+      setBaseStationTelemetry({
+        lat: baseLat,
+        lon: baseLon,
+        speed: 0,
+        course: baseHeading ?? 0,
+        heading: baseHeading,
+        depth: 0,
+        received_at: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+        sourceId: nextBaseStationSource && isNavigationSourceId(nextBaseStationSource) ? nextBaseStationSource : null,
+      });
+    } else {
+      setBaseStationTelemetry(null);
+    }
     setCoordPrecision(effective.coordinates.precision);
     setGridSettings(effective.measurements.grid);
     setSegmentLengthsMode(effective.measurements.segment_lengths_mode);
@@ -839,6 +924,8 @@ const MapWorkspace = () => {
           isFollowing,
           layers,
           missionDivers,
+          baseStationNavigationSource,
+          baseStationTelemetry,
           mapView,
           coordPrecision,
           gridSettings,
@@ -867,6 +954,8 @@ const MapWorkspace = () => {
     objects,
     laneFeatures,
     missionDivers,
+    baseStationNavigationSource,
+    baseStationTelemetry,
     repository,
     trackPointsByTrackId,
     mapView,
@@ -906,7 +995,7 @@ const MapWorkspace = () => {
       } else if (source === 'simulation') {
         telemetry = simulationFixRef.current;
       } else {
-        const beaconKey = normalizeBeaconBindingKey(diver.id);
+        const beaconKey = normalizeBeaconBindingKey(diver.beacon_id ?? diver.id);
         if (beaconKey) {
           telemetry = zimaRemFixByBeaconRef.current[beaconKey] ?? null;
         }
@@ -962,6 +1051,51 @@ const MapWorkspace = () => {
     );
   }, []);
 
+  const resolveTelemetryBySource = useCallback((sourceId: NavigationSourceId | null): DiverTelemetryState | null => {
+    if (sourceId === 'zima2r') return zimaAzmLocFixRef.current;
+    if (sourceId === 'gnss-udp') return gnssFixRef.current;
+    if (sourceId === 'simulation') return simulationFixRef.current;
+    return null;
+  }, []);
+
+  const syncBaseStationTelemetry = useCallback(() => {
+    if (!baseStationNavigationSource) {
+      setBaseStationTelemetry(null);
+      return;
+    }
+
+    const telemetry = resolveTelemetryBySource(baseStationNavigationSource);
+    if (!telemetry) return;
+
+    const next: BaseStationTelemetryState = {
+      lat: telemetry.lat,
+      lon: telemetry.lon,
+      speed: telemetry.speed,
+      course: telemetry.course,
+      heading: telemetry.heading,
+      depth: telemetry.depth,
+      received_at: telemetry.received_at,
+      sourceId: baseStationNavigationSource,
+    };
+
+    setBaseStationTelemetry((prev) => {
+      if (!prev) return next;
+      if (
+        prev.lat === next.lat &&
+        prev.lon === next.lon &&
+        prev.heading === next.heading &&
+        prev.course === next.course &&
+        prev.speed === next.speed &&
+        prev.depth === next.depth &&
+        prev.received_at === next.received_at &&
+        prev.sourceId === next.sourceId
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [baseStationNavigationSource, resolveTelemetryBySource]);
+
   const handleTelemetryFix = useCallback(
     (sourceId: NavigationSourceId, fix: TelemetryFix) => {
       lastFixAtBySourceRef.current[sourceId] = fix.received_at;
@@ -971,6 +1105,12 @@ const MapWorkspace = () => {
         lon: fix.lon,
         speed: fix.speed,
         course: fix.course,
+        heading:
+          typeof fix.heading === 'number' && Number.isFinite(fix.heading)
+            ? fix.heading
+            : typeof fix.course === 'number' && Number.isFinite(fix.course)
+              ? fix.course
+              : null,
         depth: fix.depth,
         received_at: fix.received_at,
       };
@@ -978,8 +1118,8 @@ const MapWorkspace = () => {
       if (sourceId === 'zima2r') {
         if (fix.source === 'AZMLOC') {
           zimaAzmLocFixRef.current = telemetryState;
-        } else if (fix.source === 'AZMREM' && fix.remoteAddress !== null && fix.remoteAddress !== undefined) {
-          const beaconKey = normalizeBeaconBindingKey(fix.remoteAddress);
+        } else if (fix.source === 'AZMREM') {
+          const beaconKey = normalizeBeaconBindingKey(fix.beaconId ?? fix.remoteAddress);
           if (beaconKey) {
             zimaRemFixByBeaconRef.current[beaconKey] = telemetryState;
           }
@@ -996,13 +1136,18 @@ const MapWorkspace = () => {
       }
 
       syncDiverTelemetry();
+      syncBaseStationTelemetry();
     },
-    [syncDiverTelemetry],
+    [syncBaseStationTelemetry, syncDiverTelemetry],
   );
 
   useEffect(() => {
     syncDiverTelemetry();
   }, [missionDivers, syncDiverTelemetry]);
+
+  useEffect(() => {
+    syncBaseStationTelemetry();
+  }, [baseStationNavigationSource, syncBaseStationTelemetry]);
 
   const handleDeviceConnectionState = useCallback(
     (sourceId: NavigationSourceId, nextState: TelemetryConnectionState) => {
@@ -1028,11 +1173,13 @@ const MapWorkspace = () => {
         : simulationConnectionStatus;
     applyPrimaryConnectionState(nextStatus ?? 'ok');
     syncDiverTelemetry();
+    syncBaseStationTelemetry();
   }, [
     applyPrimaryConnectionState,
     deviceConnectionStatus,
     primaryNavigationSource,
     simulationConnectionStatus,
+    syncBaseStationTelemetry,
     syncDiverTelemetry,
   ]);
 
@@ -1257,6 +1404,7 @@ const MapWorkspace = () => {
       track: next.layers.track,
       routes: next.layers.routes,
       markers: next.layers.markers,
+      baseStation: next.layers.base_station,
       grid: next.layers.grid,
       scaleBar: next.layers.scale_bar,
       diver: true,
@@ -1271,6 +1419,7 @@ const MapWorkspace = () => {
 
   const handleSettingsReset = async () => {
     await handleSettingsApply(DEFAULT_APP_SETTINGS.defaults);
+    setBaseStationNavigationSource(null);
   };
 
   const handleDiversApply = (next: DiverUiConfig[]) => {
@@ -1279,6 +1428,27 @@ const MapWorkspace = () => {
 
   const handleDiversReset = () => {
     setMissionDivers(createDefaultDivers(1));
+  };
+
+  const handleBaseStationNavigationSourceApply = (next: NavigationSourceId | null) => {
+    setBaseStationNavigationSource(next);
+    if (!next) {
+      setBaseStationTelemetry(null);
+    } else {
+      const telemetry = resolveTelemetryBySource(next);
+      if (telemetry) {
+        setBaseStationTelemetry({
+          lat: telemetry.lat,
+          lon: telemetry.lon,
+          speed: telemetry.speed,
+          course: telemetry.course,
+          heading: telemetry.heading,
+          depth: telemetry.depth,
+          received_at: telemetry.received_at,
+          sourceId: next,
+        });
+      }
+    }
   };
 
   const handleToggleEquipmentConnection = (deviceId: string, enabled: boolean) => {
@@ -1610,6 +1780,17 @@ const MapWorkspace = () => {
             selectedObjectId={selectedObjectId}
             centerRequest={centerRequest}
             diverData={diverData}
+            baseStationData={
+              baseStationTelemetry
+                ? {
+                    lat: baseStationTelemetry.lat,
+                    lon: baseStationTelemetry.lon,
+                    heading: baseStationTelemetry.heading,
+                    sourceId: baseStationTelemetry.sourceId,
+                  }
+                : null
+            }
+            isBaseStationSourceAssigned={baseStationNavigationSource !== null}
             divers={missionDivers}
             diverPositionsById={diverTelemetryById}
             trackSegments={trackSegments}
@@ -1686,8 +1867,10 @@ const MapWorkspace = () => {
         onOpenChange={setShowSettings}
         value={settingsValue}
         missionDivers={missionDivers}
+        baseStationNavigationSource={baseStationNavigationSource}
         onApply={handleSettingsApply}
         onApplyDivers={handleDiversApply}
+        onApplyBaseStationNavigationSource={handleBaseStationNavigationSourceApply}
         onReset={handleSettingsReset}
         onResetDivers={handleDiversReset}
         navigationSourceOptions={navigationSourceOptions}

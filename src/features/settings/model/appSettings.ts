@@ -18,6 +18,7 @@ export type AppUiDefaults = {
     track: boolean;
     routes: boolean;
     markers: boolean;
+    base_station: boolean;
     grid: boolean;
     scale_bar: boolean;
   };
@@ -97,6 +98,7 @@ export const createDefaultAppSettings = (): AppSettingsV1 => ({
       track: true,
       routes: true,
       markers: true,
+      base_station: true,
       grid: false,
       scale_bar: true,
     },
@@ -157,6 +159,8 @@ export const normalizeAppSettings = (raw: unknown): AppSettingsV1 => {
         track: typeof layersRaw.track === 'boolean' ? layersRaw.track : base.defaults.layers.track,
         routes: typeof layersRaw.routes === 'boolean' ? layersRaw.routes : base.defaults.layers.routes,
         markers: typeof layersRaw.markers === 'boolean' ? layersRaw.markers : base.defaults.layers.markers,
+        base_station:
+          typeof layersRaw.base_station === 'boolean' ? layersRaw.base_station : base.defaults.layers.base_station,
         grid: typeof layersRaw.grid === 'boolean' ? layersRaw.grid : base.defaults.layers.grid,
         scale_bar: typeof layersRaw.scale_bar === 'boolean' ? layersRaw.scale_bar : base.defaults.layers.scale_bar,
       },
@@ -240,6 +244,7 @@ export const mergeDefaultsWithMissionUi = (defaults: AppUiDefaults, ui: MissionU
       track: layers?.track ?? defaults.layers.track,
       routes: layers?.routes ?? defaults.layers.routes,
       markers: layers?.markers ?? defaults.layers.markers,
+      base_station: layers?.base_station ?? defaults.layers.base_station,
       grid: layers?.grid ?? defaults.layers.grid,
       scale_bar: layers?.scale_bar ?? defaults.layers.scale_bar,
     },

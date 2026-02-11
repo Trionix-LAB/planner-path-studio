@@ -33,8 +33,8 @@ const StartScreen = () => {
               <path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18l6.9 3.45L12 11.09 5.1 7.63 12 4.18zM4 8.82l7 3.5v7.68l-7-3.5V8.82zm9 11.18v-7.68l7-3.5v7.68l-7 3.5z"/>
             </svg>
           </div>
-          <h1 className="text-3xl font-semibold text-foreground mb-2">Trionix Planner</h1>
-          <p className="text-muted-foreground">Модуль планирования и записи миссий</p>
+          <h1 className="text-3xl font-semibold text-foreground mb-2">Trionix planner path studio</h1>
+          <p className="text-muted-foreground">Приложение планирования и записи миссий</p>
         </div>
 
         {/* Main Actions */}

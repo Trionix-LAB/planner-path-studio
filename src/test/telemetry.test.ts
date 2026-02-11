@@ -183,9 +183,13 @@ describe('electron zima telemetry provider', () => {
       lon: 30.3086,
       speed: 0.8,
       course: 120,
+      heading: 130,
       depth: 10.5,
       received_at: 1739318400000,
       source: 'AZMLOC',
+      entity_type: 'base_station',
+      entity_id: 'base-station',
+      navigation_source_id: 'zima2r',
     });
 
     provider.stop();
@@ -238,10 +242,15 @@ describe('electron zima telemetry provider', () => {
       lon: 30.3002,
       speed: 0,
       course: 0,
+      heading: 0,
       depth: 5.2,
       received_at: 1739318402000,
       remoteAddress: 1,
+      beaconId: '1',
       source: 'AZMREM',
+      entity_type: 'agent',
+      entity_id: 'beacon-1',
+      navigation_source_id: 'zima2r',
     });
 
     provider.stop();
@@ -283,7 +292,11 @@ describe('electron gnss telemetry provider', () => {
     expect(payload.lon).toBeCloseTo(30.3086, 5);
     expect(payload.speed).toBeCloseTo(0.998, 3);
     expect(payload.course).toBeCloseTo(84.4, 3);
+    expect(payload.heading).toBeNull();
     expect(payload.depth).toBe(0);
+    expect(payload.entity_type).toBe('base_station');
+    expect(payload.entity_id).toBe('base-station');
+    expect(payload.navigation_source_id).toBe('gnss-udp');
 
     provider.stop();
     await flushMicrotasks();

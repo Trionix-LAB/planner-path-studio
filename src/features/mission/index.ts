@@ -20,7 +20,7 @@ export {
   createNoopTelemetryProvider,
   createSimulationTelemetryProvider,
 } from './model/telemetry';
-export type { TelemetryConnectionState, TelemetryFix, TelemetryProvider } from './model/telemetry';
+export type { TelemetryConnectionState, TelemetryEntityType, TelemetryFix, TelemetryProvider } from './model/telemetry';
 export { createTrackRecorderState, trackRecorderReduce } from './model/trackRecorder';
 export type { TrackFixPayload, TrackRecorderEvent, TrackRecorderState, TrackRecorderStatus } from './model/trackRecorder';
 export { createDefaultDiver, createDefaultDivers, normalizeDivers } from './model/divers';
