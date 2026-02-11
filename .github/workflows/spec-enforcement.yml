@@ -1,0 +1,109 @@
+name: Process enforcement
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, labeled, unlabeled, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce process rules
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = pr.number;
+
+            const REQUIRE_SPEC_PATH_PREFIXES = ["src/", "tests/"];
+            const EXEMPT_KINDS = new Set(["chore", "docs", "spec"]);
+            const OVERRIDE_LABEL = "override:spec-skip";
+
+            function getKindFromTitle(title) {
+              const m = title.match(/^([a-z]+)\s*\(/i);
+              return m ? m[1].toLowerCase() : null;
+            }
+
+            function hasOverrideLabel(labels) {
+              return labels.some(l => (l.name || "").toLowerCase() === OVERRIDE_LABEL.toLowerCase());
+            }
+
+            function bodyHasSpecRef(body) {
+              if (!body) return false;
+              const re = /(^|\n)\s*Spec:\s*(R-\d{3,}(\b|$)|New requirement\b)/i;
+              return re.test(body);
+            }
+
+            function bodyHasFixes(body) {
+              if (!body) return false;
+              const re = /(^|\n)\s*Fixes\s+#\d+\b/i;
+              return re.test(body);
+            }
+
+            async function listChangedFiles() {
+              const files = [];
+              let page = 1;
+              while (true) {
+                const resp = await github.rest.pulls.listFiles({
+                  owner, repo, pull_number,
+                  per_page: 100,
+                  page
+                });
+                for (const f of resp.data) files.push(f.filename);
+                if (resp.data.length < 100) break;
+                page += 1;
+              }
+              return files;
+            }
+
+            function touchesRequiredPaths(files) {
+              return files.some(fn =>
+                REQUIRE_SPEC_PATH_PREFIXES.some(p => fn.startsWith(p))
+              );
+            }
+
+            const kind = getKindFromTitle(pr.title || "");
+            const labels = pr.labels || [];
+            const override = hasOverrideLabel(labels);
+
+            if (override) {
+              core.info(`Override label present, skipping enforcement.`);
+              return;
+            }
+
+            if (kind && EXEMPT_KINDS.has(kind)) {
+              core.info(`PR kind "${kind}" is exempt.`);
+              return;
+            }
+
+            const files = await listChangedFiles();
+            const needsSpec = touchesRequiredPaths(files);
+
+            if (!needsSpec) {
+              core.info("No code/test changes detected.");
+              return;
+            }
+
+            const body = pr.body || "";
+
+            if (!bodyHasFixes(body)) {
+              core.setFailed(
+                "PR must contain 'Fixes #<issue_number>' in the description."
+              );
+              return;
+            }
+
+            if (!bodyHasSpecRef(body)) {
+              core.setFailed(
+                "PR must contain 'Spec: R-XXX' or 'Spec: New requirement' in the description."
+              );
+              return;
+            }
+
+            core.info("Process rules satisfied.");

@@ -1,0 +1,67 @@
+name: Work item (Todo)
+description: Оформленная задача, готовая к взятию в работу (Definition of Ready).
+title: "feat(area): "
+labels:
+  - "status:todo"
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      description: "Должно совпадать с префиксом в заголовке."
+      options:
+        - feat
+        - fix
+        - spec
+        - chore
+        - docs
+        - idea
+    validations:
+      required: true
+
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: "Например: agent | memory | tools | api | infra | test"
+      placeholder: "memory"
+    validations:
+      required: true
+
+  - type: input
+    id: spec
+    attributes:
+      label: Spec reference
+      description: "Укажи ID требования: R-XXX. Если это новое требование — напиши: New requirement"
+      placeholder: "R-004"
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: "Что именно должно быть сделано."
+      placeholder: "- ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: "Проверяемые пункты. 2–6 чекбоксов."
+      value: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes / Links
+      description: "Ссылки, детали, подсказки по реализации."
+      placeholder: "- ..."
+    validations:
+      required: false

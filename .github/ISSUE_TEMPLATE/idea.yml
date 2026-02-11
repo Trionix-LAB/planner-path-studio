@@ -1,0 +1,41 @@
+name: Idea (Backlog)
+description: Быстро зафиксировать идею/гипотезу. Можно без полной проработки.
+title: "idea(area): "
+labels:
+  - "status:backlog"
+body:
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: "Например: agent | memory | tools | api | infra | test"
+      placeholder: "memory"
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal / What problem are we solving?
+      description: "1–3 коротких пункта."
+      placeholder: "- ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / Notes
+      description: "Почему это важно? Что уже пробовали? Ссылки."
+      placeholder: "- ..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: questions
+    attributes:
+      label: Open questions
+      description: "Что нужно уточнить, чтобы перевести в Todo."
+      placeholder: "- ..."
+    validations:
+      required: false

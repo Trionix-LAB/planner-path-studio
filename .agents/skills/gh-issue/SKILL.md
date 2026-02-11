@@ -1,68 +1,114 @@
 ---
 name: gh-issue
-description: Создание и управление GitHub Issues и PR по стандартам проекта (gh CLI, Conventional Commits).
+description: Работа с GitHub Issues через gh CLI по правилам docs/process/ISSUE_AND_GH.md, включая Q&A-уточнение перед созданием/переводом в todo.
 ---
 
-# GitHub Issue & PR Workflow
+# GH Issues Workflow (Project Rules)
 
-Основано на: `docs/process/ISSUE_AND_GH.md`
+Источник правил: `docs/process/ISSUE_AND_GH.md`.
 
-## 1. Структура и создание Issue
+## 1) Инварианты процесса
+- Issue title строго в формате: `<kind>(<area>): <summary>`.
+- Допустимые `kind`: `idea`, `spec`, `feat`, `fix`, `chore`, `docs`.
+- Статус управляется только labels, у issue всегда ровно один `status:*`.
+- Обязательные status labels: `status:backlog`, `status:todo`, `status:in-progress` (`status:done` опционально).
+- `status:todo` = контракт: есть Spec-ссылка/новое требование, есть Acceptance, нет открытых вопросов, задача атомарная.
 
-### Формат
-- **Заголовок**: `type(scope): short description` (например: `feat(integration): Zima UDP telemetry`)
-- **Описание**: Что, зачем, ссылки на спецификации, чек-лист требований, критерии приёмки.
-- **Метки**: `bug`, `enhancement`, `test`, `help wanted` и т.д.
+## 2) Q&A протокол перед созданием/редактированием
+Если деталей недостаточно, агент обязан перейти в режим коротких уточнений и задать вопросы по приоритету.
 
-### Создание через `gh`
-```bash
-# Создать issue из файла с описанием
-gh issue create --title "type(scope): description" --body-file <path_to_body.md> --label "enhancement"
+Обязательные вопросы:
+1. Какой `kind` (`idea/spec/feat/fix/chore/docs`)?
+2. Какая `area`?
+3. Краткий `summary` для заголовка?
+4. Есть Spec ID (`R-XXX`) или это новый requirement?
+5. Какой Goal (1-3 пункта)?
+6. Какие Acceptance критерии (чекбоксы)?
+7. Стартовый статус: `status:backlog` или `status:todo`?
+8. Есть ли открытые вопросы/блокеры?
 
-# Создать интерактивно
-gh issue create --title "type(scope): description" --body "Подробное описание..." --label "bug" --assignee "@me"
+Правила Q&A:
+- Если не хватает хотя бы одного обязательного поля для `todo`, не переводить в `status:todo`; оставить `status:backlog`.
+- Если требование неясно, предлагать создать `spec(...)` issue.
+- Вопросы задавать минимальными батчами (сначала критичные для продолжения).
+
+## 3) Шаблоны
+
+### Заголовок issue
+```text
+<kind>(<area>): <summary>
 ```
 
-## 2. Управление Issue
+### Тело issue (минимум для `status:todo`)
+```md
+Kind: <kind>
+Area: <area>
+Spec: <R-XXX | NEW>
 
-### Основные команды
-- **Список открытых**: `gh issue list --state open`
-- **Просмотр**: `gh issue view <NUMBER>`
-- **Редактировать**: `gh issue edit <NUMBER> --add-label "test" --add-assignee "@me"`
-- **Закрыть**: `gh issue close <NUMBER>`
-- **Комментировать**: `gh issue comment <NUMBER> --body "Текст комментария"`
+Goal:
+- <goal item>
 
-## 3. Работа с ветками и PR
+Acceptance:
+- [ ] <criterion 1>
+- [ ] <criterion 2>
 
-### Именование веток
-Формат: `<type>/<short-description>-<issue-number>`
-Пример: `feat/zima-integration-4`
-
-```bash
-git checkout -b <branch-name>
+Open questions:
+- None
 ```
 
-### Сообщения коммитов (Conventional Commits)
-Формат: `<type>(<scope>): <short summary>`
-Footer: `Closes #<issue>` (для авто-закрытия)
+## 4) Команды `gh` (практика)
 
-Пример:
+### Создать issue (обычно в backlog)
 ```bash
-git commit -m "feat(zima): add UDP listener (Closes #4)"
+gh issue create \
+  --title "feat(memory): implement R-004 summary storage" \
+  --body-file ./issue-body.md \
+  --label "status:backlog"
 ```
 
-### Создание PR
-Укажите `Closes #<issue>` в теле PR.
-
+### Перевести backlog -> todo
 ```bash
-git push -u origin HEAD
-gh pr create --fill --base main
-# ИЛИ вручную
-gh pr create --title "feat(zima): implement service" --body "Implements X. Closes #4" --base main
+gh issue edit 123 \
+  --remove-label "status:backlog" \
+  --add-label "status:todo"
 ```
 
-## 4. Шпаргалка
-- `gh issue list`
-- `gh issue view <id>`
-- `gh pr create --fill`
-- `gh pr list`
+### Перевести todo -> in-progress и назначить на себя
+```bash
+gh issue edit 123 \
+  --remove-label "status:todo" \
+  --add-label "status:in-progress" \
+  --add-assignee "@me"
+```
+
+### Посмотреть/обновить/прокомментировать
+```bash
+gh issue view 123
+gh issue edit 123 --title "fix(api): handle empty payload"
+gh issue comment 123 --body "Updated acceptance and started implementation."
+```
+
+### Списки по статусу
+```bash
+gh issue list --state open --label "status:backlog"
+gh issue list --state open --label "status:todo"
+gh issue list --state open --label "status:in-progress"
+```
+
+## 5) Связка с PR
+- В PR обязательно указывать:
+  - `Fixes #<issue>`
+  - `Spec: R-XXX` (или явное пояснение для `chore`).
+- Если PR меняет поведение системы, обновление `spec.md` обязательно.
+- Для старта реализации можно использовать:
+```bash
+gh issue develop 123 --checkout
+gh pr create --fill --body "Fixes #123
+Spec: R-004"
+```
+
+## 6) Ожидаемое поведение агента
+- Перед изменениями читать релевантные требования.
+- Не придумывать недостающие критерии молча; сначала Q&A.
+- При любой неоднозначности требований предлагать `spec(...)` issue.
+- При редактировании статусов следить, чтобы у issue оставался ровно один `status:*` label.
