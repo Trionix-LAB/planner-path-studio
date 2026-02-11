@@ -1,5 +1,5 @@
 import { Checkbox } from '@/components/ui/checkbox';
-import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle, LocateFixed, Trash2 } from 'lucide-react';
+import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle, LocateFixed, Trash2, Anchor } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MapObject } from '@/features/map/model/types';
 import type { MissionDocument } from '@/features/mission';
@@ -9,6 +9,7 @@ interface LeftPanelProps {
     track: boolean;
     routes: boolean;
     markers: boolean;
+    baseStation: boolean;
     grid: boolean;
     scaleBar: boolean;
     diver: boolean;
@@ -59,6 +60,7 @@ const LeftPanel = ({
 }: LeftPanelProps) => {
   const layerItems = [
     { key: 'diver' as const, icon: Waves, label: 'Водолаз', locked: true },
+    { key: 'baseStation' as const, icon: Anchor, label: 'Базовая станция', locked: false },
     { key: 'track' as const, icon: Route, label: 'Треки', locked: false },
     { key: 'routes' as const, icon: Route, label: 'Маршруты/Галсы', locked: false },
     { key: 'markers' as const, icon: MapPin, label: 'Маркеры', locked: false },

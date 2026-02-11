@@ -8,6 +8,7 @@ export type NavigationSourceId = 'zima2r' | 'gnss-udp' | 'simulation';
 export type DiverUiConfig = {
   uid: string;
   id: string;
+  beacon_id: string;
   title: string;
   marker_color: string;
   marker_size_px: number;
@@ -30,6 +31,7 @@ export type MissionUiState = {
     track?: boolean;
     routes?: boolean;
     markers?: boolean;
+    base_station?: boolean;
     grid?: boolean;
     scale_bar?: boolean;
   };
@@ -57,6 +59,15 @@ export type MissionUiState = {
     survey_area?: Record<string, unknown>;
     lane?: Record<string, unknown>;
     marker?: Record<string, unknown>;
+    base_station?: Record<string, unknown>;
+  };
+  base_station?: {
+    navigation_source?: NavigationSourceId | null;
+    lat?: number;
+    lon?: number;
+    heading_deg?: number | null;
+    updated_at?: IsoUtcString;
+    source_id?: NavigationSourceId | null;
   };
 };
 

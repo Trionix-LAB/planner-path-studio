@@ -2,16 +2,22 @@ import { parseZimaLine } from '@/features/devices/zima2r/protocol';
 import { parseNmeaLine } from '@/features/devices/gnss-udp/protocol';
 
 export type TelemetryConnectionState = 'ok' | 'timeout' | 'error';
+export type TelemetryEntityType = 'agent' | 'base_station';
 
 export type TelemetryFix = {
   lat: number;
   lon: number;
   speed: number;
   course: number;
+  heading?: number | null;
   depth: number;
   received_at: number;
   remoteAddress?: number | null;
+  beaconId?: string | null;
   source?: 'AZMLOC' | 'AZMREM' | 'GNSS' | 'SIM';
+  entity_type?: TelemetryEntityType;
+  entity_id?: string;
+  navigation_source_id?: string;
 };
 
 export type TelemetryProvider = {
@@ -200,7 +206,15 @@ export const createSimulationTelemetryProvider = (
 
     lastFixAt = Date.now();
     emitConnectionState('ok');
-    emitFix({ ...state, received_at: lastFixAt, source: 'SIM' });
+    emitFix({
+      ...state,
+      heading: state.course,
+      received_at: lastFixAt,
+      source: 'SIM',
+      entity_type: 'agent',
+      entity_id: 'sim-agent-1',
+      navigation_source_id: 'simulation',
+    });
   };
 
   const runTimeoutTick = () => {
@@ -337,9 +351,13 @@ export const createElectronZimaTelemetryProvider = (
           lon: parsed.lon,
           speed: parsed.speed,
           course: parsed.course,
+          heading: parsed.heading,
           depth: parsed.depth,
           received_at: receivedAt,
           source: 'AZMLOC',
+          entity_type: 'base_station',
+          entity_id: 'base-station',
+          navigation_source_id: 'zima2r',
         });
         continue;
       }
@@ -352,10 +370,15 @@ export const createElectronZimaTelemetryProvider = (
           lon: parsed.lon,
           speed: latestMotion.speed,
           course: latestMotion.course,
+          heading: latestMotion.course,
           depth: parsed.depth ?? latestMotion.depth,
           received_at: receivedAt,
           remoteAddress: parsed.remoteAddress,
+          beaconId: parsed.beaconId,
           source: 'AZMREM',
+          entity_type: 'agent',
+          entity_id: parsed.beaconId ? `beacon-${parsed.beaconId}` : undefined,
+          navigation_source_id: 'zima2r',
         });
       }
     }
@@ -529,7 +552,7 @@ export const createElectronGnssTelemetryProvider = (
   let lastFixAt = 0;
   let lineBuffer = '';
   let latestMotion = { speed: 0, course: 0 };
-  let latestHeading = 0;
+  let latestHeading: number | null = null;
 
   let timeoutIntervalId: number | null = null;
   let unsubscribeData: (() => void) | null = null;
@@ -602,9 +625,13 @@ export const createElectronGnssTelemetryProvider = (
         lon: parsed.lon,
         speed: latestMotion.speed,
         course: latestMotion.course,
+        heading: latestHeading,
         depth: 0,
         received_at: receivedAt,
         source: 'GNSS',
+        entity_type: 'base_station',
+        entity_id: 'base-station',
+        navigation_source_id: 'gnss-udp',
       });
     }
   };
@@ -625,7 +652,7 @@ export const createElectronGnssTelemetryProvider = (
     connected = false;
     lineBuffer = '';
     latestMotion = { speed: 0, course: 0 };
-    latestHeading = 0;
+    latestHeading = null;
     clearIntervals();
     if (api) {
       void api.stop().catch(() => {

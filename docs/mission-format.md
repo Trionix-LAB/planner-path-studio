@@ -40,7 +40,7 @@
   - `markers`: string (например `markers/markers.geojson`)
 - `ui` (опционально, но рекомендуется сохранять):
   - `follow_diver`: boolean
-  - `layers`: object (видимость слоев: `track`, `routes`, `markers`, `grid`, `scale_bar`)
+  - `layers`: object (видимость слоев: `track`, `routes`, `markers`, `base_station`, `grid`, `scale_bar`)
   - `coordinates` (опционально): object
     - `precision`: number (кол-во знаков после запятой для lat/lon; default 6)
   - `map_view`: object:
@@ -61,11 +61,22 @@
     - `survey_area`: object (например: `{"stroke_color":"#FF6A00","fill_color":"#FF6A00","fill_opacity":0.15}`)
     - `lane`: object
     - `marker`: object (например: `{"icon":"pin","label_mode":"hover"}`)
+    - `base_station`: object (например: `{"icon":"base-station","size_px":30}`)
+  - `navigation_sources` (опционально): object
+    - `agents`: object (ключ = `agent_uid`, значение = `source_id`)
+    - `base_station`: string | null (идентификатор источника геоданных для базовой станции)
+  - `base_station` (опционально): object
+    - `lat`: number
+    - `lon`: number
+    - `heading_deg`: number | null
+    - `updated_at`: string (ISO-8601 UTC, `Z`)
+    - `source_id`: string | null
 
 Примечания:
 
 - `started_at/ended_at` задаются по системному времени приложения (события start/stop/pause), и не обязаны совпадать со временем первой/последней точки в CSV трека.
 - В миссии в каждый момент времени может быть не более одного "активного" трека (в который пишутся точки). Его id хранится в `active_track_id` (или `null`, если запись на паузе).
+- Поля `ui.navigation_sources` и `ui.base_station` считаются опциональными для совместимости с уже сохраненными миссиями MVP.
 
 ### 2.3 Пример `mission.json`
 
@@ -92,13 +103,33 @@
   },
   "ui": {
     "follow_diver": true,
-    "layers": { "track": true, "routes": true, "markers": true, "grid": false, "scale_bar": true },
+    "layers": {
+      "track": true,
+      "routes": true,
+      "markers": true,
+      "base_station": true,
+      "grid": false,
+      "scale_bar": true
+    },
     "coordinates": { "precision": 6 },
     "measurements": {
       "grid": { "mode": "auto", "color": "#64748b", "width_px": 1, "line_style": "dashed" },
       "segment_lengths_mode": "on-select"
     },
-    "map_view": { "center_lat": 59.93863, "center_lon": 30.31413, "zoom": 14 }
+    "map_view": { "center_lat": 59.93863, "center_lon": 30.31413, "zoom": 14 },
+    "navigation_sources": {
+      "agents": {
+        "agent-1": "zima2r:beacon:1"
+      },
+      "base_station": "gnss-udp:main"
+    },
+    "base_station": {
+      "lat": 59.93542,
+      "lon": 30.33218,
+      "heading_deg": 271.2,
+      "updated_at": "2026-02-03T10:04:58.000Z",
+      "source_id": "gnss-udp:main"
+    }
   }
 }
 ```

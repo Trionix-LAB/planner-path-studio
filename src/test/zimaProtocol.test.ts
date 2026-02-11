@@ -18,12 +18,13 @@ describe('zima protocol parser', () => {
 
   it('parses AZMREM message', () => {
     const line =
-      '@AZMREM,1,120.3,45.2,0.7,24.5,0,5.2,0,120.3,0,30.1,0,80.4,0,20.0,0,9.9,0,14.3,0,59.9301,30.3002,0,100.5,0,msg,0,1,2,3,false';
+      '@AZMREM,0,120.3,45.2,0.7,24.5,0,5.2,0,120.3,0,30.1,0,80.4,0,20.0,0,9.9,0,14.3,0,59.9301,30.3002,0,100.5,0,msg,0,1,2,3,false';
     const parsed = parseZimaLine(line);
 
     expect(parsed.kind).toBe('AZMREM');
     if (parsed.kind !== 'AZMREM') return;
-    expect(parsed.remoteAddress).toBe(1);
+    expect(parsed.remoteAddress).toBe(0);
+    expect(parsed.beaconId).toBe('0');
     expect(parsed.lat).toBeCloseTo(59.9301);
     expect(parsed.lon).toBeCloseTo(30.3002);
     expect(parsed.depth).toBeCloseTo(5.2);

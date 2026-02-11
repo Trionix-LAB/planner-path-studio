@@ -35,9 +35,14 @@
 Хранить конфиг в общем хранилище приложения; дополнительно дать возможность настройки через `SettingsDialog`.
 
 ## API / Интерфейс
- - События: `zima:position` (payload: `{ lat, lon, time?, source?: 'AZMLOC'|'AZMREM'|'zima' }`).
+ - События: `zima:position` (payload: `{ lat, lon, time?, heading?, source?: 'AZMLOC'|'AZMREM'|'zima', entity_type, entity_id, navigation_source_id }`).
 - Методы: `start()`, `stop()`, `reloadConfig()`, `sendCommand(cmd: string)` (опционально).
 - Платформенные точки интеграции: expose via platform API / IPC для Electron и web-абстракции.
+
+## Привязка к агентам и базовой станции
+- `@AZMREM` обычно используется как позиция агента/маяка (`entity_type='agent'`, `entity_id` по `rem_addr` и mapping профиля).
+- `@AZMLOC` может использоваться как позиция базовой станции (`entity_type='base_station'`) и/или как fallback для heading.
+- Назначение источника должно использовать общий механизм выбора источников (как в `docs/screens.md`) и сохраняться в миссии (`docs/mission-format.md`).
 
 ## Тестирование
 - Unit и integration тесты: симуляция UDP-пакетов (корректные/битые/обрезанные строки `@AZMLOC`/`@AZMREM`, команды).
@@ -49,6 +54,7 @@
 - [ ] Невалидные/нулевые координаты отбрасываются
 - [ ] Поддержка отправки команд `OCON`, `CCON`, `LHOV` (если command-port включён) — опционально для MVP but documented
 - [ ] Учет дополнительных сообщений Zima (`@AZMLOC`, `@AZMREM`) в логике/фильтрации
+- [ ] Маршрутизация фиксов в единый telemetry API поддерживает `agent` и `base_station`
 - [ ] Наличие unit/integration тестов с ключевыми сценариями
 - [ ] Публичный интерфейс для других модулей приложения (`EventEmitter`/platform API)
 - [ ] Документация и ссылка на спецификацию добавлены

@@ -7,6 +7,7 @@ describe('app settings', () => {
     expect(settings.schema_version).toBe(1);
     expect(settings.defaults.coordinates.precision).toBe(6);
     expect(settings.defaults.layers.scale_bar).toBe(true);
+    expect(settings.defaults.layers.base_station).toBe(true);
     expect(settings.defaults.measurements.grid.line_style).toBe('dashed');
     expect(settings.defaults.connection.host).toBe('localhost');
     expect(settings.defaults.connection.port).toBe(9000);
@@ -51,6 +52,7 @@ describe('app settings', () => {
     expect(effective.follow_diver).toBe(false);
     expect(effective.layers.grid).toBe(true);
     expect(effective.layers.scale_bar).toBe(false);
+    expect(effective.layers.base_station).toBe(true);
     expect(effective.coordinates.precision).toBe(7);
     expect(effective.measurements.grid.mode).toBe('manual');
     expect(effective.measurements.grid.step_m).toBe(100);

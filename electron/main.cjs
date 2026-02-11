@@ -210,6 +210,9 @@ const createZimaUdpBridge = () => {
 
     socket.on('message', (buffer, remote) => {
       const message = Buffer.from(buffer).toString('ascii');
+      console.log(
+        `[zima2r][rx] ${remote.address}:${remote.port} -> ${message.trim() || '<empty>'}`,
+      );
       emitToRenderer(CHANNELS.zima.events.data, {
         message,
         receivedAt: Date.now(),

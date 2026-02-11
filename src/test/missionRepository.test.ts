@@ -51,9 +51,10 @@ describe('mission repository', () => {
         now: new Date('2026-02-03T10:00:00.000Z'),
         ui: {
           follow_diver: false,
-          layers: { track: false, routes: true, markers: true, grid: true, scale_bar: false },
+          layers: { track: false, routes: true, markers: true, base_station: false, grid: true, scale_bar: false },
           coordinates: { precision: 7 },
           measurements: { grid: { mode: 'manual', step_m: 100 }, segment_lengths_mode: 'always' },
+          base_station: { navigation_source: null },
         },
       },
       { acquireLock: false },
@@ -62,6 +63,7 @@ describe('mission repository', () => {
     const opened = await repository.openMission(rootPath, { acquireLock: false });
     expect(opened.mission.ui?.follow_diver).toBe(false);
     expect(opened.mission.ui?.layers?.track).toBe(false);
+    expect(opened.mission.ui?.layers?.base_station).toBe(false);
     expect(opened.mission.ui?.layers?.grid).toBe(true);
     expect(opened.mission.ui?.coordinates?.precision).toBe(7);
     expect(opened.mission.ui?.measurements?.grid?.mode).toBe('manual');
