@@ -11,6 +11,7 @@ const CHANNELS = {
     writeText: 'planner:fileStore:writeText',
     remove: 'planner:fileStore:remove',
     list: 'planner:fileStore:list',
+    stat: 'planner:fileStore:stat',
   },
   settings: {
     readJson: 'planner:settings:readJson',
@@ -472,6 +473,18 @@ const registerIpcHandlers = () => {
       return [];
     } catch {
       return [];
+    }
+  });
+
+  ipcMain.handle(CHANNELS.fileStore.stat, async (_event, inputPath) => {
+    const resolvedPath = resolveFileStorePath(inputPath, userDataPath);
+    try {
+      const stat = await fs.stat(resolvedPath.absolutePath);
+      return {
+        mtimeMs: stat.mtimeMs,
+      };
+    } catch {
+      return null;
     }
   });
 

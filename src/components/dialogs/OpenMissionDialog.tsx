@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FolderOpen, AlertTriangle, Clock, ChevronRight } from 'lucide-react';
 import { platform } from "@/platform";
+import { useRecentMissions } from '@/hooks/useRecentMissions';
 
 interface OpenMissionDialogProps {
   open: boolean;
@@ -18,14 +19,10 @@ interface OpenMissionDialogProps {
   onConfirm: (path: string) => void;
 }
 
-const recentMissions = [
-  { name: 'Миссия_Порт_2024', path: 'C:/Missions/Порт_2024', date: '2024-12-15' },
-  { name: 'Обследование_Док_3', path: 'C:/Missions/Док_3', date: '2024-12-10' },
-];
-
 const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogProps) => {
   const [folder, setFolder] = useState(platform.paths.defaultMissionsDir());
   const [error, setError] = useState<string | null>(null);
+  const { missions: recentMissions } = useRecentMissions();
 
   const handleConfirm = () => {
     if (folder.trim()) {
@@ -91,19 +88,26 @@ const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogP
               Недавние миссии
             </div>
             <div className="space-y-1">
-              {recentMissions.map((mission, index) => (
-                <button
-                  key={index}
-                  className="w-full text-left px-3 py-2 rounded hover:bg-secondary flex items-center justify-between"
-                  onClick={() => handleRecentClick(mission.path)}
-                >
-                  <div>
-                    <div className="font-medium text-sm">{mission.name}</div>
-                    <div className="text-xs text-muted-foreground font-mono">{mission.path}</div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </button>
-              ))}
+              {recentMissions.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-muted-foreground">Нет доступных миссий</div>
+              ) : (
+                recentMissions.map((mission) => (
+                  <button
+                    key={mission.rootPath}
+                    className="w-full text-left px-3 py-2 rounded hover:bg-secondary flex items-center justify-between"
+                    onClick={() => handleRecentClick(mission.rootPath)}
+                  >
+                    <div>
+                      <div className="font-medium text-sm">{mission.name}</div>
+                      <div className="text-xs text-muted-foreground font-mono">{mission.rootPath}</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground">{mission.dateLabel}</span>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  </button>
+                ))
+              )}
             </div>
           </div>
         </div>

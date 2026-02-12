@@ -8,6 +8,7 @@ const CHANNELS = {
     writeText: 'planner:fileStore:writeText',
     remove: 'planner:fileStore:remove',
     list: 'planner:fileStore:list',
+    stat: 'planner:fileStore:stat',
   },
   settings: {
     readJson: 'planner:settings:readJson',
@@ -53,6 +54,7 @@ const api = {
     writeText: (path, content) => ipcRenderer.invoke(CHANNELS.fileStore.writeText, path, content),
     remove: (path) => ipcRenderer.invoke(CHANNELS.fileStore.remove, path),
     list: (prefix) => ipcRenderer.invoke(CHANNELS.fileStore.list, prefix),
+    stat: (path) => ipcRenderer.invoke(CHANNELS.fileStore.stat, path),
   },
   settings: {
     readJson: (key) => ipcRenderer.invoke(CHANNELS.settings.readJson, key),

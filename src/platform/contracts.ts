@@ -9,6 +9,7 @@ export type FileStoreBridge = {
   writeText: (path: string, content: string) => Promise<void>;
   remove: (path: string) => Promise<void>;
   list: (prefix: string) => Promise<string[]>;
+  stat: (path: string) => Promise<{ mtimeMs: number } | null>;
 };
 
 export type FileSystemBridge = {
