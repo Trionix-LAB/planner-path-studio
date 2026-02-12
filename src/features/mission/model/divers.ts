@@ -43,7 +43,7 @@ const normalizeBeaconId = (value: unknown, fallback: string): string => {
 export const createDefaultDiver = (index: number): DiverUiConfig => ({
   uid: crypto.randomUUID(),
   id: `${index + 1}`,
-  beacon_id: String(Math.max(0, Math.min(15, index + 1))),
+  beacon_id: String(Math.max(0, Math.min(15, index))),
   title: `Маяк ${index + 1}`,
   marker_color: DEFAULT_DIVER_MARKER_COLOR,
   marker_size_px: DEFAULT_DIVER_MARKER_SIZE,

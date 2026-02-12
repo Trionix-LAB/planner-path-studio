@@ -5,6 +5,12 @@ describe('divers model', () => {
   it('creates default diver with separate beacon id', () => {
     const diver = createDefaultDiver(0);
     expect(diver.id).toBe('1');
+    expect(diver.beacon_id).toBe('0');
+  });
+
+  it('increments default beacon ids from zero', () => {
+    const diver = createDefaultDiver(1);
+    expect(diver.id).toBe('2');
     expect(diver.beacon_id).toBe('1');
   });
 

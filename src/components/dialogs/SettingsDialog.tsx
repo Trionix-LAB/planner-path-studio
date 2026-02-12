@@ -30,6 +30,7 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   value: AppUiDefaults;
   missionDivers: DiverUiConfig[];
+  isZimaAssignedInProfile: boolean;
   baseStationNavigationSource: NavigationSourceId | null;
   onApply: (next: AppUiDefaults) => Promise<void> | void;
   onApplyDivers: (next: DiverUiConfig[]) => Promise<void> | void;
@@ -62,6 +63,7 @@ const SettingsDialog = ({
   onOpenChange,
   value,
   missionDivers,
+  isZimaAssignedInProfile,
   baseStationNavigationSource,
   onApply,
   onApplyDivers,
@@ -115,7 +117,7 @@ const SettingsDialog = ({
 
   const handleAddDiver = () => {
     const index = diversDraft.length;
-    const defaultBeaconId = String(Math.max(0, Math.min(15, index + 1)));
+    const defaultBeaconId = String(Math.max(0, Math.min(15, index)));
     updateDivers([
       ...diversDraft,
       {
@@ -657,103 +659,114 @@ const SettingsDialog = ({
                 </div>
 
                 <div className="space-y-3">
-                  {diversDraft.map((diver, index) => (
-                    <div key={diver.uid} className="border border-border rounded-md p-3 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-muted-foreground">#{index + 1}</div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveDiver(index)}
-                          disabled={diversDraft.length <= 1}
-                        >
-                          Удалить
-                        </Button>
-                      </div>
+                  {diversDraft.map((diver, index) => {
+                    const isBeaconIdEnabled =
+                      isZimaAssignedInProfile && diver.navigation_source === 'zima2r';
+                    return (
+                      <div key={diver.uid} className="border border-border rounded-md p-3 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs text-muted-foreground">#{index + 1}</div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveDiver(index)}
+                            disabled={diversDraft.length <= 1}
+                          >
+                            Удалить
+                          </Button>
+                        </div>
 
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="space-y-1.5">
-                          <Label>ID агента</Label>
-                          <Input
-                            value={diver.id}
-                            onChange={(e) => updateDiver(index, { id: e.target.value })}
-                          />
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="space-y-1.5">
+                            <Label>ID агента</Label>
+                            <Input
+                              value={diver.id}
+                              onChange={(e) => updateDiver(index, { id: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label>ID маяка</Label>
+                            <Input
+                              inputMode="numeric"
+                              value={diver.beacon_id}
+                              disabled={!isBeaconIdEnabled}
+                              onChange={(e) => updateDiver(index, { beacon_id: e.target.value })}
+                            />
+                            <div className="text-xs text-muted-foreground">Диапазон: 0-15</div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label>Заголовок</Label>
+                            <Input
+                              value={diver.title}
+                              onChange={(e) => updateDiver(index, { title: e.target.value })}
+                            />
+                          </div>
                         </div>
-                        <div className="space-y-1.5">
-                          <Label>ID маяка</Label>
-                          <Input
-                            inputMode="numeric"
-                            value={diver.beacon_id}
-                            onChange={(e) => updateDiver(index, { beacon_id: e.target.value })}
-                          />
-                          <div className="text-xs text-muted-foreground">Диапазон: 0-15</div>
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>Заголовок</Label>
-                          <Input
-                            value={diver.title}
-                            onChange={(e) => updateDiver(index, { title: e.target.value })}
-                          />
-                        </div>
-                      </div>
 
-                      <div className="space-y-1.5">
-                        <Label>Источник навигации</Label>
-                        <Select
-                          value={diver.navigation_source}
-                          onValueChange={(value) =>
-                            updateDiver(index, { navigation_source: value as NavigationSourceId })
-                          }
-                          disabled={navigationSourceOptions.length === 0}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {navigationSourceOptions.map((option) => (
-                              <SelectItem key={option.id} value={option.id}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-3">
                         <div className="space-y-1.5">
-                          <Label>Цвет маркера</Label>
-                          <Input
-                            type="color"
-                            value={diver.marker_color}
-                            onChange={(e) => updateDiver(index, { marker_color: e.target.value })}
-                            className="w-12 h-9 p-1"
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>Размер маркера</Label>
-                          <Input
-                            inputMode="numeric"
-                            value={String(diver.marker_size_px)}
-                            onChange={(e) =>
-                              updateDiver(index, {
-                                marker_size_px: clampNumber(e.target.value, 32, 12, 64),
-                              })
+                          <Label>Источник навигации</Label>
+                          <Select
+                            value={diver.navigation_source}
+                            onValueChange={(value) =>
+                              updateDiver(index, { navigation_source: value as NavigationSourceId })
                             }
-                          />
+                            disabled={navigationSourceOptions.length === 0}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {navigationSourceOptions.map((option) => (
+                                <SelectItem key={option.id} value={option.id}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {!isBeaconIdEnabled && (
+                            <div className="text-xs text-muted-foreground">
+                              ID маяка доступен только при назначенном оборудовании Zima2R и выбранном
+                              источнике zima2r.
+                            </div>
+                          )}
                         </div>
-                        <div className="space-y-1.5">
-                          <Label>Цвет трека</Label>
-                          <Input
-                            type="color"
-                            value={diver.track_color}
-                            onChange={(e) => updateDiver(index, { track_color: e.target.value })}
-                            className="w-12 h-9 p-1"
-                          />
+
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="space-y-1.5">
+                            <Label>Цвет маркера</Label>
+                            <Input
+                              type="color"
+                              value={diver.marker_color}
+                              onChange={(e) => updateDiver(index, { marker_color: e.target.value })}
+                              className="w-12 h-9 p-1"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label>Размер маркера</Label>
+                            <Input
+                              inputMode="numeric"
+                              value={String(diver.marker_size_px)}
+                              onChange={(e) =>
+                                updateDiver(index, {
+                                  marker_size_px: clampNumber(e.target.value, 32, 12, 64),
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label>Цвет трека</Label>
+                            <Input
+                              type="color"
+                              value={diver.track_color}
+                              onChange={(e) => updateDiver(index, { track_color: e.target.value })}
+                              className="w-12 h-9 p-1"
+                            />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </TabsContent>
