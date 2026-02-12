@@ -1,5 +1,7 @@
 export { createMissionRepository } from './model/repository';
 export type { MissionRepository } from './model/repository';
+export { loadDraftSession, resolveDraftLoadMode } from './model/draftSession';
+export type { DraftLoadMode } from './model/draftSession';
 export { buildTrackSegments, bundleToMapObjects, mapObjectsToGeoJson } from './model/adapters';
 export type { TrackSegment } from './model/adapters';
 export { generateLanesForZone } from './model/laneGeneration';

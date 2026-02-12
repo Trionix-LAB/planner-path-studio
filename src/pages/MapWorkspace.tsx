@@ -23,12 +23,14 @@ import {
   bundleToMapObjects,
   cascadeDeleteZone,
   clearZoneLanesOutdated,
+  loadDraftSession,
   computeRealtimeVisibilityState,
   countZoneLanes,
   createElectronGnssTelemetryProvider,
   createElectronZimaTelemetryProvider,
   createDefaultDivers,
   createMissionRepository,
+  resolveDraftLoadMode,
   createSimulationTelemetryProvider,
   createTrackRecorderState,
   didZoneLaneInputsChange,
@@ -49,6 +51,7 @@ import {
   type TelemetryConnectionState,
   type TelemetryFix,
   type TrackRecorderState,
+  type DraftLoadMode,
 } from '@/features/mission';
 import {
   APP_SETTINGS_STORAGE_KEY,
@@ -918,25 +921,24 @@ const MapWorkspace = () => {
   }, []);
 
   const loadDraft = useCallback(
-    async (recoverOnly: boolean) => {
-      const exists = await platform.fileStore.exists(`${DRAFT_ROOT_PATH}/mission.json`);
-      if (!exists && recoverOnly) {
-        window.alert('Автосохраненный черновик не найден. Создан новый черновик.');
-      }
-
-      let bundle: MissionBundle;
-      if (exists) {
-        bundle = await repository.openMission(DRAFT_ROOT_PATH, { acquireLock: false });
-      } else {
-        bundle = await repository.createMission(
-          {
-            rootPath: DRAFT_ROOT_PATH,
-            name: DRAFT_MISSION_NAME,
-            ui: toMissionUiFromDefaults(appSettingsRef.current.defaults),
-          },
-          { acquireLock: false },
-        );
-      }
+    async (mode: DraftLoadMode) => {
+      const bundle = await loadDraftSession(mode, {
+        draftExists: () => platform.fileStore.exists(`${DRAFT_ROOT_PATH}/mission.json`),
+        clearDraft: () => platform.fileStore.remove(DRAFT_ROOT_PATH),
+        createDraft: () =>
+          repository.createMission(
+            {
+              rootPath: DRAFT_ROOT_PATH,
+              name: DRAFT_MISSION_NAME,
+              ui: toMissionUiFromDefaults(appSettingsRef.current.defaults),
+            },
+            { acquireLock: false },
+          ),
+        openDraft: () => repository.openMission(DRAFT_ROOT_PATH, { acquireLock: false }),
+        onRecoverMissing: () => {
+          window.alert('Автосохраненный черновик не найден. Создан новый черновик.');
+        },
+      });
       await releaseCurrentLock();
       updateFromBundle(bundle, true);
     },
@@ -962,13 +964,13 @@ const MapWorkspace = () => {
 
         if (location.pathname === '/create-mission') {
           setShowCreateMission(true);
-          await loadDraft(false);
+          await loadDraft('resume');
           return;
         }
 
         if (location.pathname === '/open-mission') {
           setShowOpenMission(true);
-          await loadDraft(false);
+          await loadDraft('resume');
           return;
         }
 
@@ -980,16 +982,11 @@ const MapWorkspace = () => {
           return;
         }
 
-        if (mode === 'recover') {
-          await loadDraft(true);
-          return;
-        }
-
-        await loadDraft(mode === 'draft');
+        await loadDraft(resolveDraftLoadMode(mode));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Не удалось открыть миссию';
         window.alert(message);
-        await loadDraft(false);
+        await loadDraft('resume');
       }
     };
 
@@ -1822,7 +1819,7 @@ const MapWorkspace = () => {
       } catch {
         // ignore
       } finally {
-        await loadDraft(false);
+        await loadDraft('resume');
         navigate('/map?mode=draft', { replace: true });
       }
     })();
