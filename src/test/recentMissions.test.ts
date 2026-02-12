@@ -87,4 +87,32 @@ describe('loadRecentMissions', () => {
 
     expect(recent).toEqual([]);
   });
+
+  it('loads all missions when limit is Infinity', async () => {
+    const files = {
+      'C:/Missions/A/mission.json': JSON.stringify({ name: 'Mission A', updated_at: '2026-01-01T10:00:00.000Z' }),
+      'C:/Missions/B/mission.json': JSON.stringify({ name: 'Mission B', updated_at: '2026-01-03T10:00:00.000Z' }),
+      'C:/Missions/C/mission.json': JSON.stringify({ name: 'Mission C', updated_at: '2026-01-02T10:00:00.000Z' }),
+    };
+
+    const platform = createPlatform({ isElectron: false, files });
+    const recent = await loadRecentMissions(platform, { limit: Number.POSITIVE_INFINITY });
+
+    expect(recent).toHaveLength(3);
+    expect(recent.map((mission) => mission.name)).toEqual(['Mission B', 'Mission C', 'Mission A']);
+  });
+
+  it('uses explicit missionsDir when provided', async () => {
+    const files = {
+      'D:/Archive/M1/mission.json': JSON.stringify({ name: 'Archive Mission', updated_at: '2026-01-05T10:00:00.000Z' }),
+      'C:/Missions/A/mission.json': JSON.stringify({ name: 'Mission A', updated_at: '2026-01-01T10:00:00.000Z' }),
+    };
+
+    const platform = createPlatform({ isElectron: false, files });
+    const recent = await loadRecentMissions(platform, { missionsDir: 'D:/Archive' });
+
+    expect(recent).toHaveLength(1);
+    expect(recent[0].name).toBe('Archive Mission');
+    expect(recent[0].rootPath).toBe('D:/Archive/M1');
+  });
 });
