@@ -1,6 +1,18 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import RightPanel from '@/components/map/RightPanel';
+import type { DiverUiConfig } from '@/features/mission';
+
+const testAgent: DiverUiConfig = {
+  uid: 'agent-1',
+  id: '1',
+  beacon_id: '1',
+  title: 'Маяк 1',
+  marker_color: '#0ea5e9',
+  marker_size_px: 32,
+  track_color: '#a855f7',
+  navigation_source: 'simulation',
+};
 
 describe('RightPanel HUD defaults', () => {
   it('shows no telemetry values and disabled connection state', () => {
@@ -22,9 +34,13 @@ describe('RightPanel HUD defaults', () => {
           lane: { color: '#22c55e', width_px: 2 },
           marker: { color: '#22c55e' },
         }}
-        connectionState="off"
-        trackStatus="stopped"
-        trackId={0}
+        connectionStatus="timeout"
+        isConnectionEnabled={false}
+        selectedAgent={null}
+        selectedAgentTrackStatus="stopped"
+        selectedAgentActiveTrackNumber={0}
+        missionDocument={null}
+        trackStatusByAgentId={{}}
         selectedObject={null}
         selectedZoneLanesOutdated={false}
         selectedZoneLaneCount={null}
@@ -56,9 +72,13 @@ describe('RightPanel HUD defaults', () => {
           lane: { color: '#22c55e', width_px: 2 },
           marker: { color: '#22c55e' },
         }}
-        connectionState="ok"
-        trackStatus="recording"
-        trackId={1}
+        connectionStatus="ok"
+        isConnectionEnabled={true}
+        selectedAgent={testAgent}
+        selectedAgentTrackStatus="recording"
+        selectedAgentActiveTrackNumber={1}
+        missionDocument={null}
+        trackStatusByAgentId={{ 'agent-1': 'recording' }}
         selectedObject={null}
         selectedZoneLanesOutdated={false}
         selectedZoneLaneCount={null}

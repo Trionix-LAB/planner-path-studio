@@ -73,8 +73,8 @@ interface MapCanvasProps {
       course?: number;
     }
   >;
-  trackSegments: Array<Array<[number, number]>>;
-  isFollowing: boolean;
+  trackSegments: Array<{ points: Array<[number, number]>; color: string }>;
+  followAgentId: string | null;
   connectionStatus: 'ok' | 'timeout' | 'error';
   connectionLostSeconds?: number;
   showTelemetryObjects: boolean;
@@ -399,7 +399,7 @@ const MapCanvas = ({
   divers,
   diverPositionsById = {},
   trackSegments,
-  isFollowing,
+  followAgentId,
   connectionStatus,
   connectionLostSeconds,
   showTelemetryObjects,
@@ -482,6 +482,14 @@ const MapCanvas = ({
     }
     return 0;
   };
+
+  const isFollowing = Boolean(followAgentId);
+  const followAgentIndex = followAgentId ? divers.findIndex((diver) => diver.uid === followAgentId) : -1;
+  const followAgent = followAgentIndex >= 0 ? divers[followAgentIndex] : null;
+  const followPosition: [number, number] = followAgent
+    ? getDiverPosition(followAgent, followAgentIndex)
+    : diverPosition;
+
   const baseStationPosition: [number, number] | null = baseStationData
     ? [baseStationData.lat, baseStationData.lon]
     : null;
@@ -1163,7 +1171,7 @@ const MapCanvas = ({
       activeTool === 'marker' && "cursor-crosshair"
     )}>
       <MapContainer
-        center={mapView ? [mapView.center_lat, mapView.center_lon] : diverPosition}
+        center={mapView ? [mapView.center_lat, mapView.center_lon] : followPosition}
         zoom={mapView?.zoom ?? 16}
         className="w-full h-full"
         ref={mapRef}
@@ -1201,16 +1209,16 @@ const MapCanvas = ({
 
         <ApplyMapView mapView={mapView} isFollowing={isFollowing} />
         <CenterOnObjectRequest request={centerRequest} objects={objects} onMissingGeometry={handleMissingGeometry} />
-        <FollowDiver position={diverPosition} isFollowing={isFollowing} />
+        <FollowDiver position={followPosition} isFollowing={isFollowing} />
 
         {/* Track */}
         {layers.track &&
           trackSegments.map((segment, index) => (
             <Polyline
               key={`track-segment-${index}`}
-              positions={segment}
+              positions={segment.points}
               pathOptions={{
-                color: styles.track.color,
+                color: segment.color,
                 weight: styles.track.width_px,
               }}
             />
@@ -1518,11 +1526,12 @@ const MapCanvas = ({
           divers.map((diver, index) => {
             const position = getDiverPosition(diver, index);
             const course = getDiverCourse(diver, index);
+            const isPinned = Boolean(followAgentId && diver.uid === followAgentId);
             return (
               <Marker
                 key={diver.uid}
                 position={position}
-                icon={createDiverIcon(course, index === 0 && isFollowing, diver.marker_color, diver.marker_size_px)}
+                icon={createDiverIcon(course, isPinned, diver.marker_color, diver.marker_size_px)}
               />
             );
           })}

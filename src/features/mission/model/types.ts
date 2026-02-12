@@ -18,6 +18,7 @@ export type DiverUiConfig = {
 
 export type MissionTrackMeta = {
   id: string;
+  agent_id: string | null;
   file: string;
   started_at: IsoUtcString;
   ended_at: IsoUtcString | null;
@@ -77,7 +78,10 @@ export type MissionDocument = {
   name: string;
   created_at: IsoUtcString;
   updated_at: IsoUtcString;
+  /** @deprecated Use active_tracks instead. Kept for backward compatibility. */
   active_track_id: string | null;
+  /** Per-agent active track mapping: agent_uid -> track_id */
+  active_tracks: Record<string, string>;
   tracks: MissionTrackMeta[];
   files: {
     routes: string;

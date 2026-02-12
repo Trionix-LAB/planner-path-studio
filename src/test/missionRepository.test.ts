@@ -90,6 +90,7 @@ describe('mission repository', () => {
 
     created.mission.tracks.push({
       id: 'track-1',
+      agent_id: null,
       file: 'tracks/track-0001.csv',
       started_at: '2026-02-03T10:01:00.000Z',
       ended_at: null,
@@ -246,6 +247,7 @@ describe('mission repository', () => {
 
     created.mission.tracks.push({
       id: 'track-1',
+      agent_id: null,
       file: 'tracks/track-0001.csv',
       started_at: '2026-02-03T10:01:00.000Z',
       ended_at: null,

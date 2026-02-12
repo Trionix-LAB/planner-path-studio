@@ -192,26 +192,29 @@ export const mapObjectsToGeoJson = (
   };
 };
 
-export const buildTrackSegments = (
-  pointsByTrackId: Record<string, TrackPoint[]>,
-): Array<Array<[number, number]>> => {
-  const segments: Array<Array<[number, number]>> = [];
+export type TrackSegment = {
+  trackId: string;
+  points: Array<[number, number]>;
+};
 
-  for (const points of Object.values(pointsByTrackId)) {
+export const buildTrackSegments = (pointsByTrackId: Record<string, TrackPoint[]>): TrackSegment[] => {
+  const segments: TrackSegment[] = [];
+
+  for (const [trackId, points] of Object.entries(pointsByTrackId)) {
     if (points.length === 0) continue;
     let currentSegmentId = points[0].segment_id;
     let current: Array<[number, number]> = [];
 
     for (const point of points) {
       if (point.segment_id !== currentSegmentId) {
-        if (current.length > 1) segments.push(current);
+        if (current.length > 1) segments.push({ trackId, points: current });
         current = [];
         currentSegmentId = point.segment_id;
       }
       current.push([point.lat, point.lon]);
     }
 
-    if (current.length > 1) segments.push(current);
+    if (current.length > 1) segments.push({ trackId, points: current });
   }
 
   return segments;
