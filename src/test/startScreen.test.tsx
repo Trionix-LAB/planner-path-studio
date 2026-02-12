@@ -172,4 +172,29 @@ describe('StartScreen missions actions', () => {
 
     confirmSpy.mockRestore();
   });
+
+  it('opens a new empty draft from the draft button', async () => {
+    render(
+      <MemoryRouter>
+        <StartScreen />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Черновик/i }));
+    expect(mocks.navigate).toHaveBeenCalledWith('/map?mode=new-draft');
+  });
+
+  it('shows and opens recover action only when recoverable draft exists', async () => {
+    mocks.exists.mockResolvedValue(true);
+
+    render(
+      <MemoryRouter>
+        <StartScreen />
+      </MemoryRouter>,
+    );
+
+    const recoverButton = await screen.findByRole('button', { name: /Восстановить/i });
+    fireEvent.click(recoverButton);
+    expect(mocks.navigate).toHaveBeenCalledWith('/map?mode=recover');
+  });
 });

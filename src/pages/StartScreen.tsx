@@ -119,12 +119,12 @@ const StartScreen = () => {
           <Button
             variant="outline"
             className="h-auto py-6 px-6 flex flex-col items-center gap-3 bg-card hover:bg-secondary border-border hover:border-primary/50 transition-all"
-            onClick={() => navigate('/map?mode=draft')}
+            onClick={() => navigate('/map?mode=new-draft')}
           >
             <FileText className="w-8 h-8 text-muted-foreground" />
             <div>
               <div className="font-medium text-foreground">Черновик</div>
-              <div className="text-xs text-muted-foreground">Продолжить работу</div>
+              <div className="text-xs text-muted-foreground">Новая пустая сессия</div>
             </div>
           </Button>
 
