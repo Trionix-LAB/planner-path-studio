@@ -1595,6 +1595,31 @@ const MapWorkspace = () => {
     })();
   }, [autoSaveStatus, navigate, persistMissionSnapshot, releaseCurrentLock]);
 
+  const handleOpenEquipmentScreen = useCallback(() => {
+    const returnPath = isDraft
+      ? '/map?mode=draft'
+      : missionRootPath
+        ? `/map?mission=${encodeURIComponent(missionRootPath)}`
+        : '/map';
+
+    void (async () => {
+      try {
+        await persistMissionSnapshot(latestSnapshotRef.current, { closeActiveTrack: true });
+      } catch {
+        // ignore
+      }
+
+      try {
+        await releaseCurrentLock();
+      } catch {
+        // ignore
+      }
+
+      setShowSettings(false);
+      navigate(`/equipment?return=${encodeURIComponent(returnPath)}`);
+    })();
+  }, [isDraft, missionRootPath, navigate, persistMissionSnapshot, releaseCurrentLock]);
+
   const handleFinishMission = () => {
     if (isDraft) return;
     if (!window.confirm('Завершить миссию и перейти в черновик?')) {
@@ -1947,6 +1972,7 @@ const MapWorkspace = () => {
             : []
         }
         onToggleEquipment={isElectronRuntime ? handleToggleEquipmentConnection : undefined}
+        onOpenEquipment={handleOpenEquipmentScreen}
       />
     </div>
   );
