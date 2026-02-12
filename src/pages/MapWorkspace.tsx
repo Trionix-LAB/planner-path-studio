@@ -2151,6 +2151,7 @@ const MapWorkspace = () => {
         onOpenChange={setShowSettings}
         value={settingsValue}
         missionDivers={missionDivers}
+        isZimaAssignedInProfile={selectedEquipmentDeviceIds.includes('zima2r')}
         baseStationNavigationSource={baseStationNavigationSource}
         onApply={handleSettingsApply}
         onApplyDivers={handleDiversApply}
