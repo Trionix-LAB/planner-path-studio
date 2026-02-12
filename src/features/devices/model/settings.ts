@@ -150,7 +150,7 @@ const createDefaultProfiles = (schemas: DeviceSchema[]): EquipmentProfile[] => {
       name: profile.name,
       device_ids,
     } satisfies EquipmentProfile;
-  }).filter((profile): profile is EquipmentProfile => profile !== null);
+  }).filter((p) => p !== null) as EquipmentProfile[];
 
   if (defaults.length > 0) return defaults;
 

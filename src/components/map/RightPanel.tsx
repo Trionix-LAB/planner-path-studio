@@ -1,10 +1,12 @@
 import type { MapObject } from "@/features/map/model/types";
-import { Wifi, WifiOff, Radio } from 'lucide-react';
+import { Wifi, WifiOff, Radio, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MapObjectProperties from './MapObjectProperties';
 import type { AppUiDefaults } from '@/features/settings';
+import type { DiverUiConfig, MissionDocument, TrackRecorderStatus } from '@/features/mission';
 
 interface RightPanelProps {
+  /** HUD data for the selected agent (or primary if none selected) */
   diverData: {
     lat: number;
     lon: number;
@@ -17,8 +19,13 @@ interface RightPanelProps {
   styles: AppUiDefaults['styles'];
   connectionStatus: 'ok' | 'timeout' | 'error';
   isConnectionEnabled: boolean;
-  trackStatus: 'recording' | 'paused' | 'stopped';
-  trackId: number;
+  /** Selected agent info */
+  selectedAgent: DiverUiConfig | null;
+  selectedAgentTrackStatus: TrackRecorderStatus;
+  selectedAgentActiveTrackNumber: number;
+  /** Mission for filtering tracks */
+  missionDocument: MissionDocument | null;
+  trackStatusByAgentId: Record<string, TrackRecorderStatus>;
   selectedObject: MapObject | null;
   selectedZoneLanesOutdated: boolean;
   selectedZoneLaneCount: number | null;
@@ -28,7 +35,18 @@ interface RightPanelProps {
   onRegenerateLanes?: (id: string) => void;
   onPickLaneEdge?: (id: string) => void;
   onPickLaneStart?: (id: string) => void;
+  onTrackDelete?: (trackId: string) => void;
 }
+
+const formatTrackTime = (value: string): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+};
 
 const RightPanel = ({
   diverData,
@@ -37,8 +55,11 @@ const RightPanel = ({
   styles,
   connectionStatus,
   isConnectionEnabled,
-  trackStatus,
-  trackId,
+  selectedAgent,
+  selectedAgentTrackStatus,
+  selectedAgentActiveTrackNumber,
+  missionDocument,
+  trackStatusByAgentId,
   selectedObject,
   selectedZoneLanesOutdated,
   selectedZoneLaneCount,
@@ -48,6 +69,7 @@ const RightPanel = ({
   onRegenerateLanes,
   onPickLaneEdge,
   onPickLaneStart,
+  onTrackDelete,
 }: RightPanelProps) => {
   const noTelemetry = !hasTelemetryData;
   const connectionLabel = !isConnectionEnabled
@@ -58,10 +80,25 @@ const RightPanel = ({
         ? 'Ошибка'
         : 'Нет данных';
 
+  // Filter tracks for selected agent
+  const agentTracks = selectedAgent && missionDocument
+    ? missionDocument.tracks.filter((t) => t.agent_id === selectedAgent.uid)
+    : [];
+
+  const trackStatus = selectedAgentTrackStatus;
+  const trackId = selectedAgentActiveTrackNumber;
+
   return (
     <div className="w-64 bg-sidebar border-l border-sidebar-border flex flex-col h-full text-[13px]">
       {/* HUD */}
-      <div className="panel-header">HUD</div>
+      <div className="panel-header">
+        HUD
+        {selectedAgent && (
+          <span className="ml-1 text-muted-foreground font-normal">
+            — {selectedAgent.title}
+          </span>
+        )}
+      </div>
       <div className="p-2.5 space-y-2">
         {noTelemetry ? (
           <div className="text-xs text-muted-foreground">нет данных</div>
@@ -125,7 +162,7 @@ const RightPanel = ({
           </span>
         </div>
 
-        {/* Track Recording */}
+        {/* Track Recording for selected agent */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Radio
@@ -157,9 +194,80 @@ const RightPanel = ({
           <span className="text-[13px] text-muted-foreground leading-5">Активный трек</span>
           <span className="text-[13px] font-mono leading-5">{trackId > 0 ? `#${trackId}` : '—'}</span>
         </div>
+
+        {/* Count of agents recording */}
+        {missionDocument && (
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] text-muted-foreground leading-5">Агентов пишут</span>
+            <span className="text-[13px] font-mono leading-5">
+              {Object.values(trackStatusByAgentId).filter((s) => s === 'recording').length}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-sidebar-border" />
+
+      {/* Agent Tracks */}
+      {selectedAgent && (
+        <>
+          <div className="panel-header">
+            Треки: {selectedAgent.title}
+          </div>
+          <div className="p-1.5 space-y-1 max-h-48 overflow-y-auto">
+            {agentTracks.map((track, index) => {
+              const isActive =
+                missionDocument?.active_tracks[selectedAgent.uid] === track.id &&
+                trackStatusByAgentId[selectedAgent.uid] === 'recording';
+              return (
+                <div
+                  key={track.id}
+                  className={`p-1.5 rounded text-[13px] ${
+                    isActive
+                    ? 'bg-primary/20 border border-primary/40'
+                    : 'bg-sidebar-accent'
+                  } group`}
+                >
+                  <div className="flex items-center gap-1">
+                    <span
+                      className="h-2 w-2 rounded-full shrink-0"
+                      style={{ backgroundColor: selectedAgent.track_color }}
+                      aria-hidden
+                    />
+                    <div className="font-medium leading-5 flex-1 min-w-0 truncate">{`Трек ${index + 1}`}</div>
+                    {onTrackDelete && (
+                      <button
+                        type="button"
+                        className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                        aria-label={`Удалить трек ${index + 1}`}
+                        title={`Удалить трек ${index + 1}`}
+                        onClick={() => onTrackDelete(track.id)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-[11px] leading-4 text-muted-foreground font-mono">
+                    {`${formatTrackTime(track.started_at)} - ${track.ended_at ? formatTrackTime(track.ended_at) : '...'}`}
+                  </div>
+                  {isActive && (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <span className="status-indicator status-ok" />
+                      <span className="text-[11px] leading-4 text-success">Запись</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {agentTracks.length === 0 && (
+              <div className="p-1.5 text-[11px] leading-4 text-muted-foreground">
+                Треки пока не записаны.
+              </div>
+            )}
+          </div>
+          <div className="border-t border-sidebar-border" />
+        </>
+      )}
 
       <div className="panel-header">Свойства объекта</div>
       <div className="flex-1 min-h-0">

@@ -17,18 +17,27 @@ describe('buildTrackSegments', () => {
 
     const segments = buildTrackSegments(pointsByTrackId);
     expect(segments).toHaveLength(3);
-    expect(segments[0]).toEqual([
-      [59.9, 30.3],
-      [59.9001, 30.3001],
-    ]);
-    expect(segments[1]).toEqual([
-      [59.9002, 30.3002],
-      [59.9003, 30.3003],
-    ]);
-    expect(segments[2]).toEqual([
-      [59.91, 30.31],
-      [59.9101, 30.3101],
-    ]);
+    expect(segments[0]).toEqual({
+      trackId: 'track-1',
+      points: [
+        [59.9, 30.3],
+        [59.9001, 30.3001],
+      ],
+    });
+    expect(segments[1]).toEqual({
+      trackId: 'track-1',
+      points: [
+        [59.9002, 30.3002],
+        [59.9003, 30.3003],
+      ],
+    });
+    expect(segments[2]).toEqual({
+      trackId: 'track-2',
+      points: [
+        [59.91, 30.31],
+        [59.9101, 30.3101],
+      ],
+    });
   });
 
   it('drops single-point segments', () => {
@@ -43,4 +52,3 @@ describe('buildTrackSegments', () => {
     expect(segments).toEqual([]);
   });
 });
-

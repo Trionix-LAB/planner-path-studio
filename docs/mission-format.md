@@ -28,10 +28,12 @@
 - `name`: string
 - `created_at`: string (ISO-8601 UTC, `Z`)
 - `updated_at`: string (ISO-8601 UTC, `Z`)
-- `active_track_id`: string | null
+- `active_track_id`: string | null (deprecated, сохраняется для обратной совместимости; при наличии `active_tracks` игнорируется)
+- `active_tracks`: object | null (опционально; ключ = `agent_uid`, значение = `track_id` активного трека этого агента; `null` или отсутствие = ни один агент не записывает)
 - `tracks`: array объектов:
   - `id`: string (UUID)
-  - `file`: string (относительный путь, например `tracks/track-0001.csv`)
+  - `agent_id`: string | null (uid агента, которому принадлежит трек; `null` для треков, созданных до введения мультиагентной записи)
+  - `file`: string (относительный путь, например `tracks/agent1-track-0001.csv`)
   - `started_at`: string (системное время начала записи, UTC, `Z`)
   - `ended_at`: string | null (системное время окончания записи, UTC, `Z`)
   - `note`: string | null
@@ -75,7 +77,9 @@
 Примечания:
 
 - `started_at/ended_at` задаются по системному времени приложения (события start/stop/pause), и не обязаны совпадать со временем первой/последней точки в CSV трека.
-- В миссии в каждый момент времени может быть не более одного "активного" трека (в который пишутся точки). Его id хранится в `active_track_id` (или `null`, если запись на паузе).
+- В миссии для каждого агента может быть не более одного «активного» трека (в который пишутся точки). Маппинг `agent_uid -> track_id` хранится в `active_tracks`. Несколько агентов могут записывать треки параллельно.
+- Поле `active_track_id` сохраняется для обратной совместимости. При чтении: если `active_tracks` отсутствует, а `active_track_id` задан, он интерпретируется как активный трек первого (primary) агента.
+- Поле `agent_id` в треке указывает, какому агенту принадлежит трек. Треки с `agent_id = null` считаются принадлежащими primary-агенту (первому в массиве `ui.divers`).
 - Поля `ui.navigation_sources` и `ui.base_station` считаются опциональными для совместимости с уже сохраненными миссиями MVP.
 
 ### 2.3 Пример `mission.json`
@@ -87,13 +91,25 @@
   "name": "Dive 1",
   "created_at": "2026-02-03T10:00:00.000Z",
   "updated_at": "2026-02-03T10:05:00.000Z",
-  "active_track_id": "c4caa66d-c9b2-4cc3-a23a-5f9efb405a1c",
+  "active_track_id": null,
+  "active_tracks": {
+    "agent-uid-1": "c4caa66d-c9b2-4cc3-a23a-5f9efb405a1c"
+  },
   "tracks": [
     {
       "id": "c4caa66d-c9b2-4cc3-a23a-5f9efb405a1c",
-      "file": "tracks/track-0001.csv",
+      "agent_id": "agent-uid-1",
+      "file": "tracks/agent-uid-1-track-0001.csv",
       "started_at": "2026-02-03T10:00:02.000Z",
       "ended_at": null,
+      "note": null
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "agent_id": "agent-uid-2",
+      "file": "tracks/agent-uid-2-track-0001.csv",
+      "started_at": "2026-02-03T10:01:00.000Z",
+      "ended_at": "2026-02-03T10:03:30.000Z",
       "note": null
     }
   ],
@@ -149,7 +165,9 @@
 - Пауза/завершение закрывают текущий трек и ставят `ended_at` в `mission.json`.
 - Потеря связи не закрывает трек; внутри трека увеличивается `segment_id`.
 
-Рекомендуемое имя файла: `tracks/track-0001.csv`, `tracks/track-0002.csv`, ...
+Рекомендуемое имя файла: `tracks/<agent_uid>-track-0001.csv`, `tracks/<agent_uid>-track-0002.csv`, ...
+
+Нумерация ведётся per-agent (у каждого агента свой счётчик). Для треков, созданных до введения мультиагентной записи (без `agent_id`), допускается формат `tracks/track-0001.csv`.
 
 ### 3.3 Колонки
 

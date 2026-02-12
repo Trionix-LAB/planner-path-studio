@@ -346,7 +346,7 @@ const MapWorkspace = () => {
   const [isDraft, setIsDraft] = useState(true);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [activeTool, setActiveTool] = useState<Tool>('select');
-  const [isFollowing, setIsFollowing] = useState(true);
+  const [pinnedAgentId, setPinnedAgentId] = useState<string | null>(null);
   const [simulationEnabled, setSimulationEnabled] = useState(!isElectronRuntime);
   const [equipmentEnabledByDevice, setEquipmentEnabledByDevice] = useState<Record<string, boolean>>({
     zima2r: false,
@@ -366,6 +366,7 @@ const MapWorkspace = () => {
   const [laneFeatures, setLaneFeatures] = useState<LaneFeature[]>([]);
   const [outdatedZoneIds, setOutdatedZoneIds] = useState<Record<string, true>>({});
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [lanePickState, setLanePickState] = useState<{ mode: 'none' | 'edge' | 'start'; zoneId: string | null }>({
     mode: 'none',
     zoneId: null,
@@ -406,12 +407,13 @@ const MapWorkspace = () => {
     'gnss-udp': 1,
   });
   const [recordingState, setRecordingState] = useState<TrackRecorderState>(() =>
-    createTrackRecorderState(null, {}, 'stopped'),
+    createTrackRecorderState(null, {}, {}),
   );
 
   const missionDocument = recordingState.mission;
   const trackPointsByTrackId = recordingState.trackPointsByTrackId;
   const trackStatus = recordingState.trackStatus;
+  const trackStatusByAgentId = recordingState.trackStatusByAgentId;
 
   const lockOwnerRootRef = useRef<string | null>(null);
   const autosaveTimerRef = useRef<number | null>(null);
@@ -428,14 +430,15 @@ const MapWorkspace = () => {
   const gnssFixRef = useRef<DiverTelemetryState | null>(null);
   const simulationFixRef = useRef<DiverTelemetryState | null>(null);
   const lastRecordedPrimaryFixAtRef = useRef<number>(0);
+  const lastRecordedFixByAgentRef = useRef<Record<string, number>>({});
   const missionDiversRef = useRef<DiverUiConfig[]>(createDefaultDivers(1));
   const appSettingsRef = useRef<AppSettingsV1>(DEFAULT_APP_SETTINGS);
   const latestSnapshotRef = useRef<WorkspaceSnapshot>({
     missionRootPath: null,
-    recordingState: createTrackRecorderState(null, {}, 'stopped'),
+    recordingState: createTrackRecorderState(null, {}, {}),
     objects: [],
     laneFeatures: [],
-    isFollowing: true,
+    isFollowing: false,
     layers: DEFAULT_LAYERS,
     divers: createDefaultDivers(1),
     baseStationNavigationSource: null,
@@ -448,13 +451,72 @@ const MapWorkspace = () => {
     isLoaded: false,
   });
 
-  const trackSegments = useMemo(() => buildTrackSegments(trackPointsByTrackId), [trackPointsByTrackId]);
+  const trackSegments = useMemo(() => {
+    const segments = buildTrackSegments(trackPointsByTrackId);
+    const fallbackColor = styles.track.color;
+    const agentColorByUid = new Map(
+      missionDivers.map((diver) => [diver.uid, diver.track_color ?? fallbackColor] as const),
+    );
+    const trackAgentById = new Map(missionDocument?.tracks.map((track) => [track.id, track.agent_id]) ?? []);
+
+    return segments.map((segment) => {
+      const agentId = trackAgentById.get(segment.trackId) ?? null;
+      const color = (agentId && agentColorByUid.get(agentId)) ?? fallbackColor;
+      return { points: segment.points, color };
+    });
+  }, [missionDocument?.tracks, missionDivers, styles.track.color, trackPointsByTrackId]);
   const activeTrackNumber = useMemo(() => {
     if (!missionDocument) return 0;
     if (!missionDocument.active_track_id) return missionDocument.tracks.length;
     const index = missionDocument.tracks.findIndex((track) => track.id === missionDocument.active_track_id);
     return index >= 0 ? index + 1 : missionDocument.tracks.length;
   }, [missionDocument]);
+
+  // Selected agent derived values
+  const selectedAgent = useMemo(
+    () => missionDivers.find((d) => d.uid === selectedAgentId) ?? null,
+    [missionDivers, selectedAgentId],
+  );
+  const selectedAgentTrackStatus = useMemo<'recording' | 'paused' | 'stopped'>(
+    () => (selectedAgentId ? trackStatusByAgentId[selectedAgentId] ?? 'stopped' : 'stopped'),
+    [selectedAgentId, trackStatusByAgentId],
+  );
+  const selectedAgentActiveTrackNumber = useMemo(() => {
+    if (!selectedAgentId || !missionDocument) return 0;
+    const activeTrackId = missionDocument.active_tracks[selectedAgentId];
+    if (!activeTrackId) {
+      const agentTracks = missionDocument.tracks.filter((t) => t.agent_id === selectedAgentId);
+      return agentTracks.length;
+    }
+    const agentTracks = missionDocument.tracks.filter((t) => t.agent_id === selectedAgentId);
+    const idx = agentTracks.findIndex((t) => t.id === activeTrackId);
+    return idx >= 0 ? idx + 1 : agentTracks.length;
+  }, [missionDocument, selectedAgentId]);
+
+  // HUD data for selected agent
+  const selectedAgentDiverData = useMemo(() => {
+    if (!selectedAgentId) return diverData;
+    const telemetry = diverTelemetryById[selectedAgent?.id?.trim() ?? ''];
+    if (telemetry) {
+      return {
+        lat: telemetry.lat,
+        lon: telemetry.lon,
+        speed: telemetry.speed,
+        course: Math.round(telemetry.course),
+        depth: telemetry.depth,
+      };
+    }
+    return diverData;
+  }, [diverData, diverTelemetryById, selectedAgent, selectedAgentId]);
+
+  const hasSelectedAgentTelemetry = useMemo(() => {
+    if (!selectedAgentId || !selectedAgent) return hasPrimaryTelemetry;
+    const key = selectedAgent.id.trim();
+    return key in diverTelemetryById;
+  }, [diverTelemetryById, hasPrimaryTelemetry, selectedAgent, selectedAgentId]);
+
+  const isFollowing = Boolean(pinnedAgentId);
+
   const selectedObject = useMemo(
     () => objects.find((object) => object.id === selectedObjectId) ?? null,
     [objects, selectedObjectId],
@@ -489,6 +551,11 @@ const MapWorkspace = () => {
     return Boolean(equipmentEnabledByDevice[primaryNavigationSource]);
   }, [equipmentEnabledByDevice, primaryNavigationSource, simulationEnabled]);
 
+  const isRecordingControlsEnabled = useMemo(() => {
+    if (!isElectronRuntime) return simulationEnabled;
+    return selectedEquipmentDeviceIds.some((deviceId) => Boolean(equipmentEnabledByDevice[deviceId]));
+  }, [equipmentEnabledByDevice, isElectronRuntime, selectedEquipmentDeviceIds, simulationEnabled]);
+
   const navigationSourceOptions = useMemo(
     () =>
       availableNavigationSources.map((sourceId) => {
@@ -504,14 +571,6 @@ const MapWorkspace = () => {
     [availableNavigationSources, deviceSchemas],
   );
 
-  const effectiveTrackColor = missionDivers[0]?.track_color ?? styles.track.color;
-  const effectiveStyles = useMemo<AppUiDefaults['styles']>(
-    () => ({
-      ...styles,
-      track: { ...styles.track, color: effectiveTrackColor },
-    }),
-    [effectiveTrackColor, styles],
-  );
 
   const settingsValue = useMemo<AppUiDefaults>(
     () => ({
@@ -554,7 +613,7 @@ const MapWorkspace = () => {
 
   const centerNonceRef = useRef(0);
   const requestCenterOnObject = useCallback((id: string) => {
-    setIsFollowing(false);
+    setPinnedAgentId(null);
     centerNonceRef.current += 1;
     setCenterRequest({ objectId: id, nonce: centerNonceRef.current });
   }, []);
@@ -725,7 +784,7 @@ const MapWorkspace = () => {
       }
 
       const finalizedRecordingState = options?.closeActiveTrack
-        ? trackRecorderReduce(snapshot.recordingState, { type: 'stop' })
+        ? trackRecorderReduce(snapshot.recordingState, { type: 'stopAll' })
         : snapshot.recordingState;
       if (!finalizedRecordingState.mission) return;
 
@@ -766,7 +825,8 @@ const MapWorkspace = () => {
     setOutdatedZoneIds({});
     setMissionName(bundle.mission.name);
     setIsDraft(draftMode);
-    setMissionDivers(normalizeDivers(bundle.mission.ui?.divers));
+    const nextDivers = normalizeDivers(bundle.mission.ui?.divers);
+    setMissionDivers(nextDivers);
     setDiverData(DEFAULT_DIVER_DATA);
     setHasPrimaryTelemetry(false);
     setDiverTelemetryById({});
@@ -775,7 +835,9 @@ const MapWorkspace = () => {
     gnssFixRef.current = null;
     simulationFixRef.current = null;
     lastRecordedPrimaryFixAtRef.current = 0;
-    setIsFollowing(effective.follow_diver);
+    lastRecordedFixByAgentRef.current = {};
+    setSelectedAgentId(null);
+    setPinnedAgentId(effective.follow_diver ? nextDivers[0]?.uid ?? null : null);
     setCenterOnObjectSelect(effective.interactions.center_on_object_select);
     setLayers({
       track: effective.layers.track,
@@ -909,9 +971,12 @@ const MapWorkspace = () => {
   }, [loadDraft, location.pathname, location.search, releaseCurrentLock, repository, updateFromBundle]);
 
   useEffect(() => {
+    // Per R-015: recording is no longer auto-started for all agents.
+    // Active tracks are restored from mission.active_tracks by createTrackRecorderState.
     if (!isLoaded || isDraft || !shouldAutoStartRecording) return;
-    setRecordingState((prev) => trackRecorderReduce(prev, { type: 'start' }));
     setShouldAutoStartRecording(false);
+    // If mission had active_tracks saved, they are already restored by hydration.
+    // No additional start events needed.
   }, [isDraft, isLoaded, shouldAutoStartRecording]);
 
   useEffect(() => {
@@ -980,7 +1045,11 @@ const MapWorkspace = () => {
 
     if (nextState === 'ok') {
       if (previousState !== 'ok') {
-        setRecordingState((prev) => trackRecorderReduce(prev, { type: 'connectionRestored' }));
+        // Dispatch connectionRestored for all agents that are recording
+        const divers = missionDiversRef.current;
+        for (const diver of divers) {
+          setRecordingState((prev) => trackRecorderReduce(prev, { type: 'connectionRestored', agentId: diver.uid }));
+        }
       }
       setConnectionLostSeconds(0);
       return;
@@ -1048,21 +1117,31 @@ const MapWorkspace = () => {
       depth: primaryFix.depth,
     });
 
-    if (primaryFix.received_at === lastRecordedPrimaryFixAtRef.current) return;
-    lastRecordedPrimaryFixAtRef.current = primaryFix.received_at;
-    setRecordingState((prev) =>
-      trackRecorderReduce(prev, {
-        type: 'fixReceived',
-        fix: {
-          lat: primaryFix.lat,
-          lon: primaryFix.lon,
-          speed: primaryFix.speed,
-          course: primaryFix.course,
-          depth: primaryFix.depth,
-          timestamp: new Date(primaryFix.received_at).toISOString(),
-        },
-      }),
-    );
+    // Dispatch per-agent fix events for all agents that have telemetry
+    divers.forEach((diver) => {
+      const diverKey = diver.id.trim();
+      const agentTelemetry = nextById[diverKey];
+      if (!agentTelemetry) return;
+
+      const lastRecordedAt = lastRecordedFixByAgentRef.current[diver.uid] ?? 0;
+      if (agentTelemetry.received_at === lastRecordedAt) return;
+      lastRecordedFixByAgentRef.current[diver.uid] = agentTelemetry.received_at;
+
+      setRecordingState((prev) =>
+        trackRecorderReduce(prev, {
+          type: 'fixReceived',
+          agentId: diver.uid,
+          fix: {
+            lat: agentTelemetry.lat,
+            lon: agentTelemetry.lon,
+            speed: agentTelemetry.speed,
+            course: agentTelemetry.course,
+            depth: agentTelemetry.depth,
+            timestamp: new Date(agentTelemetry.received_at).toISOString(),
+          },
+        }),
+      );
+    });
   }, []);
 
   const resolveTelemetryBySource = useCallback((sourceId: NavigationSourceId | null): DiverTelemetryState | null => {
@@ -1336,22 +1415,88 @@ const MapWorkspace = () => {
   };
 
   const handleTrackAction = (action: 'pause' | 'resume') => {
+    if (missionDivers.length === 0 || !isRecordingControlsEnabled) return;
+
     if (action === 'pause') {
-      setRecordingState((prev) => trackRecorderReduce(prev, { type: 'pause' }));
+      setRecordingState((prev) => {
+        let next = prev;
+        for (const diver of missionDivers) {
+          const agentId = diver.uid;
+          if (!agentId) continue;
+          const status = next.trackStatusByAgentId[agentId] ?? 'stopped';
+          if (status === 'recording') {
+            next = trackRecorderReduce(next, { type: 'pause', agentId });
+          }
+        }
+        return next;
+      });
       return;
     }
+
     if (isDraft) {
       setShowCreateMission(true);
       return;
     }
-    setRecordingState((prev) => trackRecorderReduce(prev, { type: 'resume' }));
+
+    setRecordingState((prev) => {
+      let next = prev;
+      for (const diver of missionDivers) {
+        const agentId = diver.uid;
+        if (!agentId) continue;
+        const status = next.trackStatusByAgentId[agentId] ?? 'stopped';
+        if (status !== 'recording') {
+          next = trackRecorderReduce(next, { type: 'resume', agentId });
+        }
+      }
+      return next;
+    });
   };
+
+  const handleAgentToggleRecording = (agentUid: string) => {
+    if (!isRecordingControlsEnabled) return;
+    if (isDraft) {
+      setShowCreateMission(true);
+      return;
+    }
+    const currentStatus = trackStatusByAgentId[agentUid] ?? 'stopped';
+    if (currentStatus === 'recording') {
+      setRecordingState((prev) => trackRecorderReduce(prev, { type: 'pause', agentId: agentUid }));
+    } else {
+      setRecordingState((prev) => trackRecorderReduce(prev, { type: 'start', agentId: agentUid }));
+    }
+  };
+
+  const handleAgentPin = useCallback((agentUid: string) => {
+    setPinnedAgentId((prev) => (prev === agentUid ? null : agentUid));
+  }, []);
+
+  const handleAgentCenter = useCallback(
+    (agentUid: string) => {
+      const diver = missionDivers.find((d) => d.uid === agentUid);
+      if (!diver) return;
+      const key = diver.id.trim();
+      const telemetry = diverTelemetryById[key];
+      if (telemetry) {
+        setPinnedAgentId(null);
+        setMapView({
+          center_lat: telemetry.lat,
+          center_lon: telemetry.lon,
+          zoom: mapView?.zoom ?? 16,
+        });
+      }
+    },
+    [diverTelemetryById, mapView?.zoom, missionDivers],
+  );
 
   const handleTrackDelete = (trackId: string) => {
     const track = missionDocument?.tracks.find((item) => item.id === trackId);
     if (!track) return;
 
-    const isActive = missionDocument?.active_track_id === trackId;
+    // Check if this is an active track for any agent
+    const ownerAgentId = track.agent_id;
+    const isActive = ownerAgentId
+      ? missionDocument?.active_tracks[ownerAgentId] === trackId
+      : missionDocument?.active_track_id === trackId;
     const question = isActive
       ? 'Удалить активный трек? Запись будет остановлена.'
       : 'Удалить выбранный трек?';
@@ -1410,7 +1555,7 @@ const MapWorkspace = () => {
     await platform.settings.writeJson(APP_SETTINGS_STORAGE_KEY, nextSettings);
 
     // Apply immediately and let autosave persist mission overrides.
-    setIsFollowing(next.follow_diver);
+    setPinnedAgentId(next.follow_diver ? missionDivers[0]?.uid ?? null : null);
     setCenterOnObjectSelect(next.interactions.center_on_object_select);
     setConnectionSettings(next.connection);
     setLayers((prev) => ({
@@ -1792,13 +1937,12 @@ const MapWorkspace = () => {
         autoSaveStatus={autoSaveStatus}
         activeTool={activeTool}
         trackStatus={trackStatus}
-        isFollowing={isFollowing}
         showSimulationControls={showSimulationControls}
+        isRecordingEnabled={isRecordingControlsEnabled}
         simulationEnabled={showSimulationControls ? simulationEnabled : undefined}
         simulateConnectionError={showSimulationControls ? simulateConnectionError : undefined}
         onToolChange={handleToolChange}
         onTrackAction={handleTrackAction}
-        onFollowToggle={() => setIsFollowing(!isFollowing)}
         onSimulationToggle={showSimulationControls ? () => setSimulationEnabled((prev) => !prev) : undefined}
         onSimulationErrorToggle={
           showSimulationControls ? () => setSimulateConnectionError((prev) => !prev) : undefined
@@ -1814,19 +1958,22 @@ const MapWorkspace = () => {
       <div className="flex-1 flex overflow-hidden">
         <LeftPanel
           layers={layers}
-          primaryDiverTitle={
-            missionDivers[0]?.title?.trim() || missionDivers[0]?.id?.trim() || 'Маяк 1'
-          }
-          primaryTrackColor={missionDivers[0]?.track_color ?? '#a855f7'}
           onLayerToggle={handleLayerToggle}
+          divers={missionDivers}
+          trackStatusByAgentId={trackStatusByAgentId}
+          selectedAgentId={selectedAgentId}
+          pinnedAgentId={pinnedAgentId}
+          onAgentSelect={setSelectedAgentId}
+          onAgentCenter={handleAgentCenter}
+          onAgentToggleRecording={handleAgentToggleRecording}
+          onAgentPin={handleAgentPin}
+          isDraft={isDraft}
+          isRecordingEnabled={isRecordingControlsEnabled}
           objects={objects}
-          missionDocument={missionDocument}
-          trackStatus={trackStatus}
           selectedObjectId={selectedObjectId}
           onObjectSelect={handleObjectSelect}
           onObjectCenter={handleObjectCenter}
           onObjectDelete={handleObjectDelete}
-          onTrackDelete={handleTrackDelete}
         />
 
         <div className="flex-1 relative">
@@ -1839,7 +1986,7 @@ const MapWorkspace = () => {
             layers={layers}
             grid={gridSettings}
             segmentLengthsMode={segmentLengthsMode}
-            styles={effectiveStyles}
+            styles={styles}
             mapView={mapView}
             objects={objects}
             selectedObjectId={selectedObjectId}
@@ -1859,7 +2006,7 @@ const MapWorkspace = () => {
             divers={missionDivers}
             diverPositionsById={diverTelemetryById}
             trackSegments={trackSegments}
-            isFollowing={isFollowing}
+            followAgentId={pinnedAgentId}
             connectionStatus={connectionStatus}
             connectionLostSeconds={connectionLostSeconds}
             onToolChange={handleToolChange}
@@ -1868,7 +2015,7 @@ const MapWorkspace = () => {
             onObjectDoubleClick={(id) => {
               handleObjectSelect(id);
             }}
-            onMapDrag={() => setIsFollowing(false)}
+            onMapDrag={() => setPinnedAgentId(null)}
             onObjectCreate={handleObjectCreate}
             onObjectUpdate={handleObjectUpdate}
             onObjectDelete={handleObjectDelete}
@@ -1882,14 +2029,17 @@ const MapWorkspace = () => {
         </div>
 
         <RightPanel
-          diverData={diverData}
-          hasTelemetryData={hasPrimaryTelemetry}
+          diverData={selectedAgentDiverData}
+          hasTelemetryData={hasSelectedAgentTelemetry}
           coordPrecision={coordPrecision}
           styles={styles}
           connectionStatus={connectionStatus}
           isConnectionEnabled={isPrimarySourceEnabled}
-          trackStatus={trackStatus}
-          trackId={activeTrackNumber}
+          selectedAgent={selectedAgent}
+          selectedAgentTrackStatus={selectedAgentTrackStatus}
+          selectedAgentActiveTrackNumber={selectedAgentActiveTrackNumber}
+          missionDocument={missionDocument}
+          trackStatusByAgentId={trackStatusByAgentId}
           selectedObject={selectedObject}
           onObjectSelect={handleObjectSelect}
           onObjectUpdate={handleObjectUpdate}
@@ -1899,6 +2049,7 @@ const MapWorkspace = () => {
           onPickLaneStart={beginPickLaneStart}
           selectedZoneLanesOutdated={selectedZoneLanesOutdated}
           selectedZoneLaneCount={selectedZoneLaneCount}
+          onTrackDelete={handleTrackDelete}
         />
       </div>
 

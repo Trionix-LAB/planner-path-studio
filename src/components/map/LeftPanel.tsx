@@ -1,8 +1,8 @@
 import { Checkbox } from '@/components/ui/checkbox';
-import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle, LocateFixed, Trash2, Anchor } from 'lucide-react';
+import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle, LocateFixed, Trash2, Anchor, Pin } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MapObject } from '@/features/map/model/types';
-import type { MissionDocument } from '@/features/mission';
+import type { DiverUiConfig, TrackRecorderStatus } from '@/features/mission';
 
 interface LeftPanelProps {
   layers: {
@@ -14,17 +14,22 @@ interface LeftPanelProps {
     scaleBar: boolean;
     diver: boolean;
   };
-  primaryDiverTitle: string;
-  primaryTrackColor: string;
   onLayerToggle: (layer: keyof LeftPanelProps['layers']) => void;
+  divers: DiverUiConfig[];
+  trackStatusByAgentId: Record<string, TrackRecorderStatus>;
+  selectedAgentId: string | null;
+  pinnedAgentId: string | null;
+  onAgentSelect: (agentUid: string) => void;
+  onAgentCenter?: (agentUid: string) => void;
+  onAgentToggleRecording?: (agentUid: string) => void;
+  onAgentPin?: (agentUid: string) => void;
+  isDraft: boolean;
+  isRecordingEnabled: boolean;
   objects: MapObject[];
-  missionDocument: MissionDocument | null;
-  trackStatus: 'recording' | 'paused' | 'stopped';
   selectedObjectId: string | null;
   onObjectSelect: (id: string | null) => void;
   onObjectCenter?: (id: string) => void;
   onObjectDelete?: (id: string) => void;
-  onTrackDelete?: (id: string) => void;
 }
 
 const getObjectColor = (obj: MapObject): string => {
@@ -34,29 +39,24 @@ const getObjectColor = (obj: MapObject): string => {
   return 'hsl(199, 89%, 48%)';
 };
 
-const formatTrackTime = (value: string): string => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-};
-
 const LeftPanel = ({
   layers,
-  primaryDiverTitle,
-  primaryTrackColor,
   onLayerToggle,
+  divers,
+  trackStatusByAgentId,
+  selectedAgentId,
+  pinnedAgentId,
+  onAgentSelect,
+  onAgentCenter,
+  onAgentToggleRecording,
+  onAgentPin,
+  isDraft,
+  isRecordingEnabled,
   objects,
-  missionDocument,
-  trackStatus,
   selectedObjectId,
   onObjectSelect,
   onObjectCenter,
   onObjectDelete,
-  onTrackDelete,
 }: LeftPanelProps) => {
   const layerItems = [
     { key: 'diver' as const, icon: Waves, label: 'Водолаз', locked: true },
@@ -99,56 +99,153 @@ const LeftPanel = ({
 
       <div className="border-t border-sidebar-border mt-1.5" />
 
-      {/* Tracks */}
+      {/* Agents */}
       <div className="panel-header">
-        Треки миссии
+        <Waves className="w-4 h-4 inline mr-2" />
+        Агенты
       </div>
       <div className="p-1.5 space-y-1">
-        {(missionDocument?.tracks ?? []).map((track, index) => {
-          const isActive = missionDocument?.active_track_id === track.id && trackStatus === 'recording';
+        {divers.map((diver) => {
+          const agentStatus = trackStatusByAgentId[diver.uid] ?? 'stopped';
+          const isRecording = agentStatus === 'recording';
+          const isPaused = agentStatus === 'paused';
+          const isSelected = selectedAgentId === diver.uid;
+          const isPinned = pinnedAgentId === diver.uid;
+
           return (
             <div
-              key={track.id}
-              className={`p-1.5 rounded text-[13px] ${
-                isActive
-                ? 'bg-primary/20 border border-primary/40'
-                : 'bg-sidebar-accent'
-              } group`}
+              key={diver.uid}
+              className={cn(
+                'p-1.5 rounded text-[13px] cursor-pointer transition-colors group',
+                isSelected
+                  ? 'bg-primary/20 border border-primary/40'
+                  : 'bg-sidebar-accent hover:bg-sidebar-accent/80',
+              )}
+              role="button"
+              tabIndex={0}
+              aria-label={`Агент ${diver.title}`}
+              aria-pressed={isSelected}
+              onClick={() => onAgentSelect(diver.uid)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onAgentSelect(diver.uid);
+                }
+              }}
             >
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
+                {/* Color indicator */}
                 <span
-                  className="h-2 w-2 rounded-full shrink-0"
-                  style={{ backgroundColor: primaryTrackColor }}
+                  className="h-2.5 w-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: diver.marker_color }}
                   aria-hidden
                 />
-                <div className="font-medium leading-5 flex-1 min-w-0 truncate">{`Трек: "${primaryDiverTitle}"`}</div>
-                {onTrackDelete && (
+                {/* Title */}
+                <div className="font-medium leading-5 flex-1 min-w-0 truncate">
+                  {diver.title}
+                </div>
+                {/* Recording status indicator */}
+                {isRecording && (
+                  <span
+                    className="h-2 w-2 rounded-full bg-red-500 shrink-0 animate-pulse"
+                    title="Запись"
+                    aria-label="Запись идёт"
+                  />
+                )}
+                {isPaused && (
+                  <span
+                    className="h-2 w-2 rounded-full bg-yellow-500 shrink-0"
+                    title="Пауза"
+                    aria-label="Запись на паузе"
+                  />
+                )}
+                {/* Record/Pause toggle */}
+                {onAgentToggleRecording && !isDraft && (
                   <button
                     type="button"
-                    className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                    aria-label={`Удалить трек ${index + 1}`}
-                    title={`Удалить трек ${index + 1}`}
-                    onClick={() => onTrackDelete(track.id)}
+                    disabled={!isRecordingEnabled}
+                    className={cn(
+                      'h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm transition-opacity',
+                      isRecording
+                        ? 'text-red-500 hover:text-red-600 hover:bg-red-500/10'
+                        : 'text-muted-foreground hover:text-success hover:bg-success/10 opacity-0 group-hover:opacity-100',
+                      isRecording && 'opacity-100',
+                      !isRecordingEnabled && 'opacity-40 cursor-not-allowed hover:text-muted-foreground hover:bg-transparent',
+                    )}
+                    aria-label={isRecording ? `Пауза записи ${diver.title}` : `Начать запись ${diver.title}`}
+                    title={isRecording ? 'Пауза записи' : 'Начать запись'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!isRecordingEnabled) return;
+                      onAgentToggleRecording(diver.uid);
+                    }}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    {isRecording ? (
+                      /* Pause icon */
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="6" y="4" width="4" height="16" rx="1" />
+                        <rect x="14" y="4" width="4" height="16" rx="1" />
+                      </svg>
+                    ) : (
+                      /* Record icon (filled circle) */
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="12" r="8" />
+                      </svg>
+                    )}
+                  </button>
+                )}
+                {/* Pin follow */}
+                {onAgentPin && (
+                  <button
+                    type="button"
+                    className={cn(
+                      'h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm transition-opacity',
+                      isPinned
+                        ? 'text-primary bg-primary/10 opacity-100'
+                        : 'text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100',
+                    )}
+                    aria-label={isPinned ? `Открепить слежение ${diver.title}` : `Закрепить слежение ${diver.title}`}
+                    title={isPinned ? 'Открепить слежение' : 'Закрепить слежение'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAgentPin(diver.uid);
+                    }}
+                  >
+                    <Pin className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {/* Center on agent */}
+                {onAgentCenter && (
+                  <button
+                    type="button"
+                    className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label={`Переместиться к ${diver.title}`}
+                    title={`Переместиться к ${diver.title}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAgentCenter(diver.uid);
+                    }}
+                  >
+                    <LocateFixed className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
-              <div className="text-[11px] leading-4 text-muted-foreground font-mono">
-                {`${formatTrackTime(track.started_at)} - ${track.ended_at ? formatTrackTime(track.ended_at) : '...'}`}
+              {/* Sub-info: beacon/source */}
+              <div className="text-[11px] leading-4 text-muted-foreground mt-0.5">
+                {`Beacon #${diver.beacon_id}`}
+                {isRecording && (
+                  <span className="ml-2 text-success font-medium">● Запись</span>
+                )}
+                {isPaused && (
+                  <span className="ml-2 text-warning font-medium">⏸ Пауза</span>
+                )}
               </div>
-              {isActive && (
-                <div className="flex items-center gap-1 mt-0.5">
-                  <span className="status-indicator status-ok" />
-                  <span className="text-[11px] leading-4 text-success">Запись</span>
-                </div>
-              )}
             </div>
           );
         })}
-        {(missionDocument?.tracks.length ?? 0) === 0 && (
+        {divers.length === 0 && (
           <div className="p-1.5 text-[11px] leading-4 text-muted-foreground">
-            Треки пока не записаны.
+            Нет агентов. Добавьте их в настройках.
           </div>
         )}
       </div>

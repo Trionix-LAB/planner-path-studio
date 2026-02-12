@@ -185,6 +185,7 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
       created_at: nowIso,
       updated_at: nowIso,
       active_track_id: null,
+      active_tracks: {},
       tracks: [],
       files: {
         routes: 'routes/routes.geojson',
@@ -234,6 +235,23 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
         throw new Error(`Mission file not found: ${missionPath}`);
       }
       validateMissionDocument(mission);
+
+      // Backward compatibility: migrate active_track_id -> active_tracks
+      if (!mission.active_tracks) {
+        mission.active_tracks = {};
+      }
+      if (mission.active_track_id && Object.keys(mission.active_tracks).length === 0) {
+        // Assign legacy active_track to primary agent (first diver uid or fallback)
+        const primaryAgentId = (mission.ui?.divers?.[0] as { uid?: string } | undefined)?.uid ?? 'primary';
+        mission.active_tracks[primaryAgentId] = mission.active_track_id;
+        mission.active_track_id = null;
+      }
+      // Ensure all tracks have agent_id
+      for (const track of mission.tracks) {
+        if (track.agent_id === undefined) {
+          (track as { agent_id: string | null }).agent_id = null;
+        }
+      }
 
       const routesPath = joinPath(rootPath, mission.files.routes);
       const markersPath = joinPath(rootPath, mission.files.markers);

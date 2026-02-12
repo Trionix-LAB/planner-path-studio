@@ -1,6 +1,7 @@
 export { createMissionRepository } from './model/repository';
 export type { MissionRepository } from './model/repository';
 export { buildTrackSegments, bundleToMapObjects, mapObjectsToGeoJson } from './model/adapters';
+export type { TrackSegment } from './model/adapters';
 export { generateLanesForZone } from './model/laneGeneration';
 export { buildLaneTraversal } from './model/laneWaypoints';
 export type { LaneTraversal, LaneWaypoint } from './model/laneWaypoints';

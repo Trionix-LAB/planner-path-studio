@@ -18,7 +18,6 @@ import {
   MapPin,
   Pause,
   Play,
-  Crosshair,
   Flag,
   Check,
   Loader2,
@@ -34,13 +33,12 @@ interface TopToolbarProps {
   autoSaveStatus: 'saved' | 'saving' | 'error';
   activeTool: Tool;
   trackStatus: 'recording' | 'paused' | 'stopped';
-  isFollowing: boolean;
   showSimulationControls: boolean;
+  isRecordingEnabled: boolean;
   simulationEnabled?: boolean;
   simulateConnectionError?: boolean;
   onToolChange: (tool: Tool) => void;
   onTrackAction: (action: 'pause' | 'resume') => void;
-  onFollowToggle: () => void;
   onSimulationToggle?: () => void;
   onSimulationErrorToggle?: () => void;
   onOpenCreate: () => void;
@@ -57,13 +55,12 @@ const TopToolbar = ({
   autoSaveStatus,
   activeTool,
   trackStatus,
-  isFollowing,
   showSimulationControls,
+  isRecordingEnabled,
   simulationEnabled = false,
   simulateConnectionError = false,
   onToolChange,
   onTrackAction,
-  onFollowToggle,
   onSimulationToggle,
   onSimulationErrorToggle,
   onOpenCreate,
@@ -158,6 +155,7 @@ const TopToolbar = ({
             size="sm"
             className="h-8 px-3 gap-2"
             onClick={() => onTrackAction('pause')}
+            disabled={!isRecordingEnabled}
           >
             <Pause className="w-4 h-4" />
             <span className="hidden lg:inline text-sm">Пауза</span>
@@ -168,28 +166,13 @@ const TopToolbar = ({
             size="sm"
             className="h-8 px-3 gap-2 text-warning"
             onClick={() => onTrackAction('resume')}
+            disabled={!isRecordingEnabled}
           >
             <Play className="w-4 h-4" />
-            <span className="hidden lg:inline text-sm">Возобновить</span>
+            <span className="hidden lg:inline text-sm">Начать запись</span>
           </Button>
         )}
       </div>
-
-      <div className="w-px h-6 bg-border mx-2" />
-
-      {/* Follow Mode */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className={cn(
-          'h-8 px-3 gap-2',
-          isFollowing && 'bg-primary/20 text-primary'
-        )}
-        onClick={onFollowToggle}
-      >
-        <Crosshair className="w-4 h-4" />
-        <span className="hidden lg:inline text-sm">Слежение</span>
-      </Button>
 
       {showSimulationControls ? (
         <>
