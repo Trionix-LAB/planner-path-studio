@@ -28,6 +28,54 @@ npm run dev
 
 **Примечание:** при желании могу добавить якорные ссылки на ключевые секции внутри документов (например, `mission-format.md#compatibility`) для быстрого перехода.
 
+## Симуляторы
+
+В репозитории есть CLI-симуляторы оборудования для локальной разработки и CI. Они отправляют UDP-данные в приложение.
+
+Перед запуском:
+
+```sh
+npm i
+```
+
+### Zima2R (UDP @AZMLOC/@AZMREM)
+
+- Стрим телеметрии в приложение:
+
+```sh
+npm run zima:sim -- --to 127.0.0.1:28127 --rate 1 --beacon-ids 1,2,3
+```
+
+- Проигрывание сценария (пример: `scenario.json` в корне):
+
+```sh
+npm run zima:sim -- --mode playback --replay ./scenario.json --to 127.0.0.1:28127
+```
+
+- (Опционально) включить приём/эхо команд:
+
+```sh
+npm run zima:sim -- --to 127.0.0.1:28127 --command-port 28128 --command-echo true
+```
+
+Документация: `docs/features/zima-simulator.md`.
+
+### GNSS-UDP (NMEA 0183)
+
+- Стрим NMEA в приложение:
+
+```sh
+npm run gnss:sim -- --to 127.0.0.1:28128 --rate 2
+```
+
+- Проигрывание сценария:
+
+```sh
+npm run gnss:sim -- --mode playback --replay ./path/to/scenario.yaml --to 127.0.0.1:28128
+```
+
+Документация: `docs/features/gnss-udp-simulator.md`.
+
 ## Тесты / Линт
 
 ```sh
@@ -86,5 +134,4 @@ npm run electron:build
 
 - В `.gitignore` уже добавлены артефакты упаковки (`release/`, `win-unpacked/`, `dist/`), файлы окружения, логи и кэши.
 - По желанию могу добавить иконку/метаданные автора и краткий раздел в документации разработчика о том, как устроены файлы миссии на диске.
-
 
