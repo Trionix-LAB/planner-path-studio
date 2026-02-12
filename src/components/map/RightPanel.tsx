@@ -12,9 +12,11 @@ interface RightPanelProps {
     course: number;
     depth: number;
   };
+  hasTelemetryData: boolean;
   coordPrecision: number;
   styles: AppUiDefaults['styles'];
   connectionStatus: 'ok' | 'timeout' | 'error';
+  isConnectionEnabled: boolean;
   trackStatus: 'recording' | 'paused' | 'stopped';
   trackId: number;
   selectedObject: MapObject | null;
@@ -30,9 +32,11 @@ interface RightPanelProps {
 
 const RightPanel = ({
   diverData,
+  hasTelemetryData,
   coordPrecision,
   styles,
   connectionStatus,
+  isConnectionEnabled,
   trackStatus,
   trackId,
   selectedObject,
@@ -45,32 +49,52 @@ const RightPanel = ({
   onPickLaneEdge,
   onPickLaneStart,
 }: RightPanelProps) => {
+  const noTelemetry = !hasTelemetryData;
+  const connectionLabel = !isConnectionEnabled
+    ? 'Выключено'
+    : connectionStatus === 'ok'
+      ? 'Подключено • OK'
+      : connectionStatus === 'error'
+        ? 'Ошибка'
+        : 'Нет данных';
+
   return (
     <div className="w-64 bg-sidebar border-l border-sidebar-border flex flex-col h-full text-[13px]">
       {/* HUD */}
       <div className="panel-header">HUD</div>
       <div className="p-2.5 space-y-2">
+        {noTelemetry ? (
+          <div className="text-xs text-muted-foreground">нет данных</div>
+        ) : null}
         <div className="grid grid-cols-2 gap-2">
           <div>
             <div className="text-xs text-muted-foreground mb-1">Широта</div>
-            <div className="data-value text-foreground">{diverData.lat.toFixed(coordPrecision)}°</div>
+            <div className="data-value text-foreground">
+              {noTelemetry ? 'нет данных' : `${diverData.lat.toFixed(coordPrecision)}°`}
+            </div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1">Долгота</div>
-            <div className="data-value text-foreground">{diverData.lon.toFixed(coordPrecision)}°</div>
+            <div className="data-value text-foreground">
+              {noTelemetry ? 'нет данных' : `${diverData.lon.toFixed(coordPrecision)}°`}
+            </div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1">Скорость</div>
-            <div className="data-value text-foreground">{diverData.speed.toFixed(1)} м/с</div>
+            <div className="data-value text-foreground">
+              {noTelemetry ? 'нет данных' : `${diverData.speed.toFixed(1)} м/с`}
+            </div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1">Курс</div>
-            <div className="data-value text-foreground">{diverData.course}°</div>
+            <div className="data-value text-foreground">
+              {noTelemetry ? 'нет данных' : `${diverData.course}°`}
+            </div>
           </div>
           <div className="col-span-2">
             <div className="text-xs text-muted-foreground mb-1">Глубина</div>
             <div className="data-value text-base text-primary font-semibold leading-5">
-              {diverData.depth.toFixed(1)} м
+              {noTelemetry ? 'нет данных' : `${diverData.depth.toFixed(1)} м`}
             </div>
           </div>
         </div>
@@ -84,7 +108,7 @@ const RightPanel = ({
         {/* Connection */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {connectionStatus === 'ok' ? (
+            {isConnectionEnabled && connectionStatus === 'ok' ? (
               <Wifi className="w-4 h-4 text-success" />
             ) : (
               <WifiOff className="w-4 h-4 text-destructive" />
@@ -94,10 +118,10 @@ const RightPanel = ({
           <span
             className={cn(
               'text-xs font-medium',
-              connectionStatus === 'ok' ? 'text-success' : 'text-destructive'
+              isConnectionEnabled && connectionStatus === 'ok' ? 'text-success' : 'text-destructive'
             )}
           >
-            {connectionStatus === 'ok' ? 'OK' : 'Таймаут'}
+            {connectionLabel}
           </span>
         </div>
 
@@ -131,7 +155,7 @@ const RightPanel = ({
         {/* Active Track */}
         <div className="flex items-center justify-between">
           <span className="text-[13px] text-muted-foreground leading-5">Активный трек</span>
-          <span className="text-[13px] font-mono leading-5">#{trackId}</span>
+          <span className="text-[13px] font-mono leading-5">{trackId > 0 ? `#${trackId}` : '—'}</span>
         </div>
       </div>
 

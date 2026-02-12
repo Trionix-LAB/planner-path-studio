@@ -2,6 +2,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { isEnabledByConditionSatisfied } from '@/features/devices/model/enabledBy';
 import type { DeviceConfig, DeviceFieldSchema, DeviceSchema } from '@/features/devices';
 
 interface DeviceSchemaFormProps {
@@ -19,19 +20,7 @@ const getFieldValue = (schemaField: DeviceFieldSchema, value: DeviceConfig): str
 };
 
 const isFieldEnabled = (field: DeviceFieldSchema, value: DeviceConfig): boolean => {
-  if (!field.enabledBy) return true;
-  const negate = field.enabledBy.startsWith('!');
-  const controllerKey = negate ? field.enabledBy.slice(1) : field.enabledBy;
-  const controller = value[controllerKey];
-  let nextValue = false;
-  if (typeof controller === 'boolean') {
-    nextValue = controller;
-  } else if (typeof controller === 'string') {
-    nextValue = controller.trim().toLowerCase() === 'true';
-  } else {
-    nextValue = Boolean(controller);
-  }
-  return negate ? !nextValue : nextValue;
+  return isEnabledByConditionSatisfied(field.enabledBy, value);
 };
 
 const inputPattern = (field: DeviceFieldSchema): string | undefined => {

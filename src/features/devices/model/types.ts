@@ -25,6 +25,7 @@ export type DeviceFieldSchema = {
     min?: number;
     max?: number;
     integer?: boolean;
+    allowEmpty?: boolean;
   };
 };
 

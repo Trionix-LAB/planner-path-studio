@@ -356,6 +356,7 @@ const MapWorkspace = () => {
   const [selectedEquipmentDeviceIds, setSelectedEquipmentDeviceIds] = useState<string[]>([]);
   const [simulateConnectionError, setSimulateConnectionError] = useState(false);
   const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
+  const [hasPrimaryTelemetry, setHasPrimaryTelemetry] = useState(false);
   const [diverTelemetryById, setDiverTelemetryById] = useState<Record<string, DiverTelemetryState>>({});
   const [missionDivers, setMissionDivers] = useState<DiverUiConfig[]>(() => createDefaultDivers(1));
   const [baseStationNavigationSource, setBaseStationNavigationSource] = useState<NavigationSourceId | null>(null);
@@ -393,16 +394,16 @@ const MapWorkspace = () => {
   const [centerRequest, setCenterRequest] = useState<{ objectId: string; nonce: number } | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [shouldAutoStartRecording, setShouldAutoStartRecording] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<TelemetryConnectionState>('ok');
-  const [connectionLostSeconds, setConnectionLostSeconds] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<TelemetryConnectionState>('timeout');
+  const [connectionLostSeconds, setConnectionLostSeconds] = useState(1);
   const [deviceConnectionStatus, setDeviceConnectionStatus] = useState<Record<'zima2r' | 'gnss-udp', TelemetryConnectionState>>({
-    zima2r: 'ok',
-    'gnss-udp': 'ok',
+    zima2r: 'timeout',
+    'gnss-udp': 'timeout',
   });
-  const [simulationConnectionStatus, setSimulationConnectionStatus] = useState<TelemetryConnectionState>('ok');
+  const [simulationConnectionStatus, setSimulationConnectionStatus] = useState<TelemetryConnectionState>('timeout');
   const [deviceConnectionLostSeconds, setDeviceConnectionLostSeconds] = useState<Record<'zima2r' | 'gnss-udp', number>>({
-    zima2r: 0,
-    'gnss-udp': 0,
+    zima2r: 1,
+    'gnss-udp': 1,
   });
   const [recordingState, setRecordingState] = useState<TrackRecorderState>(() =>
     createTrackRecorderState(null, {}, 'stopped'),
@@ -415,7 +416,7 @@ const MapWorkspace = () => {
   const lockOwnerRootRef = useRef<string | null>(null);
   const autosaveTimerRef = useRef<number | null>(null);
   const lastFixAtRef = useRef<number>(Date.now());
-  const connectionStateRef = useRef<TelemetryConnectionState>('ok');
+  const connectionStateRef = useRef<TelemetryConnectionState>('timeout');
   const primaryNavigationSourceRef = useRef<NavigationSourceId>('simulation');
   const lastFixAtBySourceRef = useRef<Record<NavigationSourceId, number>>({
     zima2r: Date.now(),
@@ -482,6 +483,11 @@ const MapWorkspace = () => {
     }
     return availableNavigationSources[0] ?? 'simulation';
   }, [availableNavigationSources, missionDivers]);
+
+  const isPrimarySourceEnabled = useMemo(() => {
+    if (primaryNavigationSource === 'simulation') return simulationEnabled;
+    return Boolean(equipmentEnabledByDevice[primaryNavigationSource]);
+  }, [equipmentEnabledByDevice, primaryNavigationSource, simulationEnabled]);
 
   const navigationSourceOptions = useMemo(
     () =>
@@ -761,6 +767,8 @@ const MapWorkspace = () => {
     setMissionName(bundle.mission.name);
     setIsDraft(draftMode);
     setMissionDivers(normalizeDivers(bundle.mission.ui?.divers));
+    setDiverData(DEFAULT_DIVER_DATA);
+    setHasPrimaryTelemetry(false);
     setDiverTelemetryById({});
     zimaAzmLocFixRef.current = null;
     zimaRemFixByBeaconRef.current = {};
@@ -978,6 +986,7 @@ const MapWorkspace = () => {
       return;
     }
 
+    setHasPrimaryTelemetry(false);
     setConnectionLostSeconds(Math.max(1, Math.floor((Date.now() - lastFixAtRef.current) / 1000)));
   }, []);
 
@@ -1024,7 +1033,12 @@ const MapWorkspace = () => {
       return prev;
     });
 
-    if (!primaryFix) return;
+    if (!primaryFix) {
+      setHasPrimaryTelemetry(false);
+      return;
+    }
+
+    setHasPrimaryTelemetry(true);
 
     setDiverData({
       lat: primaryFix.lat,
@@ -1844,9 +1858,11 @@ const MapWorkspace = () => {
 
         <RightPanel
           diverData={diverData}
+          hasTelemetryData={hasPrimaryTelemetry}
           coordPrecision={coordPrecision}
           styles={styles}
           connectionStatus={connectionStatus}
+          isConnectionEnabled={isPrimarySourceEnabled}
           trackStatus={trackStatus}
           trackId={activeTrackNumber}
           selectedObject={selectedObject}

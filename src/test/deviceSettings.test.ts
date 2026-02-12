@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildEquipmentRuntime,
+  createDefaultDeviceConfig,
   createDefaultEquipmentSettings,
   loadDeviceSchemas,
   normalizeEquipmentSettings,
@@ -84,6 +85,16 @@ describe('equipment settings', () => {
     expect(errors.gnssBaud).toBeTruthy();
   });
 
+  it('accepts zima2r defaults from schema without validation errors', () => {
+    const zimaSchema = loadDeviceSchemas().find((schema) => schema.id === 'zima2r');
+    expect(zimaSchema).toBeTruthy();
+
+    const defaults = createDefaultDeviceConfig(zimaSchema!);
+    const errors = validateDeviceConfig(zimaSchema!, defaults);
+
+    expect(Object.keys(errors)).toHaveLength(0);
+  });
+
   it('skips validation for disabled dependent fields', () => {
     const zimaSchema = loadDeviceSchemas().find((schema) => schema.id === 'zima2r');
     expect(zimaSchema).toBeTruthy();
@@ -102,6 +113,27 @@ describe('equipment settings', () => {
 
     expect(errors.commandPort).toBeUndefined();
     expect(errors.gnssBaud).toBeUndefined();
+  });
+
+  it('allows empty manual coordinates when command port mode is enabled', () => {
+    const zimaSchema = loadDeviceSchemas().find((schema) => schema.id === 'zima2r');
+    expect(zimaSchema).toBeTruthy();
+
+    const errors = validateDeviceConfig(zimaSchema!, {
+      ipAddress: '127.0.0.1',
+      commandPort: '28128',
+      dataPort: '28127',
+      gnssBaud: '115200',
+      useExternalGnss: false,
+      useCommandPort: true,
+      latitude: '',
+      longitude: '',
+      azimuth: '',
+    });
+
+    expect(errors.latitude).toBeUndefined();
+    expect(errors.longitude).toBeUndefined();
+    expect(errors.azimuth).toBeUndefined();
   });
 
   it('builds runtime for active profile with zima and gnss', () => {

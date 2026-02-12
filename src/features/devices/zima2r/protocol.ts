@@ -37,6 +37,40 @@ const splitZimaFields = (line: string): string[] => {
   return parts;
 };
 
+const stripControlChars = (input: string): string => {
+  let output = '';
+  for (let index = 0; index < input.length; index += 1) {
+    const code = input.charCodeAt(index);
+    if ((code >= 0 && code <= 31) || code === 127) {
+      continue;
+    }
+    output += input[index];
+  }
+  return output;
+};
+
+const normalizeZimaLine = (line: string): string => {
+  const cleaned = stripControlChars(line).trim();
+  if (!cleaned) return '';
+
+  const azmLocIndex = cleaned.indexOf('@AZMLOC');
+  const azmRemIndex = cleaned.indexOf('@AZMREM');
+  let startIndex = -1;
+
+  if (azmLocIndex >= 0 && azmRemIndex >= 0) {
+    startIndex = Math.min(azmLocIndex, azmRemIndex);
+  } else if (azmLocIndex >= 0) {
+    startIndex = azmLocIndex;
+  } else if (azmRemIndex >= 0) {
+    startIndex = azmRemIndex;
+  }
+
+  if (startIndex > 0) {
+    return cleaned.slice(startIndex).trim();
+  }
+  return cleaned;
+};
+
 const parseNumber = (value: string | undefined): number | null => {
   if (typeof value !== 'string') return null;
   const parsed = Number(value.trim());
@@ -101,7 +135,7 @@ const parseAzmLoc = (line: string): ParsedZimaMessage => {
 
 const parseAzmRem = (line: string): ParsedZimaMessage => {
   const parts = splitZimaFields(line);
-  if (parts.length < 29) {
+  if (parts.length < 24) {
     return { kind: 'UNKNOWN', raw: line };
   }
 
@@ -110,17 +144,9 @@ const parseAzmRem = (line: string): ParsedZimaMessage => {
     return { kind: 'UNKNOWN', raw: line };
   }
 
-  let isTimeout: boolean | null = null;
-  if (parts.length >= 32) {
-    isTimeout = parseBoolean(parts[31]);
-  } else if (parts.length === 31) {
-    isTimeout = parseBoolean(parts[30]);
-  } else if (parts.length === 29) {
-    isTimeout = parseBoolean(parts[28]);
-  } else {
-    return { kind: 'UNKNOWN', raw: line };
-  }
-  if (isTimeout === null) {
+  const timeoutFieldIndex = parts.length - 1;
+  const isTimeout = parseBoolean(parts[timeoutFieldIndex]);
+  if (isTimeout === null || timeoutFieldIndex <= 22) {
     return { kind: 'UNKNOWN', raw: line };
   }
 
@@ -137,7 +163,7 @@ const parseAzmRem = (line: string): ParsedZimaMessage => {
 };
 
 export const parseZimaLine = (line: string): ParsedZimaMessage => {
-  const trimmed = line.trim();
+  const trimmed = normalizeZimaLine(line);
   if (!trimmed) return { kind: 'UNKNOWN', raw: line };
 
   if (trimmed.startsWith('@AZMLOC')) {
