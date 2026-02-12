@@ -289,7 +289,8 @@ const MapWorkspace = () => {
       }
       for (const deviceId of deviceIds) {
         if (next[deviceId] === undefined) {
-          next[deviceId] = false;
+          // Devices from a freshly loaded profile are considered active by default.
+          next[deviceId] = true;
         }
       }
       return next;
@@ -549,18 +550,6 @@ const MapWorkspace = () => {
     return next.length > 0 ? next : ['zima2r'];
   }, [isElectronRuntime, selectedEquipmentDeviceIds]);
 
-  const primaryNavigationSource = useMemo<NavigationSourceId>(() => {
-    const preferred = missionDivers[0]?.navigation_source;
-    if (isNavigationSourceId(preferred) && availableNavigationSources.includes(preferred)) {
-      return preferred;
-    }
-    return availableNavigationSources[0] ?? 'simulation';
-  }, [availableNavigationSources, missionDivers]);
-
-  const isPrimarySourceEnabled = useMemo(() => {
-    if (primaryNavigationSource === 'simulation') return simulationEnabled;
-    return Boolean(equipmentEnabledByDevice[primaryNavigationSource]);
-  }, [equipmentEnabledByDevice, primaryNavigationSource, simulationEnabled]);
   const isSourceEnabled = useCallback(
     (sourceId: NavigationSourceId | null) => {
       if (!sourceId) return false;
@@ -568,6 +557,30 @@ const MapWorkspace = () => {
       return Boolean(equipmentEnabledByDevice[sourceId]);
     },
     [equipmentEnabledByDevice, simulationEnabled],
+  );
+
+  const enabledNavigationSources = useMemo<NavigationSourceId[]>(
+    () => availableNavigationSources.filter((sourceId) => isSourceEnabled(sourceId)),
+    [availableNavigationSources, isSourceEnabled],
+  );
+
+  const primaryNavigationSource = useMemo<NavigationSourceId>(() => {
+    const preferred = missionDivers[0]?.navigation_source;
+    if (isNavigationSourceId(preferred) && enabledNavigationSources.includes(preferred)) {
+      return preferred;
+    }
+    if (enabledNavigationSources.length > 0) {
+      return enabledNavigationSources[0];
+    }
+    if (isNavigationSourceId(preferred) && availableNavigationSources.includes(preferred)) {
+      return preferred;
+    }
+    return availableNavigationSources[0] ?? 'simulation';
+  }, [availableNavigationSources, enabledNavigationSources, missionDivers]);
+
+  const isPrimarySourceEnabled = useMemo(
+    () => isSourceEnabled(primaryNavigationSource),
+    [isSourceEnabled, primaryNavigationSource],
   );
   const realtimeVisibility = useMemo(
     () =>
@@ -580,6 +593,9 @@ const MapWorkspace = () => {
     [connectionStatus, hasPrimaryTelemetry, hasPrimaryTelemetryHistory, isPrimarySourceEnabled],
   );
   const primaryConnectionUiState: RealtimeUiConnectionState = realtimeVisibility.connectionState;
+  const hasEnabledNavigationSource = enabledNavigationSources.length > 0;
+  const hasAnyTelemetryObject = Object.keys(diverTelemetryById).length > 0 || baseStationTelemetry !== null;
+  const showTelemetryObjects = hasEnabledNavigationSource && (realtimeVisibility.showTelemetryObjects || hasAnyTelemetryObject);
 
   const isRecordingControlsEnabled = useMemo(() => {
     if (!isElectronRuntime) return simulationEnabled;
@@ -1088,7 +1104,6 @@ const MapWorkspace = () => {
   const syncDiverTelemetry = useCallback(() => {
     const divers = missionDiversRef.current;
     const nextById: Record<string, DiverTelemetryState> = {};
-    let primaryFix: DiverTelemetryState | null = null;
 
     divers.forEach((diver, index) => {
       const source = diver.navigation_source;
@@ -1111,10 +1126,6 @@ const MapWorkspace = () => {
         }
       }
 
-      if (index === 0) {
-        primaryFix = telemetry;
-      }
-
       const diverKey = diver.id.trim();
       if (telemetry && diverKey) {
         nextById[diverKey] = telemetry;
@@ -1130,6 +1141,16 @@ const MapWorkspace = () => {
       }
       return prev;
     });
+
+    const primarySource = primaryNavigationSourceRef.current;
+    const primaryFix =
+      primarySource === 'zima2r'
+        ? zimaAzmLocFixRef.current
+        : primarySource === 'gnss-udp'
+          ? gnssFixRef.current
+          : primarySource === 'simulation'
+            ? simulationFixRef.current
+            : null;
 
     if (!primaryFix) {
       setHasPrimaryTelemetry(false);
@@ -1172,7 +1193,7 @@ const MapWorkspace = () => {
         }),
       );
     });
-  }, []);
+  }, [isSourceEnabled]);
 
   const resolveTelemetryBySource = useCallback((sourceId: NavigationSourceId | null): DiverTelemetryState | null => {
     if (sourceId === 'zima2r') return zimaAzmLocFixRef.current;
@@ -1314,9 +1335,9 @@ const MapWorkspace = () => {
     hadFixBySourceRef.current[primaryNavigationSource] = false;
     setHasPrimaryTelemetry(false);
     setHasPrimaryTelemetryHistory(false);
-    setDiverTelemetryById({});
-    setBaseStationTelemetry(null);
-  }, [isPrimarySourceEnabled, primaryNavigationSource]);
+    syncDiverTelemetry();
+    syncBaseStationTelemetry();
+  }, [isPrimarySourceEnabled, primaryNavigationSource, syncBaseStationTelemetry, syncDiverTelemetry]);
 
   useEffect(() => {
     if (isElectronRuntime) {
@@ -2051,7 +2072,7 @@ const MapWorkspace = () => {
             followAgentId={pinnedAgentId}
             connectionStatus={connectionStatus}
             connectionLostSeconds={connectionLostSeconds}
-            showTelemetryObjects={realtimeVisibility.showTelemetryObjects}
+            showTelemetryObjects={showTelemetryObjects}
             showNoDataWarning={realtimeVisibility.showNoDataWarning}
             onToolChange={handleToolChange}
             onCursorMove={setCursorPosition}
