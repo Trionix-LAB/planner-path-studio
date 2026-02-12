@@ -15,6 +15,7 @@ interface RightPanelProps {
     depth: number;
   };
   hasTelemetryData: boolean;
+  hasTelemetryHistory: boolean;
   coordPrecision: number;
   styles: AppUiDefaults['styles'];
   connectionStatus: 'ok' | 'timeout' | 'error';
@@ -51,6 +52,7 @@ const formatTrackTime = (value: string): string => {
 const RightPanel = ({
   diverData,
   hasTelemetryData,
+  hasTelemetryHistory,
   coordPrecision,
   styles,
   connectionStatus,
@@ -72,13 +74,18 @@ const RightPanel = ({
   onTrackDelete,
 }: RightPanelProps) => {
   const noTelemetry = !hasTelemetryData;
-  const connectionLabel = !isConnectionEnabled
-    ? 'Выключено'
-    : connectionStatus === 'ok'
-      ? 'Подключено • OK'
-      : connectionStatus === 'error'
-        ? 'Ошибка'
-        : 'Нет данных';
+  const showNoTelemetryLabel = connectionState !== 'off' && noTelemetry && hasTelemetryHistory;
+  const connectionLabel =
+    connectionState === 'off'
+      ? 'Выключено'
+      : connectionState === 'ok'
+        ? 'Подключено • OK'
+        : connectionState === 'error'
+          ? 'Ошибка'
+          : connectionState === 'timeout'
+            ? 'Таймаут'
+            : 'Ожидание данных';
+  const isConnected = connectionState === 'ok';
 
   // Filter tracks for selected agent
   const agentTracks = selectedAgent && missionDocument
@@ -100,7 +107,7 @@ const RightPanel = ({
         )}
       </div>
       <div className="p-2.5 space-y-2">
-        {noTelemetry ? (
+        {showNoTelemetryLabel ? (
           <div className="text-xs text-muted-foreground">нет данных</div>
         ) : null}
         <div className="grid grid-cols-2 gap-2">
@@ -145,7 +152,7 @@ const RightPanel = ({
         {/* Connection */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {isConnectionEnabled && connectionStatus === 'ok' ? (
+            {isConnected ? (
               <Wifi className="w-4 h-4 text-success" />
             ) : (
               <WifiOff className="w-4 h-4 text-destructive" />
@@ -155,7 +162,7 @@ const RightPanel = ({
           <span
             className={cn(
               'text-xs font-medium',
-              isConnectionEnabled && connectionStatus === 'ok' ? 'text-success' : 'text-destructive'
+              isConnected ? 'text-success' : 'text-destructive'
             )}
           >
             {connectionLabel}
