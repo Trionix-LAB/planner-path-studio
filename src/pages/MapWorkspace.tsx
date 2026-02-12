@@ -2078,6 +2078,7 @@ const MapWorkspace = () => {
         <RightPanel
           diverData={selectedAgentDiverData}
           hasTelemetryData={hasSelectedAgentTelemetry}
+          hasTelemetryHistory={hasPrimaryTelemetryHistory}
           coordPrecision={coordPrecision}
           styles={styles}
           connectionStatus={connectionStatus}

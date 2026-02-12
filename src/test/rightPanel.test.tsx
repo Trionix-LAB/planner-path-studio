@@ -110,9 +110,13 @@ describe('RightPanel HUD defaults', () => {
           lane: { color: '#22c55e', width_px: 2 },
           marker: { color: '#22c55e' },
         }}
-        connectionState="timeout"
-        trackStatus="recording"
-        trackId={1}
+        connectionStatus="timeout"
+        isConnectionEnabled={true}
+        selectedAgent={testAgent}
+        selectedAgentTrackStatus="recording"
+        selectedAgentActiveTrackNumber={1}
+        missionDocument={null}
+        trackStatusByAgentId={{ 'agent-1': 'recording' }}
         selectedObject={null}
         selectedZoneLanesOutdated={false}
         selectedZoneLaneCount={null}

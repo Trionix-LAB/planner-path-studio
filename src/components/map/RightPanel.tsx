@@ -39,6 +39,8 @@ interface RightPanelProps {
   onTrackDelete?: (trackId: string) => void;
 }
 
+type ConnectionUiState = 'off' | 'ok' | 'timeout' | 'error' | 'waiting';
+
 const formatTrackTime = (value: string): string => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -74,6 +76,15 @@ const RightPanel = ({
   onTrackDelete,
 }: RightPanelProps) => {
   const noTelemetry = !hasTelemetryData;
+  const connectionState: ConnectionUiState = !isConnectionEnabled
+    ? 'off'
+    : connectionStatus === 'ok'
+      ? 'ok'
+      : connectionStatus === 'error'
+        ? 'error'
+        : hasTelemetryHistory
+          ? 'timeout'
+          : 'waiting';
   const showNoTelemetryLabel = connectionState !== 'off' && noTelemetry && hasTelemetryHistory;
   const connectionLabel =
     connectionState === 'off'
