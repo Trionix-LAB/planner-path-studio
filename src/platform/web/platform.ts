@@ -122,5 +122,6 @@ export const webPlatform: Platform = {
         .map((key) => key.slice(FILE_STORE_PREFIX.length))
         .filter((path) => path.startsWith(normalizedPrefix));
     },
+    stat: async () => null,
   },
 };

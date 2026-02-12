@@ -13,6 +13,7 @@ const createMemoryStore = (): FileStoreBridge => {
       db.delete(path);
     },
     list: async (prefix) => Array.from(db.keys()).filter((key) => key.startsWith(prefix)),
+    stat: async () => null,
   };
 };
 
@@ -34,6 +35,7 @@ const createMemoryStoreWithReadLog = (): { store: FileStoreBridge; readLog: stri
         db.delete(path);
       },
       list: async (prefix) => Array.from(db.keys()).filter((key) => key.startsWith(prefix)),
+      stat: async () => null,
     },
   };
 };

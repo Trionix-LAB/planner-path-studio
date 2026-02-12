@@ -3,16 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { FilePlus, FolderOpen, FileText, RotateCcw, Clock, ChevronRight, Cpu } from 'lucide-react';
 import { platform } from '@/platform';
-
-const recentMissions = [
-  { name: 'Миссия_Порт_2024', path: 'C:/Missions/Порт_2024', date: '2024-12-15' },
-  { name: 'Обследование_Док_3', path: 'C:/Missions/Док_3', date: '2024-12-10' },
-  { name: 'Тестовая_миссия', path: 'C:/Missions/Тест', date: '2024-12-05' },
-];
+import { useRecentMissions } from '@/hooks/useRecentMissions';
 
 const StartScreen = () => {
   const navigate = useNavigate();
   const [hasRecoverableDraft, setHasRecoverableDraft] = useState(false);
+  const { missions: recentMissions } = useRecentMissions();
 
   useEffect(() => {
     const checkDraft = async () => {
@@ -109,22 +105,26 @@ const StartScreen = () => {
             Недавние миссии
           </div>
           <div className="divide-y divide-border">
-            {recentMissions.map((mission, index) => (
-              <button
-                key={index}
-                className="w-full px-4 py-3 flex items-center justify-between hover:bg-secondary/50 transition-colors text-left"
-                onClick={() => navigate('/map?mission=' + encodeURIComponent(mission.path))}
-              >
-                <div>
-                  <div className="font-medium text-foreground text-sm">{mission.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono">{mission.path}</div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground">{mission.date}</span>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </div>
-              </button>
-            ))}
+            {recentMissions.length === 0 ? (
+              <div className="px-4 py-3 text-sm text-muted-foreground">Нет доступных миссий</div>
+            ) : (
+              recentMissions.map((mission) => (
+                <button
+                  key={mission.rootPath}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-secondary/50 transition-colors text-left"
+                  onClick={() => navigate('/map?mission=' + encodeURIComponent(mission.rootPath))}
+                >
+                  <div>
+                    <div className="font-medium text-foreground text-sm">{mission.name}</div>
+                    <div className="text-xs text-muted-foreground font-mono">{mission.rootPath}</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground">{mission.dateLabel}</span>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                </button>
+              ))
+            )}
           </div>
         </div>
 
