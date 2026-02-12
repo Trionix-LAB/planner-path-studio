@@ -23,6 +23,7 @@ import {
   bundleToMapObjects,
   cascadeDeleteZone,
   clearZoneLanesOutdated,
+  computeRealtimeVisibilityState,
   countZoneLanes,
   createElectronGnssTelemetryProvider,
   createElectronZimaTelemetryProvider,
@@ -44,6 +45,7 @@ import {
   type MissionUiState,
   type NavigationSourceId,
   type SegmentLengthsMode,
+  type RealtimeUiConnectionState,
   type TelemetryConnectionState,
   type TelemetryFix,
   type TrackRecorderState,
@@ -357,6 +359,7 @@ const MapWorkspace = () => {
   const [simulateConnectionError, setSimulateConnectionError] = useState(false);
   const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
   const [hasPrimaryTelemetry, setHasPrimaryTelemetry] = useState(false);
+  const [hasPrimaryTelemetryHistory, setHasPrimaryTelemetryHistory] = useState(false);
   const [diverTelemetryById, setDiverTelemetryById] = useState<Record<string, DiverTelemetryState>>({});
   const [missionDivers, setMissionDivers] = useState<DiverUiConfig[]>(() => createDefaultDivers(1));
   const [baseStationNavigationSource, setBaseStationNavigationSource] = useState<NavigationSourceId | null>(null);
@@ -423,6 +426,11 @@ const MapWorkspace = () => {
     'gnss-udp': Date.now(),
     simulation: Date.now(),
   });
+  const hadFixBySourceRef = useRef<Record<NavigationSourceId, boolean>>({
+    zima2r: false,
+    'gnss-udp': false,
+    simulation: false,
+  });
   const zimaAzmLocFixRef = useRef<DiverTelemetryState | null>(null);
   const zimaRemFixByBeaconRef = useRef<Record<string, DiverTelemetryState>>({});
   const gnssFixRef = useRef<DiverTelemetryState | null>(null);
@@ -488,6 +496,25 @@ const MapWorkspace = () => {
     if (primaryNavigationSource === 'simulation') return simulationEnabled;
     return Boolean(equipmentEnabledByDevice[primaryNavigationSource]);
   }, [equipmentEnabledByDevice, primaryNavigationSource, simulationEnabled]);
+  const isSourceEnabled = useCallback(
+    (sourceId: NavigationSourceId | null) => {
+      if (!sourceId) return false;
+      if (sourceId === 'simulation') return simulationEnabled;
+      return Boolean(equipmentEnabledByDevice[sourceId]);
+    },
+    [equipmentEnabledByDevice, simulationEnabled],
+  );
+  const realtimeVisibility = useMemo(
+    () =>
+      computeRealtimeVisibilityState({
+        isSourceEnabled: isPrimarySourceEnabled,
+        connectionStatus,
+        hasTelemetry: hasPrimaryTelemetry,
+        hasTelemetryHistory: hasPrimaryTelemetryHistory,
+      }),
+    [connectionStatus, hasPrimaryTelemetry, hasPrimaryTelemetryHistory, isPrimarySourceEnabled],
+  );
+  const primaryConnectionUiState: RealtimeUiConnectionState = realtimeVisibility.connectionState;
 
   const navigationSourceOptions = useMemo(
     () =>
@@ -769,7 +796,9 @@ const MapWorkspace = () => {
     setMissionDivers(normalizeDivers(bundle.mission.ui?.divers));
     setDiverData(DEFAULT_DIVER_DATA);
     setHasPrimaryTelemetry(false);
+    setHasPrimaryTelemetryHistory(false);
     setDiverTelemetryById({});
+    hadFixBySourceRef.current = { zima2r: false, 'gnss-udp': false, simulation: false };
     zimaAzmLocFixRef.current = null;
     zimaRemFixByBeaconRef.current = {};
     gnssFixRef.current = null;
@@ -997,6 +1026,9 @@ const MapWorkspace = () => {
 
     divers.forEach((diver, index) => {
       const source = diver.navigation_source;
+      if (!isNavigationSourceId(source) || !isSourceEnabled(source)) {
+        return;
+      }
       let telemetry: DiverTelemetryState | null = null;
 
       if (source === 'gnss-udp') {
@@ -1039,6 +1071,7 @@ const MapWorkspace = () => {
     }
 
     setHasPrimaryTelemetry(true);
+    setHasPrimaryTelemetryHistory(true);
 
     setDiverData({
       lat: primaryFix.lat,
@@ -1063,7 +1096,7 @@ const MapWorkspace = () => {
         },
       }),
     );
-  }, []);
+  }, [isSourceEnabled]);
 
   const resolveTelemetryBySource = useCallback((sourceId: NavigationSourceId | null): DiverTelemetryState | null => {
     if (sourceId === 'zima2r') return zimaAzmLocFixRef.current;
@@ -1073,7 +1106,7 @@ const MapWorkspace = () => {
   }, []);
 
   const syncBaseStationTelemetry = useCallback(() => {
-    if (!baseStationNavigationSource) {
+    if (!baseStationNavigationSource || !isSourceEnabled(baseStationNavigationSource)) {
       setBaseStationTelemetry(null);
       return;
     }
@@ -1108,11 +1141,12 @@ const MapWorkspace = () => {
       }
       return next;
     });
-  }, [baseStationNavigationSource, resolveTelemetryBySource]);
+  }, [baseStationNavigationSource, isSourceEnabled, resolveTelemetryBySource]);
 
   const handleTelemetryFix = useCallback(
     (sourceId: NavigationSourceId, fix: TelemetryFix) => {
       lastFixAtBySourceRef.current[sourceId] = fix.received_at;
+      hadFixBySourceRef.current[sourceId] = true;
 
       const telemetryState: DiverTelemetryState = {
         lat: fix.lat,
@@ -1147,6 +1181,7 @@ const MapWorkspace = () => {
       if (primaryNavigationSourceRef.current === sourceId) {
         lastFixAtRef.current = fix.received_at;
         setConnectionLostSeconds(0);
+        setHasPrimaryTelemetryHistory(true);
       }
 
       syncDiverTelemetry();
@@ -1180,6 +1215,7 @@ const MapWorkspace = () => {
   useEffect(() => {
     primaryNavigationSourceRef.current = primaryNavigationSource;
     lastFixAtRef.current = lastFixAtBySourceRef.current[primaryNavigationSource] ?? Date.now();
+    setHasPrimaryTelemetryHistory(Boolean(hadFixBySourceRef.current[primaryNavigationSource]));
 
     const nextStatus =
       primaryNavigationSource === 'zima2r' || primaryNavigationSource === 'gnss-udp'
@@ -1196,6 +1232,15 @@ const MapWorkspace = () => {
     syncBaseStationTelemetry,
     syncDiverTelemetry,
   ]);
+
+  useEffect(() => {
+    if (isPrimarySourceEnabled) return;
+    hadFixBySourceRef.current[primaryNavigationSource] = false;
+    setHasPrimaryTelemetry(false);
+    setHasPrimaryTelemetryHistory(false);
+    setDiverTelemetryById({});
+    setBaseStationTelemetry(null);
+  }, [isPrimarySourceEnabled, primaryNavigationSource]);
 
   useEffect(() => {
     if (isElectronRuntime) {
@@ -1862,6 +1907,8 @@ const MapWorkspace = () => {
             isFollowing={isFollowing}
             connectionStatus={connectionStatus}
             connectionLostSeconds={connectionLostSeconds}
+            showTelemetryObjects={realtimeVisibility.showTelemetryObjects}
+            showNoDataWarning={realtimeVisibility.showNoDataWarning}
             onToolChange={handleToolChange}
             onCursorMove={setCursorPosition}
             onObjectSelect={handleObjectSelect}
@@ -1884,10 +1931,10 @@ const MapWorkspace = () => {
         <RightPanel
           diverData={diverData}
           hasTelemetryData={hasPrimaryTelemetry}
+          hasTelemetryHistory={hasPrimaryTelemetryHistory}
           coordPrecision={coordPrecision}
           styles={styles}
-          connectionStatus={connectionStatus}
-          isConnectionEnabled={isPrimarySourceEnabled}
+          connectionState={primaryConnectionUiState}
           trackStatus={trackStatus}
           trackId={activeTrackNumber}
           selectedObject={selectedObject}

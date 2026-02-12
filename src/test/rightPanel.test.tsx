@@ -8,6 +8,7 @@ describe('RightPanel HUD defaults', () => {
       <RightPanel
         diverData={{ lat: 59.9, lon: 30.3, speed: 1.2, course: 45, depth: 10 }}
         hasTelemetryData={false}
+        hasTelemetryHistory={false}
         coordPrecision={6}
         styles={{
           track: { color: '#22c55e', width_px: 3 },
@@ -21,8 +22,7 @@ describe('RightPanel HUD defaults', () => {
           lane: { color: '#22c55e', width_px: 2 },
           marker: { color: '#22c55e' },
         }}
-        connectionStatus="timeout"
-        isConnectionEnabled={false}
+        connectionState="off"
         trackStatus="stopped"
         trackId={0}
         selectedObject={null}
@@ -42,6 +42,7 @@ describe('RightPanel HUD defaults', () => {
       <RightPanel
         diverData={{ lat: 59.93428, lon: 30.335099, speed: 0.8, course: 45, depth: 12.5 }}
         hasTelemetryData={true}
+        hasTelemetryHistory={true}
         coordPrecision={6}
         styles={{
           track: { color: '#22c55e', width_px: 3 },
@@ -55,8 +56,7 @@ describe('RightPanel HUD defaults', () => {
           lane: { color: '#22c55e', width_px: 2 },
           marker: { color: '#22c55e' },
         }}
-        connectionStatus="ok"
-        isConnectionEnabled={true}
+        connectionState="ok"
         trackStatus="recording"
         trackId={1}
         selectedObject={null}
@@ -69,5 +69,38 @@ describe('RightPanel HUD defaults', () => {
     expect(screen.queryByText('нет данных')).toBeNull();
     expect(screen.getByText('Подключено • OK')).toBeInTheDocument();
     expect(screen.getByText('#1')).toBeInTheDocument();
+  });
+
+  it('shows timeout state only after telemetry loss', () => {
+    render(
+      <RightPanel
+        diverData={{ lat: 59.93428, lon: 30.335099, speed: 0.8, course: 45, depth: 12.5 }}
+        hasTelemetryData={false}
+        hasTelemetryHistory={true}
+        coordPrecision={6}
+        styles={{
+          track: { color: '#22c55e', width_px: 3 },
+          route: { color: '#0ea5e9', width_px: 3 },
+          survey_area: {
+            stroke_color: '#f59e0b',
+            stroke_width_px: 2,
+            fill_color: '#f59e0b',
+            fill_opacity: 0.2,
+          },
+          lane: { color: '#22c55e', width_px: 2 },
+          marker: { color: '#22c55e' },
+        }}
+        connectionState="timeout"
+        trackStatus="recording"
+        trackId={1}
+        selectedObject={null}
+        selectedZoneLanesOutdated={false}
+        selectedZoneLaneCount={null}
+        onObjectSelect={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('Таймаут')).toBeInTheDocument();
+    expect(screen.getAllByText('нет данных').length).toBeGreaterThan(0);
   });
 });

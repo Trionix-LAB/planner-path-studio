@@ -77,6 +77,8 @@ interface MapCanvasProps {
   isFollowing: boolean;
   connectionStatus: 'ok' | 'timeout' | 'error';
   connectionLostSeconds?: number;
+  showTelemetryObjects: boolean;
+  showNoDataWarning: boolean;
   onToolChange?: (tool: Tool) => void;
   onCursorMove: (pos: { lat: number; lon: number }) => void;
   onObjectSelect: (id: string | null) => void;
@@ -400,6 +402,8 @@ const MapCanvas = ({
   isFollowing,
   connectionStatus,
   connectionLostSeconds,
+  showTelemetryObjects,
+  showNoDataWarning,
   onToolChange,
   onCursorMove,
   onObjectSelect,
@@ -1510,6 +1514,7 @@ const MapCanvas = ({
 
         {/* Diver */}
         {layers.diver &&
+          showTelemetryObjects &&
           divers.map((diver, index) => {
             const position = getDiverPosition(diver, index);
             const course = getDiverCourse(diver, index);
@@ -1523,7 +1528,7 @@ const MapCanvas = ({
           })}
 
         {/* Base station */}
-        {layers.baseStation && isBaseStationSourceAssigned && baseStationPosition ? (
+        {layers.baseStation && showTelemetryObjects && isBaseStationSourceAssigned && baseStationPosition ? (
           <Marker position={baseStationPosition} icon={baseStationIcon}>
             <Tooltip direction="top" offset={[10, -10]}>
               {baseStationData?.sourceId
@@ -1716,7 +1721,7 @@ const MapCanvas = ({
       )}
 
       {/* Connection timeout warning */}
-      {connectionStatus !== 'ok' && (
+      {showNoDataWarning && connectionStatus !== 'ok' && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-destructive/90 text-destructive-foreground px-4 py-2 rounded-md flex items-center gap-2 text-sm">
           <AlertTriangle className="w-4 h-4" />
           {`Нет данных ${Math.max(1, connectionLostSeconds ?? 0)} сек`}
