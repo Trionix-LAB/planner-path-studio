@@ -110,8 +110,15 @@ export const webPlatform: Platform = {
       window.localStorage.setItem(toStorageKey(path), content);
     },
     remove: async (path) => {
+      const exactKey = toStorageKey(path);
+      const prefixKey = `${exactKey}/`;
       try {
-        window.localStorage.removeItem(toStorageKey(path));
+        window.localStorage.removeItem(exactKey);
+        listStoredKeys()
+          .filter((key) => key.startsWith(prefixKey))
+          .forEach((key) => {
+            window.localStorage.removeItem(key);
+          });
       } catch {
         // ignore
       }

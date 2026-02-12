@@ -1,6 +1,7 @@
 import type { Platform } from '@/platform';
 
 export const RECENT_MISSIONS_LIMIT = 5;
+export const ALL_MISSIONS_LIMIT = Number.POSITIVE_INFINITY;
 
 export type RecentMissionItem = {
   name: string;
@@ -86,10 +87,12 @@ const buildCandidate = async (platform: Platform, missionPath: string): Promise<
 
 export const loadRecentMissions = async (
   platform: Platform,
-  options?: { limit?: number },
+  options?: { limit?: number; missionsDir?: string },
 ): Promise<RecentMissionItem[]> => {
-  const limit = Math.max(1, options?.limit ?? RECENT_MISSIONS_LIMIT);
-  const missionsDir = normalizePath(platform.paths.defaultMissionsDir());
+  const requestedLimit = options?.limit ?? RECENT_MISSIONS_LIMIT;
+  const hasFiniteLimit = Number.isFinite(requestedLimit);
+  const limit = hasFiniteLimit ? Math.max(1, Math.trunc(requestedLimit)) : ALL_MISSIONS_LIMIT;
+  const missionsDir = normalizePath(options?.missionsDir ?? platform.paths.defaultMissionsDir());
   const listedPaths = await platform.fileStore.list(missionsDir);
   const missionFiles = Array.from(
     new Set(
@@ -107,7 +110,7 @@ export const loadRecentMissions = async (
 
   return candidates
     .sort((left, right) => right.sortValue - left.sortValue)
-    .slice(0, limit)
+    .slice(0, hasFiniteLimit ? limit : undefined)
     .map((mission) => ({
       name: mission.name,
       rootPath: mission.rootPath,

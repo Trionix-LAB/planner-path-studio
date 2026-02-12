@@ -1,14 +1,36 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { FilePlus, FolderOpen, FileText, RotateCcw, Clock, ChevronRight, Cpu } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { FilePlus, FolderOpen, FileText, RotateCcw, Clock, ChevronRight, Cpu, Trash2 } from 'lucide-react';
 import { platform } from '@/platform';
 import { useRecentMissions } from '@/hooks/useRecentMissions';
+import { ALL_MISSIONS_LIMIT, RECENT_MISSIONS_LIMIT } from '@/features/mission/model/recentMissions';
+import { useDelayedMissionDeletion } from '@/hooks/useDelayedMissionDeletion';
+
+const MISSIONS_DIR_SETTINGS_KEY = 'planner.missionsDir';
+const MISSION_DELETE_UNDO_DELAY_MS = 7000;
+const MISSION_LIMIT_OPTIONS = ['5', '10', '15', '20', 'all'] as const;
 
 const StartScreen = () => {
   const navigate = useNavigate();
   const [hasRecoverableDraft, setHasRecoverableDraft] = useState(false);
-  const { missions: recentMissions } = useRecentMissions();
+  const [missionsDir, setMissionsDir] = useState(() => platform.paths.defaultMissionsDir());
+  const [missionLimitValue, setMissionLimitValue] = useState<(typeof MISSION_LIMIT_OPTIONS)[number]>(
+    String(RECENT_MISSIONS_LIMIT) as (typeof MISSION_LIMIT_OPTIONS)[number],
+  );
+  const selectedMissionLimit =
+    missionLimitValue === 'all' ? ALL_MISSIONS_LIMIT : Math.max(1, Number(missionLimitValue) || RECENT_MISSIONS_LIMIT);
+  const { missions: recentMissions, reload } = useRecentMissions({
+    missionsDir,
+    limit: selectedMissionLimit,
+  });
+  const { pendingMissions, scheduleDelete, undoDelete } = useDelayedMissionDeletion({
+    platform,
+    delayMs: MISSION_DELETE_UNDO_DELAY_MS,
+    onAfterDelete: reload,
+  });
+  const pendingByRootPath = new Map(pendingMissions.map((item) => [item.rootPath, item]));
 
   useEffect(() => {
     const checkDraft = async () => {
@@ -18,6 +40,41 @@ const StartScreen = () => {
 
     void checkDraft();
   }, []);
+
+  useEffect(() => {
+    const readStoredMissionsDir = async () => {
+      const stored = await platform.settings.readJson<unknown>(MISSIONS_DIR_SETTINGS_KEY);
+      if (typeof stored === 'string' && stored.trim().length > 0) {
+        setMissionsDir(stored.trim());
+      }
+    };
+
+    void readStoredMissionsDir();
+  }, []);
+
+  const handlePickMissionsDirectory = async () => {
+    const picked = await platform.fs.pickDirectory({
+      title: 'Папка хранения миссий',
+      defaultPath: missionsDir,
+    });
+    if (!picked) return;
+    const normalized = picked.trim();
+    if (!normalized) return;
+    setMissionsDir(normalized);
+    await platform.settings.writeJson(MISSIONS_DIR_SETTINGS_KEY, normalized);
+    await reload();
+  };
+
+  const handleOpenMission = (rootPath: string) => {
+    navigate('/map?mission=' + encodeURIComponent(rootPath));
+  };
+
+  const handleDeleteMission = async (rootPath: string, name: string) => {
+    if (!window.confirm(`Удалить миссию "${name}"?`)) {
+      return;
+    }
+    await scheduleDelete({ rootPath, name });
+  };
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-8">
@@ -100,31 +157,78 @@ const StartScreen = () => {
 
         {/* Recent Missions */}
         <div className="panel">
-          <div className="panel-header flex items-center gap-2">
-            <Clock className="w-4 h-4" />
-            Недавние миссии
+          <div className="panel-header flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              <span>Недавние миссии</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handlePickMissionsDirectory}>
+                Папка миссий
+              </Button>
+              <Select value={missionLimitValue} onValueChange={(value) => setMissionLimitValue(value as (typeof MISSION_LIMIT_OPTIONS)[number])}>
+                <SelectTrigger className="h-8 w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="5">5</SelectItem>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="15">15</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="all">все</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="px-4 py-2 text-xs text-muted-foreground border-b border-border">
+            Путь: <span className="font-mono">{missionsDir}</span> · Лимит: {missionLimitValue === 'all' ? 'все' : missionLimitValue}
           </div>
           <div className="divide-y divide-border">
             {recentMissions.length === 0 ? (
               <div className="px-4 py-3 text-sm text-muted-foreground">Нет доступных миссий</div>
             ) : (
               recentMissions.map((mission) => (
-                <button
-                  key={mission.rootPath}
-                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-secondary/50 transition-colors text-left"
-                  onClick={() => navigate('/map?mission=' + encodeURIComponent(mission.rootPath))}
-                >
-                  <div>
+                <div key={mission.rootPath} className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:bg-secondary/50 transition-colors">
+                  <button
+                    className="flex-1 min-w-0 text-left"
+                    onClick={() => handleOpenMission(mission.rootPath)}
+                    disabled={pendingByRootPath.has(mission.rootPath)}
+                  >
                     <div className="font-medium text-foreground text-sm">{mission.name}</div>
-                    <div className="text-xs text-muted-foreground font-mono">{mission.rootPath}</div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">{mission.dateLabel}</span>
+                    <div className="text-xs text-muted-foreground font-mono truncate">{mission.rootPath}</div>
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">{mission.dateLabel}</span>
+                    {pendingByRootPath.has(mission.rootPath) ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => undoDelete(mission.rootPath)}
+                      >
+                        Undo
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => void handleDeleteMission(mission.rootPath, mission.name)}
+                        title="Удалить миссию"
+                      >
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    )}
                     <ChevronRight className="w-4 h-4 text-muted-foreground" />
                   </div>
-                </button>
+                </div>
               ))
             )}
+            {pendingMissions.length > 0 ? (
+              <div className="px-4 py-2 text-xs text-muted-foreground">
+                {pendingMissions.length === 1
+                  ? `Удаление отложено на ${Math.round(MISSION_DELETE_UNDO_DELAY_MS / 1000)} сек. Нажмите Undo для отмены.`
+                  : `Отложено удалений: ${pendingMissions.length}. Можно отменить через Undo.`}
+              </div>
+            ) : null}
           </div>
         </div>
 

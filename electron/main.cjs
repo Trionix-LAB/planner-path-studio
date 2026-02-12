@@ -437,7 +437,7 @@ const registerIpcHandlers = () => {
   ipcMain.handle(CHANNELS.fileStore.remove, async (_event, inputPath) => {
     const resolvedPath = resolveFileStorePath(inputPath, userDataPath);
     try {
-      await fs.unlink(resolvedPath.absolutePath);
+      await fs.rm(resolvedPath.absolutePath, { recursive: true, force: true });
     } catch {
       // ignore
     }
