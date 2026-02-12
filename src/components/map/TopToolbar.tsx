@@ -23,6 +23,7 @@ import {
   Check,
   Loader2,
   AlertCircle,
+  Home,
 } from 'lucide-react';
 import type { Tool } from "@/features/map/model/types";
 import { cn } from '@/lib/utils';
@@ -47,6 +48,7 @@ interface TopToolbarProps {
   onOpenExport: () => void;
   onOpenSettings: () => void;
   onFinishMission: () => void;
+  onGoToStart: () => void;
 }
 
 const TopToolbar = ({
@@ -69,6 +71,7 @@ const TopToolbar = ({
   onOpenExport,
   onOpenSettings,
   onFinishMission,
+  onGoToStart,
 }: TopToolbarProps) => {
   const tools = [
     { id: 'select' as Tool, icon: MousePointer2, label: 'Выбор/Редактирование' },
@@ -97,6 +100,10 @@ const TopToolbar = ({
           <DropdownMenuItem onClick={onOpenOpen}>
             <FolderOpen className="w-4 h-4 mr-2" />
             Открыть...
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onGoToStart}>
+            <Home className="w-4 h-4 mr-2" />
+            На старт
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onOpenExport}>

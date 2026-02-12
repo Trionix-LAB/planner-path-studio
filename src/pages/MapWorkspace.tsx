@@ -1556,6 +1556,31 @@ const MapWorkspace = () => {
     }
   };
 
+  const handleGoToStart = useCallback(() => {
+    if (
+      autoSaveStatus === 'error' &&
+      !window.confirm('Автосохранение завершилось с ошибкой. Перейти на стартовый экран?')
+    ) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        await persistMissionSnapshot(latestSnapshotRef.current, { closeActiveTrack: true });
+      } catch {
+        // ignore
+      }
+
+      try {
+        await releaseCurrentLock();
+      } catch {
+        // ignore
+      }
+
+      navigate('/');
+    })();
+  }, [autoSaveStatus, navigate, persistMissionSnapshot, releaseCurrentLock]);
+
   const handleFinishMission = () => {
     if (isDraft) return;
     if (!window.confirm('Завершить миссию и перейти в черновик?')) {
@@ -1744,6 +1769,7 @@ const MapWorkspace = () => {
         onOpenExport={() => setShowExport(true)}
         onOpenSettings={() => setShowSettings(true)}
         onFinishMission={handleFinishMission}
+        onGoToStart={handleGoToStart}
       />
 
       <div className="flex-1 flex overflow-hidden">
