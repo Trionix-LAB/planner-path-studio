@@ -332,9 +332,20 @@ export const createElectronZimaTelemetryProvider = (
     if (!message) return;
 
     const { lines, rest } = splitBufferedLines(lineBuffer, message);
-    lineBuffer = rest.slice(-MAX_BUFFERED_ZIMA_BYTES);
+    let nextRest = rest;
+    let linesToProcess = lines;
+    if (linesToProcess.length === 0) {
+      const candidate = rest.trim();
+      const parsedCandidate = parseZimaLine(candidate);
+      const looksTerminated = candidate.endsWith(',');
+      if (candidate.length > 0 && (parsedCandidate.kind !== 'UNKNOWN' || looksTerminated)) {
+        linesToProcess = [candidate];
+        nextRest = '';
+      }
+    }
+    lineBuffer = nextRest.slice(-MAX_BUFFERED_ZIMA_BYTES);
 
-    for (const line of lines) {
+    for (const line of linesToProcess) {
       const parsed = parseZimaLine(line);
       const receivedAt = payload.receivedAt ?? Date.now();
 

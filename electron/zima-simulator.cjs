@@ -161,11 +161,8 @@ const createAzmLocLine = (state) => {
   const speed = formatNumber(state.speed, 2);
   const heading = formatNumber(state.heading, 2);
   const depth = formatNumber(state.depth, 2);
-  const x = formatNumber(state.x, 2);
-  const y = formatNumber(state.y, 2);
-  const z = formatNumber(state.depth, 2);
 
-  return `@AZMLOC,1013.2,${depth},12.3,0.1,-0.2,0,${lat},${lon},${course},${speed},0,${heading},0,${x},${y},${z},1.2,0`;
+  return `@AZMLOC,1013.2,${depth},12.3,0.1,-0.2,0,${lat},${lon},${course},${speed},0,${heading},0,`;
 };
 
 const createInitialBeaconStates = (beaconIds, baseLat, baseLon) => {
@@ -229,10 +226,8 @@ const createAzmRemLine = (state, beaconId, beaconState) => {
   const vcc = formatNumber(10.5 + beaconId * 0.06, 2);
   const waterTemp = formatNumber(13.5 + (beaconId % 3) * 0.2, 2);
   const razimuth = formatNumber((state.heading + 180 + beaconId * 7) % 360, 2);
-  const x = formatNumber((beaconState.lon - state.lon) * 111139, 2);
-  const y = formatNumber((beaconState.lat - state.lat) * 111139, 2);
 
-  return `@AZMREM,${beaconId},${slopeRange},${azimuth},${ptime},${msr},0,${depth},0,${srProjection},0,${adistance},0,${aazimuth},0,${elevation},0,${vcc},0,${waterTemp},0,${lat},${lon},0,${razimuth},0,Beacon-${beaconId},0,${x},${y},${depth},false`;
+  return `@AZMREM,${beaconId},${slopeRange},${azimuth},${ptime},${msr},0,${depth},0,${srProjection},0,${adistance},0,${aazimuth},0,${elevation},0,${vcc},0,${waterTemp},0,${lat},${lon},0,${razimuth},0,Beacon-${beaconId},0,False,`;
 };
 
 const createBrokenLine = (tick) => {

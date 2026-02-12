@@ -173,7 +173,7 @@ describe('electron zima telemetry provider', () => {
 
     api.emitData({
       message:
-        '@AZMLOC,1013.2,10.5,12.3,0.1,-0.2,0,59.937500,30.308600,120.0,0.8,0,130.0,0,0,0,10.5,1.2,0\r\n',
+        '@AZMLOC,1013.2,10.5,12.3,0.1,-0.2,0,59.937500,30.308600,120.0,0.8,0,130.0,0,0,0,10.5,1.2,0,\r\n',
       receivedAt: 1739318400000,
     });
 
@@ -232,7 +232,7 @@ describe('electron zima telemetry provider', () => {
     expect(onFix).not.toHaveBeenCalled();
 
     api.emitData({
-      message: ',3,false\r\n',
+      message: ',false\r\n',
       receivedAt: 1739318402000,
     });
 
@@ -251,6 +251,60 @@ describe('electron zima telemetry provider', () => {
       entity_type: 'agent',
       entity_id: 'beacon-1',
       navigation_source_id: 'zima2r',
+    });
+
+    provider.stop();
+    setElectronApi(undefined);
+  });
+
+  it('emits fixes for compact real-world AZMLOC/AZMREM messages', async () => {
+    const api = createMockZimaApi();
+    setElectronApi({ zima: api });
+
+    const provider = createElectronZimaTelemetryProvider({
+      readConfig: async () => ({
+        ipAddress: '127.0.0.1',
+        dataPort: 28127,
+        commandPort: 28128,
+        useCommandPort: false,
+        useExternalGnss: true,
+        latitude: null,
+        longitude: null,
+        azimuth: null,
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    api.emitData({
+      message: '@AZMLOC,981.5,-0.3,20.2,-60.8,-42.7,0.0,48.123456,44.123456,,,,0.0,0.9,',
+      receivedAt: 1739318403000,
+    });
+    api.emitData({
+      message:
+        '@AZMREM,0,0.5,3.0,0.0004,21.5,0.0,0.0,0.0,0.5,0.0,0.5,0.0,3.0,0.0,-3.0,0.0,,,,,48.123460,44.123456,0.0,183.0,0.0,,,False,',
+      receivedAt: 1739318404000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(2);
+    expect(onFix.mock.calls[0]?.[0]).toMatchObject({
+      source: 'AZMLOC',
+      lat: 48.123456,
+      lon: 44.123456,
+      depth: -0.3,
+    });
+    expect(onFix.mock.calls[1]?.[0]).toMatchObject({
+      source: 'AZMREM',
+      lat: 48.12346,
+      lon: 44.123456,
+      remoteAddress: 0,
+      beaconId: '0',
+      depth: 0,
     });
 
     provider.stop();

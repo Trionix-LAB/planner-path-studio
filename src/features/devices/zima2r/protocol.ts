@@ -29,6 +29,14 @@ export type UnknownZimaMessage = {
 
 export type ParsedZimaMessage = AzmLocMessage | AzmRemMessage | UnknownZimaMessage;
 
+const splitZimaFields = (line: string): string[] => {
+  const parts = line.split(',');
+  while (parts.length > 0 && parts[parts.length - 1]?.trim() === '') {
+    parts.pop();
+  }
+  return parts;
+};
+
 const parseNumber = (value: string | undefined): number | null => {
   if (typeof value !== 'string') return null;
   const parsed = Number(value.trim());
@@ -65,8 +73,8 @@ const isValidLatLon = (lat: number | null, lon: number | null): lat is number =>
   !(lat === 0 && lon === 0);
 
 const parseAzmLoc = (line: string): ParsedZimaMessage => {
-  const parts = line.split(',');
-  if (parts.length < 19) return { kind: 'UNKNOWN', raw: line };
+  const parts = splitZimaFields(line);
+  if (parts.length < 9) return { kind: 'UNKNOWN', raw: line };
 
   const lat = parseNumber(parts[7]);
   const lon = parseNumber(parts[8]);
@@ -92,22 +100,39 @@ const parseAzmLoc = (line: string): ParsedZimaMessage => {
 };
 
 const parseAzmRem = (line: string): ParsedZimaMessage => {
-  const parts = line.split(',');
-  if (parts.length < 32) {
+  const parts = splitZimaFields(line);
+  if (parts.length < 29) {
     return { kind: 'UNKNOWN', raw: line };
   }
 
   const remoteAddress = parseRemAddress(parts[1]);
+  if (remoteAddress === null) {
+    return { kind: 'UNKNOWN', raw: line };
+  }
+
+  let isTimeout: boolean | null = null;
+  if (parts.length >= 32) {
+    isTimeout = parseBoolean(parts[31]);
+  } else if (parts.length === 31) {
+    isTimeout = parseBoolean(parts[30]);
+  } else if (parts.length === 29) {
+    isTimeout = parseBoolean(parts[28]);
+  } else {
+    return { kind: 'UNKNOWN', raw: line };
+  }
+  if (isTimeout === null) {
+    return { kind: 'UNKNOWN', raw: line };
+  }
 
   return {
     kind: 'AZMREM',
     raw: line,
     remoteAddress,
-    beaconId: remoteAddress === null ? null : String(remoteAddress),
+    beaconId: String(remoteAddress),
     lat: parseNumber(parts[21]),
     lon: parseNumber(parts[22]),
     depth: parseNumber(parts[7]),
-    isTimeout: parseBoolean(parts[31]),
+    isTimeout,
   };
 };
 
