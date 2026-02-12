@@ -241,10 +241,16 @@ const normalizeDeviceSchema = (id: string, fallbackTitle: string, raw: Record<st
       const enabledBy = typeof enabledByValue === 'string' ? enabledByValue : undefined;
       const options = normalizeOptions(value.options);
       const label = typeof value.label === 'string' ? value.label : key;
+      const sectionTitleValue = value.sectionTitle ?? value.section_title ?? value.section;
+      const sectionTitle =
+        typeof sectionTitleValue === 'string' && sectionTitleValue.trim().length > 0
+          ? sectionTitleValue.trim()
+          : undefined;
 
       return {
         key,
         label,
+        ...(sectionTitle ? { sectionTitle } : {}),
         ...(typeof value.description === 'string' ? { description: value.description } : {}),
         inputForm,
         ...(inputMask ? { inputMask } : {}),

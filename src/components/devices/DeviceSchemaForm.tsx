@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +10,8 @@ interface DeviceSchemaFormProps {
   schema: DeviceSchema;
   value: DeviceConfig;
   errors: Record<string, string>;
+  focusFieldKey?: string | null;
+  focusRequestVersion?: number;
   disabled?: boolean;
   onChange: (key: string, value: string | number | boolean) => void;
 }
@@ -76,7 +79,34 @@ const renderFieldControl = (
   );
 };
 
-const DeviceSchemaForm = ({ schema, value, errors, disabled = false, onChange }: DeviceSchemaFormProps) => {
+const DeviceSchemaForm = ({
+  schema,
+  value,
+  errors,
+  focusFieldKey = null,
+  focusRequestVersion = 0,
+  disabled = false,
+  onChange,
+}: DeviceSchemaFormProps) => {
+  const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    if (!focusFieldKey) return;
+    const fieldNode = fieldRefs.current[focusFieldKey];
+    if (!fieldNode) return;
+
+    if (typeof fieldNode.scrollIntoView === 'function') {
+      fieldNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    const control = fieldNode.querySelector<HTMLElement>(
+      'input,button,[role="combobox"],[tabindex]:not([tabindex="-1"])',
+    );
+    if (control && typeof control.focus === 'function') {
+      control.focus();
+    }
+  }, [focusFieldKey, focusRequestVersion]);
+
   return (
     <div className="space-y-4">
       {schema.fields.map((field) => {
@@ -87,7 +117,14 @@ const DeviceSchemaForm = ({ schema, value, errors, disabled = false, onChange }:
 
         if (field.inputForm === 'boolean') {
           return (
-            <div key={field.key} className="flex items-center justify-between gap-3">
+            <div
+              key={field.key}
+              ref={(node) => {
+                fieldRefs.current[field.key] = node;
+              }}
+              data-field-key={field.key}
+              className="flex items-center justify-between gap-3"
+            >
               <Label className="text-sm font-medium">{field.label}</Label>
               <Checkbox
                 checked={Boolean(fieldValue)}
@@ -99,7 +136,14 @@ const DeviceSchemaForm = ({ schema, value, errors, disabled = false, onChange }:
         }
 
         return (
-          <div key={field.key} className="space-y-2">
+          <div
+            key={field.key}
+            ref={(node) => {
+              fieldRefs.current[field.key] = node;
+            }}
+            data-field-key={field.key}
+            className="space-y-2"
+          >
             <Label className="text-sm font-medium">{field.label}</Label>
             {renderFieldControl(field, fieldValue, controlDisabled, (next) => onChange(field.key, next))}
             {field.description ? <p className="text-xs text-muted-foreground">{field.description}</p> : null}

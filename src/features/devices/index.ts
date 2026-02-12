@@ -7,6 +7,7 @@ export {
 export {
   buildEquipmentRuntime,
   createDefaultEquipmentSettings,
+  describeDeviceConfigErrors,
   normalizeDeviceConfig,
   normalizeEquipmentSettings,
   readEquipmentSettings,
@@ -25,6 +26,7 @@ export {
   type DeviceFieldSchema,
   type DeviceInputForm,
   type DeviceSchema,
+  type DeviceValidationIssue,
   type EquipmentProfile,
   type EquipmentRuntimeV2,
   type EquipmentSettingsV2,

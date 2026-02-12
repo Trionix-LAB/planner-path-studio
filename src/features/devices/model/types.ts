@@ -14,6 +14,7 @@ export type DeviceFieldOption = {
 export type DeviceFieldSchema = {
   key: string;
   label: string;
+  sectionTitle?: string;
   description?: string;
   inputForm: DeviceInputForm;
   inputMask?: string;
@@ -81,4 +82,14 @@ export type EquipmentRuntimeV2 = {
 export type DeviceChangedPayload = {
   settings: EquipmentSettingsV2;
   runtime: EquipmentRuntimeV2;
+};
+
+export type DeviceValidationIssue = {
+  schemaId: string;
+  schemaTitle: string;
+  sectionTitle?: string;
+  fieldKey: string;
+  fieldLabel: string;
+  message: string;
+  summary: string;
 };
