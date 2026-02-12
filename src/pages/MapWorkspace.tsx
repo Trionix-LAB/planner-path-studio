@@ -1379,7 +1379,7 @@ const MapWorkspace = () => {
       lockOwnerRootRef.current = bundle.rootPath;
       updateFromBundle(bundle, false);
       setShowCreateMission(false);
-      navigate('/map');
+      navigate(`/map?mission=${encodeURIComponent(bundle.rootPath)}`, { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось создать миссию';
       window.alert(message);
@@ -1393,7 +1393,7 @@ const MapWorkspace = () => {
       lockOwnerRootRef.current = bundle.rootPath;
       updateFromBundle(bundle, false);
       setShowOpenMission(false);
-      navigate('/map');
+      navigate(`/map?mission=${encodeURIComponent(bundle.rootPath)}`, { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось открыть миссию';
       window.alert(message);
