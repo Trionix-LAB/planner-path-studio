@@ -26,9 +26,13 @@ describe('device schema loader', () => {
     const commandPortField = zima?.fields.find((field) => field.key === 'commandPort');
     const gnssBaudField = zima?.fields.find((field) => field.key === 'gnssBaud');
     const latitudeField = zima?.fields.find((field) => field.key === 'latitude');
+    const useCommandPortField = zima?.fields.find((field) => field.key === 'useCommandPort');
     expect(commandPortField?.enabledBy).toBe('useCommandPort');
+    expect(commandPortField?.validation.type).toBe('port');
     expect(gnssBaudField?.enabledBy).toBe('useExternalGnss');
-    expect(latitudeField?.enabledBy).toBe('!useExternalGnss');
+    expect(latitudeField?.enabledBy).toBe('!useExternalGnss && useCommandPort');
+    expect(latitudeField?.validation.allowEmpty).toBe(true);
+    expect(useCommandPortField?.validation.type).toBe('none');
     expect(gnss?.fields.map((field) => field.key)).toEqual(['ipAddress', 'dataPort']);
   });
 
@@ -44,9 +48,9 @@ describe('device schema loader', () => {
       gnssBaud: '115200',
       useExternalGnss: false,
       useCommandPort: false,
-      latitude: '',
-      longitude: '',
-      azimuth: '',
+      latitude: '48.123456',
+      longitude: '44.123456',
+      azimuth: '0.0',
     });
   });
 });

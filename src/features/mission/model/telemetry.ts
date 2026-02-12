@@ -291,7 +291,7 @@ export const createElectronZimaTelemetryProvider = (
   let started = false;
   let connected = false;
   let activeConfig: ElectronZimaConfig | null = null;
-  let connectionState: TelemetryConnectionState = 'ok';
+  let connectionState: TelemetryConnectionState = 'timeout';
   let lastFixAt = 0;
   let lineBuffer = '';
   let latestMotion = { speed: 0, course: 0, depth: 0 };
@@ -411,6 +411,7 @@ export const createElectronZimaTelemetryProvider = (
     const shouldCloseConnections = connected && activeConfig?.useCommandPort;
     connected = false;
     activeConfig = null;
+    lastFixAt = 0;
     lineBuffer = '';
     latestMotion = { speed: 0, course: 0, depth: 0 };
     clearIntervals();
@@ -471,8 +472,6 @@ export const createElectronZimaTelemetryProvider = (
         }
       }
       connected = true;
-      lastFixAt = Date.now();
-      emitConnectionState('ok');
       startTimeoutWatchdog();
     } catch {
       connected = false;
@@ -499,9 +498,7 @@ export const createElectronZimaTelemetryProvider = (
     unsubscribeData = api.onData((payload) => handleData(payload));
     unsubscribeStatus = api.onStatus((payload) => {
       if (!payload?.status) return;
-      if (payload.status === 'running' && !simulateConnectionError) {
-        emitConnectionState('ok');
-      } else if (payload.status === 'error') {
+      if (payload.status === 'error') {
         emitConnectionState('error');
       }
     });
@@ -519,7 +516,7 @@ export const createElectronZimaTelemetryProvider = (
       enabled = nextEnabled;
       if (!enabled) {
         disconnectBridge();
-        emitConnectionState('ok');
+        emitConnectionState('timeout');
         return;
       }
       if (started) {
@@ -533,7 +530,7 @@ export const createElectronZimaTelemetryProvider = (
         return;
       }
       if (enabled) {
-        emitConnectionState('ok');
+        emitConnectionState('timeout');
       }
     },
     onFix: (listener) => {
@@ -559,7 +556,7 @@ export const createElectronGnssTelemetryProvider = (
   let simulateConnectionError = false;
   let started = false;
   let connected = false;
-  let connectionState: TelemetryConnectionState = 'ok';
+  let connectionState: TelemetryConnectionState = 'timeout';
   let lastFixAt = 0;
   let lineBuffer = '';
   let latestMotion = { speed: 0, course: 0 };
@@ -661,6 +658,7 @@ export const createElectronGnssTelemetryProvider = (
   const disconnectBridge = () => {
     const api = getApi();
     connected = false;
+    lastFixAt = 0;
     lineBuffer = '';
     latestMotion = { speed: 0, course: 0 };
     latestHeading = null;
@@ -704,8 +702,6 @@ export const createElectronGnssTelemetryProvider = (
 
       await api.start(config);
       connected = true;
-      lastFixAt = Date.now();
-      emitConnectionState('ok');
       startTimeoutWatchdog();
     } catch {
       connected = false;
@@ -732,9 +728,7 @@ export const createElectronGnssTelemetryProvider = (
     unsubscribeData = api.onData((payload) => handleData(payload));
     unsubscribeStatus = api.onStatus((payload) => {
       if (!payload?.status) return;
-      if (payload.status === 'running' && !simulateConnectionError) {
-        emitConnectionState('ok');
-      } else if (payload.status === 'error') {
+      if (payload.status === 'error') {
         emitConnectionState('error');
       }
     });
@@ -752,7 +746,7 @@ export const createElectronGnssTelemetryProvider = (
       enabled = nextEnabled;
       if (!enabled) {
         disconnectBridge();
-        emitConnectionState('ok');
+        emitConnectionState('timeout');
         return;
       }
       if (started) {
@@ -766,7 +760,7 @@ export const createElectronGnssTelemetryProvider = (
         return;
       }
       if (enabled) {
-        emitConnectionState('ok');
+        emitConnectionState('timeout');
       }
     },
     onFix: (listener) => {

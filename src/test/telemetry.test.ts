@@ -310,6 +310,96 @@ describe('electron zima telemetry provider', () => {
     provider.stop();
     setElectronApi(undefined);
   });
+
+  it('switches connection to ok only after valid telemetry message', async () => {
+    const api = createMockZimaApi();
+    setElectronApi({ zima: api });
+
+    const provider = createElectronZimaTelemetryProvider({
+      readConfig: async () => ({
+        ipAddress: '127.0.0.1',
+        dataPort: 28127,
+        commandPort: 28128,
+        useCommandPort: false,
+        useExternalGnss: true,
+        latitude: null,
+        longitude: null,
+        azimuth: null,
+      }),
+    });
+
+    const onConnectionState = vi.fn();
+    provider.onConnectionState(onConnectionState);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    expect(onConnectionState).not.toHaveBeenCalledWith('ok');
+
+    api.emitData({
+      message: '@AZMLOC,981.5,-0.3,20.2,-60.8,-42.7,0.0,48.123456,44.123456,,,,0.0,0.9,',
+      receivedAt: 1739318403000,
+    });
+
+    expect(onConnectionState).toHaveBeenCalledWith('ok');
+
+    provider.stop();
+    setElectronApi(undefined);
+  });
+
+  it('accepts compact packets with service prefix and NUL terminator', async () => {
+    const api = createMockZimaApi();
+    setElectronApi({ zima: api });
+
+    const provider = createElectronZimaTelemetryProvider({
+      readConfig: async () => ({
+        ipAddress: '127.0.0.1',
+        dataPort: 28127,
+        commandPort: 28128,
+        useCommandPort: false,
+        useExternalGnss: true,
+        latitude: null,
+        longitude: null,
+        azimuth: null,
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    api.emitData({
+      message:
+        '[1] [zima2r][rx] 127.0.0.1:42672 -> @AZMLOC,981.5,-0.3,20.2,-60.8,-42.7,0.0,48.123456,44.123456,,,,0.0,0.9,',
+      receivedAt: 1739318405000,
+    });
+    api.emitData({
+      message:
+        '@AZMREM,0,0.5,3.0,0.0004,21.5,0.0,0.0,0.0,0.5,0.0,0.5,0.0,3.0,0.0,-3.0,0.0,,,,,48.123460,44.123456,0.0,183.0,0.0,,,False,\u0000',
+      receivedAt: 1739318406000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(2);
+    expect(onFix.mock.calls[0]?.[0]).toMatchObject({
+      source: 'AZMLOC',
+      lat: 48.123456,
+      lon: 44.123456,
+    });
+    expect(onFix.mock.calls[1]?.[0]).toMatchObject({
+      source: 'AZMREM',
+      lat: 48.12346,
+      lon: 44.123456,
+      remoteAddress: 0,
+      beaconId: '0',
+    });
+
+    provider.stop();
+    setElectronApi(undefined);
+  });
 });
 
 describe('electron gnss telemetry provider', () => {

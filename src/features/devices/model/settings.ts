@@ -1,5 +1,6 @@
 import type { SettingsBridge } from '@/platform/contracts';
 import { createDefaultDeviceConfig, loadDeviceSchemas } from './schemaLoader';
+import { isEnabledByConditionSatisfied } from './enabledBy';
 import type {
   DeviceChangedPayload,
   DeviceConfig,
@@ -72,19 +73,7 @@ const isValidIpAddress = (value: string): boolean => {
 };
 
 const isFieldEnabledForValidation = (field: DeviceFieldSchema, config: DeviceConfig): boolean => {
-  if (!field.enabledBy) return true;
-  const negate = field.enabledBy.startsWith('!');
-  const controllerKey = negate ? field.enabledBy.slice(1) : field.enabledBy;
-  const controller = config[controllerKey];
-  let nextValue = false;
-  if (typeof controller === 'boolean') {
-    nextValue = controller;
-  } else if (typeof controller === 'string') {
-    nextValue = controller.trim().toLowerCase() === 'true';
-  } else {
-    nextValue = Boolean(controller);
-  }
-  return negate ? !nextValue : nextValue;
+  return isEnabledByConditionSatisfied(field.enabledBy, config);
 };
 
 const normalizeFieldValue = (field: DeviceFieldSchema, value: unknown): string | number | boolean => {
@@ -366,6 +355,13 @@ export const validateDeviceConfig = (schema: DeviceSchema, config: DeviceConfig)
     }
 
     if (field.validation.type === 'number' || field.inputForm === 'number') {
+      if (field.validation.allowEmpty) {
+        const text = String(value).trim();
+        if (text.length === 0) {
+          continue;
+        }
+      }
+
       const n = toNumber(value);
       if (n === null) {
         errors[field.key] = 'Введите число';

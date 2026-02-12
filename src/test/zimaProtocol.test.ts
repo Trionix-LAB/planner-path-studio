@@ -53,6 +53,28 @@ describe('zima protocol parser', () => {
     expect(parsed.kind).toBe('UNKNOWN');
   });
 
+  it('parses AZM lines with transport/log prefix before message token', () => {
+    const line =
+      '[1] [zima2r][rx] 127.0.0.1:42672 -> @AZMLOC,981.5,-0.3,20.2,-60.8,-42.7,0.0,48.123456,44.123456,,,,0.0,0.9,';
+    const parsed = parseZimaLine(line);
+    expect(parsed.kind).toBe('AZMLOC');
+    if (parsed.kind !== 'AZMLOC') return;
+    expect(parsed.lat).toBeCloseTo(48.123456);
+    expect(parsed.lon).toBeCloseTo(44.123456);
+  });
+
+  it('parses AZMREM with NUL terminator in UDP payload', () => {
+    const line =
+      '@AZMREM,0,0.5,3.0,0.0004,21.5,0.0,0.0,0.0,0.5,0.0,0.5,0.0,3.0,0.0,-3.0,0.0,,,,,48.123460,44.123456,0.0,183.0,0.0,,,False,\u0000';
+    const parsed = parseZimaLine(line);
+    expect(parsed.kind).toBe('AZMREM');
+    if (parsed.kind !== 'AZMREM') return;
+    expect(parsed.remoteAddress).toBe(0);
+    expect(parsed.lat).toBeCloseTo(48.12346);
+    expect(parsed.lon).toBeCloseTo(44.123456);
+    expect(parsed.isTimeout).toBe(false);
+  });
+
   it('splits datagram by CRLF and filters empty lines', () => {
     const lines = splitZimaDatagram('@AZMLOC,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18\r\n\r\n@AZMREM,1\r\n');
     expect(lines.length).toBe(2);

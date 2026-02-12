@@ -35,29 +35,32 @@ Zima2R:
     label: Широта
     inputForm: text-line
     inputMask: dd.mmmmmm
-    enabledBy: '!useExternalGnss'
-    defaultValue: ''
+    enabledBy: '!useExternalGnss && useCommandPort'
+    defaultValue: '48.123456'
     validation:
       type: number
+      allowEmpty: true
       min: -90
       max: 90
   longitude:
     label: Долгота
     inputForm: text-line
     inputMask: ddd.mmmmmm
-    enabledBy: '!useExternalGnss'
-    defaultValue: ''
+    enabledBy: '!useExternalGnss && useCommandPort'
+    defaultValue: '44.123456'
     validation:
       type: number
+      allowEmpty: true
       min: -180
       max: 180
   azimuth:
     label: Азимут
     inputForm: text-line
     inputMask: none
-    enabledBy: '!useExternalGnss'
-    defaultValue: ''
+    enabledBy: '!useExternalGnss && useCommandPort'
+    defaultValue: '0.0'
     validation:
       type: number
+      allowEmpty: true
       min: 0
       max: 360

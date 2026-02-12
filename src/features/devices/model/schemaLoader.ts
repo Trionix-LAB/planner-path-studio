@@ -194,9 +194,17 @@ const normalizeValidation = (
     const min = typeof explicit.min === 'number' ? explicit.min : undefined;
     const max = typeof explicit.max === 'number' ? explicit.max : undefined;
     const integer = typeof explicit.integer === 'boolean' ? explicit.integer : undefined;
-    return { type, ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}), ...(integer !== undefined ? { integer } : {}) };
+    const allowEmpty = typeof explicit.allowEmpty === 'boolean' ? explicit.allowEmpty : undefined;
+    return {
+      type,
+      ...(min !== undefined ? { min } : {}),
+      ...(max !== undefined ? { max } : {}),
+      ...(integer !== undefined ? { integer } : {}),
+      ...(allowEmpty !== undefined ? { allowEmpty } : {}),
+    };
   }
 
+  if (inputForm === 'boolean') return { type: 'none' };
   if (inputMask === '0.0.0.0') return { type: 'ip' };
   if (/port/i.test(key)) return { type: 'port' };
   if (/baud/i.test(key)) return { type: 'number', min: 1, integer: true };
