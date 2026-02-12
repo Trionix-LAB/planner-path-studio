@@ -3,6 +3,7 @@ import { Wifi, WifiOff, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MapObjectProperties from './MapObjectProperties';
 import type { AppUiDefaults } from '@/features/settings';
+import type { RealtimeUiConnectionState } from '@/features/mission';
 
 interface RightPanelProps {
   diverData: {
@@ -13,10 +14,10 @@ interface RightPanelProps {
     depth: number;
   };
   hasTelemetryData: boolean;
+  hasTelemetryHistory: boolean;
   coordPrecision: number;
   styles: AppUiDefaults['styles'];
-  connectionStatus: 'ok' | 'timeout' | 'error';
-  isConnectionEnabled: boolean;
+  connectionState: RealtimeUiConnectionState;
   trackStatus: 'recording' | 'paused' | 'stopped';
   trackId: number;
   selectedObject: MapObject | null;
@@ -33,10 +34,10 @@ interface RightPanelProps {
 const RightPanel = ({
   diverData,
   hasTelemetryData,
+  hasTelemetryHistory,
   coordPrecision,
   styles,
-  connectionStatus,
-  isConnectionEnabled,
+  connectionState,
   trackStatus,
   trackId,
   selectedObject,
@@ -50,20 +51,25 @@ const RightPanel = ({
   onPickLaneStart,
 }: RightPanelProps) => {
   const noTelemetry = !hasTelemetryData;
-  const connectionLabel = !isConnectionEnabled
-    ? 'Выключено'
-    : connectionStatus === 'ok'
-      ? 'Подключено • OK'
-      : connectionStatus === 'error'
-        ? 'Ошибка'
-        : 'Нет данных';
+  const showNoTelemetryLabel = connectionState !== 'off' && noTelemetry && hasTelemetryHistory;
+  const connectionLabel =
+    connectionState === 'off'
+      ? 'Выключено'
+      : connectionState === 'ok'
+        ? 'Подключено • OK'
+        : connectionState === 'error'
+          ? 'Ошибка'
+          : connectionState === 'timeout'
+            ? 'Таймаут'
+            : 'Ожидание данных';
+  const isConnected = connectionState === 'ok';
 
   return (
     <div className="w-64 bg-sidebar border-l border-sidebar-border flex flex-col h-full text-[13px]">
       {/* HUD */}
       <div className="panel-header">HUD</div>
       <div className="p-2.5 space-y-2">
-        {noTelemetry ? (
+        {showNoTelemetryLabel ? (
           <div className="text-xs text-muted-foreground">нет данных</div>
         ) : null}
         <div className="grid grid-cols-2 gap-2">
@@ -108,7 +114,7 @@ const RightPanel = ({
         {/* Connection */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {isConnectionEnabled && connectionStatus === 'ok' ? (
+            {isConnected ? (
               <Wifi className="w-4 h-4 text-success" />
             ) : (
               <WifiOff className="w-4 h-4 text-destructive" />
@@ -118,7 +124,7 @@ const RightPanel = ({
           <span
             className={cn(
               'text-xs font-medium',
-              isConnectionEnabled && connectionStatus === 'ok' ? 'text-success' : 'text-destructive'
+              isConnected ? 'text-success' : 'text-destructive'
             )}
           >
             {connectionLabel}
