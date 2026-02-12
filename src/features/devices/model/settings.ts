@@ -6,6 +6,7 @@ import type {
   DeviceConfig,
   DeviceFieldSchema,
   DeviceSchema,
+  DeviceValidationIssue,
   EquipmentProfile,
   EquipmentRuntimeV2,
   EquipmentSettingsV2,
@@ -327,6 +328,82 @@ export const normalizeEquipmentSettings = (raw: unknown, schemas = loadDeviceSch
   };
 };
 
+const validateFieldValue = (field: DeviceFieldSchema, value: unknown): string | null => {
+  if (field.validation.type === 'ip') {
+    const text = String(value).trim();
+    if (!isValidIpAddress(text)) {
+      return 'Введите корректный IPv4 адрес (например 127.0.0.1)';
+    }
+    return null;
+  }
+
+  if (field.validation.type === 'port') {
+    const port = toNumber(value);
+    if (port === null || !Number.isInteger(port) || port < 1 || port > 65535) {
+      return 'Порт должен быть целым числом от 1 до 65535';
+    }
+    return null;
+  }
+
+  if (field.validation.type === 'number' || field.inputForm === 'number') {
+    if (typeof value === 'string' && value.trim().length === 0) {
+      if (field.validation.allowEmpty) {
+        return null;
+      }
+      return 'Введите число';
+    }
+
+    if (field.validation.allowEmpty) {
+      const text = String(value).trim();
+      if (text.length === 0) {
+        return null;
+      }
+    }
+
+    const n = toNumber(value);
+    if (n === null) {
+      return 'Введите число';
+    }
+    if (field.validation.integer && !Number.isInteger(n)) {
+      return 'Требуется целое число';
+    }
+    if (typeof field.validation.min === 'number' && n < field.validation.min) {
+      return `Минимум: ${field.validation.min}`;
+    }
+    if (typeof field.validation.max === 'number' && n > field.validation.max) {
+      return `Максимум: ${field.validation.max}`;
+    }
+  }
+
+  return null;
+};
+
+export const describeDeviceConfigErrors = (
+  schema: DeviceSchema,
+  errors: Record<string, string>,
+): DeviceValidationIssue[] => {
+  const fieldOrder = new Map(schema.fields.map((field, index) => [field.key, index]));
+
+  return Object.entries(errors)
+    .sort((a, b) => (fieldOrder.get(a[0]) ?? Number.MAX_SAFE_INTEGER) - (fieldOrder.get(b[0]) ?? Number.MAX_SAFE_INTEGER))
+    .map(([fieldKey, message]) => {
+      const field = schema.fields.find((item) => item.key === fieldKey);
+      const fieldLabel = field?.label ?? fieldKey;
+      const sectionTitle = field?.sectionTitle;
+      const context = sectionTitle ? `${schema.title} / ${sectionTitle}` : schema.title;
+
+      return {
+        schemaId: schema.id,
+        schemaTitle: schema.title,
+        ...(sectionTitle ? { sectionTitle } : {}),
+        fieldKey,
+        fieldLabel,
+        message,
+        summary: `${context}: ${fieldLabel} — ${message}`,
+      };
+    });
+};
+
 export const validateDeviceConfig = (schema: DeviceSchema, config: DeviceConfig): Record<string, string> => {
   const errors: Record<string, string> = {};
 
@@ -337,47 +414,9 @@ export const validateDeviceConfig = (schema: DeviceSchema, config: DeviceConfig)
 
     const rawValue = config[field.key];
     const value = rawValue ?? field.defaultValue;
-
-    if (field.validation.type === 'ip') {
-      const text = String(value).trim();
-      if (!isValidIpAddress(text)) {
-        errors[field.key] = 'Введите корректный IPv4 адрес (например 127.0.0.1)';
-      }
-      continue;
-    }
-
-    if (field.validation.type === 'port') {
-      const port = toNumber(value);
-      if (port === null || !Number.isInteger(port) || port < 1 || port > 65535) {
-        errors[field.key] = 'Порт должен быть целым числом от 1 до 65535';
-      }
-      continue;
-    }
-
-    if (field.validation.type === 'number' || field.inputForm === 'number') {
-      if (field.validation.allowEmpty) {
-        const text = String(value).trim();
-        if (text.length === 0) {
-          continue;
-        }
-      }
-
-      const n = toNumber(value);
-      if (n === null) {
-        errors[field.key] = 'Введите число';
-        continue;
-      }
-      if (field.validation.integer && !Number.isInteger(n)) {
-        errors[field.key] = 'Требуется целое число';
-        continue;
-      }
-      if (typeof field.validation.min === 'number' && n < field.validation.min) {
-        errors[field.key] = `Минимум: ${field.validation.min}`;
-        continue;
-      }
-      if (typeof field.validation.max === 'number' && n > field.validation.max) {
-        errors[field.key] = `Максимум: ${field.validation.max}`;
-      }
+    const validationError = validateFieldValue(field, value);
+    if (validationError) {
+      errors[field.key] = validationError;
     }
   }
 

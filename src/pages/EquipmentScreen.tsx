@@ -8,6 +8,7 @@ import DeviceSchemaForm from '@/components/devices/DeviceSchemaForm';
 import {
   createDefaultDeviceConfig,
   createDefaultEquipmentSettings,
+  describeDeviceConfigErrors,
   loadDeviceSchemas,
   normalizeEquipmentSettings,
   readEquipmentSettings,
@@ -35,6 +36,9 @@ const EquipmentScreen = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [validationSummary, setValidationSummary] = useState<string[]>([]);
+  const [focusFieldKey, setFocusFieldKey] = useState<string | null>(null);
+  const [focusRequestVersion, setFocusRequestVersion] = useState(0);
 
   const returnPath = useMemo(() => {
     const query = new URLSearchParams(location.search);
@@ -80,6 +84,12 @@ const EquipmentScreen = () => {
     void load();
   }, [schemas]);
 
+  const clearValidationFeedback = () => {
+    setFieldErrors({});
+    setValidationSummary([]);
+    setFocusFieldKey(null);
+  };
+
   const selectProfile = (profileId: string) => {
     setSettings((prev) => {
       const profile = prev.profiles.find((item) => item.id === profileId);
@@ -92,12 +102,12 @@ const EquipmentScreen = () => {
         selected_device_id: nextDeviceId,
       };
     });
-    setFieldErrors({});
+    clearValidationFeedback();
   };
 
   const selectDevice = (deviceId: string) => {
     setSettings((prev) => ({ ...prev, selected_device_id: deviceId }));
-    setFieldErrors({});
+    clearValidationFeedback();
   };
 
   const updateSelectedProfileName = (name: string) => {
@@ -147,7 +157,7 @@ const EquipmentScreen = () => {
         selected_device_id: nextSelectedDeviceId,
       };
     });
-    setFieldErrors({});
+    clearValidationFeedback();
   };
 
   const addProfile = () => {
@@ -171,7 +181,7 @@ const EquipmentScreen = () => {
         selected_device_id: fallbackDeviceId,
       };
     });
-    setFieldErrors({});
+    clearValidationFeedback();
   };
 
   const removeProfile = (profileId: string) => {
@@ -191,7 +201,7 @@ const EquipmentScreen = () => {
         selected_device_id: nextProfile?.device_ids[0] ?? schemas[0]?.id ?? '',
       };
     });
-    setFieldErrors({});
+    clearValidationFeedback();
   };
 
   const updateDeviceField = (key: string, value: string | number | boolean) => {
@@ -210,8 +220,10 @@ const EquipmentScreen = () => {
     setFieldErrors((prev) => {
       if (!prev[key]) return prev;
       const { [key]: _removed, ...rest } = prev;
+      setValidationSummary(describeDeviceConfigErrors(selectedSchema, rest).map((issue) => issue.summary));
       return rest;
     });
+    setFocusFieldKey(null);
   };
 
   const resetSelected = () => {
@@ -223,7 +235,7 @@ const EquipmentScreen = () => {
         [selectedSchema.id]: createDefaultDeviceConfig(selectedSchema),
       },
     }));
-    setFieldErrors({});
+    clearValidationFeedback();
   };
 
   const handleSave = async () => {
@@ -234,16 +246,27 @@ const EquipmentScreen = () => {
       return;
     }
 
+    setValidationSummary([]);
+    setFocusFieldKey(null);
+
     for (const deviceId of profile.device_ids) {
       const schema = schemas.find((item) => item.id === deviceId);
       if (!schema) continue;
       const errors = validateDeviceConfig(schema, nextSettings.devices[deviceId] ?? {});
       if (Object.keys(errors).length > 0) {
+        const issues = describeDeviceConfigErrors(schema, errors);
+        const firstIssue = issues[0];
+
         setSettings((prev) => ({ ...prev, selected_device_id: deviceId }));
         setFieldErrors(errors);
+        setValidationSummary(issues.map((issue) => issue.summary));
+        if (firstIssue) {
+          setFocusFieldKey(firstIssue.fieldKey);
+          setFocusRequestVersion((prev) => prev + 1);
+        }
         toast({
           title: 'Проверьте значения',
-          description: `Есть ошибки валидации в настройках "${schema.title}".`,
+          description: firstIssue?.summary ?? `Есть ошибки валидации в настройках "${schema.title}".`,
         });
         return;
       }
@@ -253,7 +276,7 @@ const EquipmentScreen = () => {
     try {
       const saved = await writeEquipmentSettings(platform.settings, nextSettings, schemas);
       setSettings(saved.settings);
-      setFieldErrors({});
+      clearValidationFeedback();
       toast({ title: 'Профили оборудования сохранены' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось сохранить настройки оборудования';
@@ -388,10 +411,28 @@ const EquipmentScreen = () => {
                           <h2 className="text-base font-semibold">{selectedSchema.title}</h2>
                         </div>
 
+                        {validationSummary.length > 0 ? (
+                          <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3" role="alert">
+                            <p className="text-sm font-medium text-destructive">Исправьте ошибки в полях:</p>
+                            <ul className="mt-2 space-y-1">
+                              {validationSummary.slice(0, 5).map((message, index) => (
+                                <li key={`${index}-${message}`} className="text-xs text-destructive">
+                                  {message}
+                                </li>
+                              ))}
+                            </ul>
+                            {validationSummary.length > 5 ? (
+                              <p className="mt-2 text-xs text-destructive">И ещё ошибок: {validationSummary.length - 5}</p>
+                            ) : null}
+                          </div>
+                        ) : null}
+
                         <DeviceSchemaForm
                           schema={selectedSchema}
                           value={selectedConfig}
                           errors={fieldErrors}
+                          focusFieldKey={focusFieldKey}
+                          focusRequestVersion={focusRequestVersion}
                           disabled={isLoading || isSaving}
                           onChange={updateDeviceField}
                         />

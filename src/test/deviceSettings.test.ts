@@ -3,6 +3,7 @@ import {
   buildEquipmentRuntime,
   createDefaultDeviceConfig,
   createDefaultEquipmentSettings,
+  describeDeviceConfigErrors,
   loadDeviceSchemas,
   normalizeEquipmentSettings,
   validateDeviceConfig,
@@ -115,7 +116,7 @@ describe('equipment settings', () => {
     expect(errors.gnssBaud).toBeUndefined();
   });
 
-  it('allows empty manual coordinates when command port mode is enabled', () => {
+  it('requires manual coordinates when command port mode is enabled', () => {
     const zimaSchema = loadDeviceSchemas().find((schema) => schema.id === 'zima2r');
     expect(zimaSchema).toBeTruthy();
 
@@ -131,9 +132,35 @@ describe('equipment settings', () => {
       azimuth: '',
     });
 
-    expect(errors.latitude).toBeUndefined();
-    expect(errors.longitude).toBeUndefined();
-    expect(errors.azimuth).toBeUndefined();
+    expect(errors.latitude).toBe('Введите число');
+    expect(errors.longitude).toBe('Введите число');
+    expect(errors.azimuth).toBe('Введите число');
+  });
+
+  it('builds human-readable validation issues with schema and field context', () => {
+    const zimaSchema = loadDeviceSchemas().find((schema) => schema.id === 'zima2r');
+    expect(zimaSchema).toBeTruthy();
+
+    const errors = validateDeviceConfig(zimaSchema!, {
+      ipAddress: '999.2.3.4',
+      commandPort: '28128',
+      dataPort: '28127',
+      gnssBaud: '115200',
+      useExternalGnss: false,
+      useCommandPort: false,
+      latitude: '',
+      longitude: '',
+      azimuth: '',
+    });
+    const issues = describeDeviceConfigErrors(zimaSchema!, errors);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].fieldKey).toBe('ipAddress');
+    expect(issues[0].fieldLabel).toBe('IP-адрес');
+    expect(issues[0].schemaTitle).toBe('Zima2R');
+    expect(issues[0].summary).toContain('Zima2R');
+    expect(issues[0].summary).toContain('IP-адрес');
+    expect(issues[0].summary).toContain('Введите корректный IPv4 адрес');
   });
 
   it('builds runtime for active profile with zima and gnss', () => {

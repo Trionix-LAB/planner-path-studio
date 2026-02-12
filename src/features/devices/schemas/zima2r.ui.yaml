@@ -39,7 +39,6 @@ Zima2R:
     defaultValue: '48.123456'
     validation:
       type: number
-      allowEmpty: true
       min: -90
       max: 90
   longitude:
@@ -50,7 +49,6 @@ Zima2R:
     defaultValue: '44.123456'
     validation:
       type: number
-      allowEmpty: true
       min: -180
       max: 180
   azimuth:
@@ -61,6 +59,5 @@ Zima2R:
     defaultValue: '0.0'
     validation:
       type: number
-      allowEmpty: true
       min: 0
       max: 360

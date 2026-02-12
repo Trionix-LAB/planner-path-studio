@@ -31,7 +31,7 @@ describe('device schema loader', () => {
     expect(commandPortField?.validation.type).toBe('port');
     expect(gnssBaudField?.enabledBy).toBe('useExternalGnss');
     expect(latitudeField?.enabledBy).toBe('!useExternalGnss && useCommandPort');
-    expect(latitudeField?.validation.allowEmpty).toBe(true);
+    expect(latitudeField?.validation.allowEmpty).toBeUndefined();
     expect(useCommandPortField?.validation.type).toBe('none');
     expect(gnss?.fields.map((field) => field.key)).toEqual(['ipAddress', 'dataPort']);
   });
