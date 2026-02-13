@@ -24,6 +24,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
 
+    env:
+      PFX_B64: ${{ secrets.WIN_CODE_SIGN_CERT_BASE64 }}
+      PFX_PASSWORD: ${{ secrets.WIN_CODE_SIGN_CERT_PASSWORD }}
+      TIMESTAMP_URL: ${{ secrets.WIN_CODE_SIGN_TIMESTAMP_URL }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,12 +56,8 @@ jobs:
           Get-ChildItem -Path "release" -Recurse | Format-Table -AutoSize
 
       - name: Optional code signing (if secrets provided)
-        if: ${{ secrets.WIN_CODE_SIGN_CERT_BASE64 != '' && secrets.WIN_CODE_SIGN_CERT_PASSWORD != '' }}
+        if: ${{ env.PFX_B64 != '' && env.PFX_PASSWORD != '' }}
         shell: pwsh
-        env:
-          PFX_B64: ${{ secrets.WIN_CODE_SIGN_CERT_BASE64 }}
-          PFX_PASSWORD: ${{ secrets.WIN_CODE_SIGN_CERT_PASSWORD }}
-          TIMESTAMP_URL: ${{ secrets.WIN_CODE_SIGN_TIMESTAMP_URL }}
         run: |
           $pfxPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_B64))
