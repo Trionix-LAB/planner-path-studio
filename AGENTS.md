@@ -30,3 +30,23 @@ Rule of thumb: if something is described in those docs, do not restate it here�
 ## PR hygiene (summary)
 - Work should be traceable: requirement → issue → PR → code (details in `docs/PROCESS.md`).
 - If behavior changes, update `spec/spec.md` accordingly.
+
+## Commit message formatting (important) ⚠️
+- Never include literal `\n` sequences in commit messages or PR/issue titles — they break rendering in git logs, CI, and changelogs.
+- Use real newlines for multi-line messages: first line = short subject, then a blank line, then the body.
+- Scripts/agents must sanitize generated messages by converting `\\n` to actual newlines before calling `git commit` or APIs.
+
+Examples
+- Bad (do **not** produce): `Fix crash on load\n- stacktrace attached`
+- Good (rendered correctly):
+  - Subject: `Fix crash on load`
+  - Body: `- stacktrace attached` (separated from subject by an empty line)
+
+Practical rules for automation / agents 🔧
+1. Replace any `\\n` substrings with `\n` (actual newline) in generated messages:
+   - JS: `message = message.replace(/\\\\n/g, "\\n");`
+   - Shell (POSIX): `commit_msg=$(printf "%b" "$commit_msg")`
+2. Keep subject ≤ 50 chars, leave one blank line, wrap body at ≈72 chars.
+3. When using CI or bot-created changelogs, produce plain-text or markdown with real newlines so renderers and tools behave correctly.
+
+If you update tooling that writes commit messages, add a unit or integration test asserting there are no literal `\\n` sequences in final messages.
