@@ -1,0 +1,111 @@
+name: Release (Windows portable)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v1.2.3)"
+        required: true
+        type: string
+      publish:
+        description: "Publish release (draft=false)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows_portable:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Electron portable (Windows)
+        run: npm run electron:build
+
+      - name: List build outputs
+        shell: pwsh
+        run: |
+          if (!(Test-Path "release")) {
+            throw "release/ directory not found"
+          }
+          Get-ChildItem -Path "release" -Recurse | Format-Table -AutoSize
+
+      - name: Optional code signing (if secrets provided)
+        if: ${{ secrets.WIN_CODE_SIGN_CERT_BASE64 != '' && secrets.WIN_CODE_SIGN_CERT_PASSWORD != '' }}
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.WIN_CODE_SIGN_CERT_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WIN_CODE_SIGN_CERT_PASSWORD }}
+          TIMESTAMP_URL: ${{ secrets.WIN_CODE_SIGN_TIMESTAMP_URL }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_B64))
+
+          $timestamp = if ($env:TIMESTAMP_URL -and $env:TIMESTAMP_URL.Trim() -ne "") { $env:TIMESTAMP_URL } else { "http://timestamp.digicert.com" }
+
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (!$signtool) {
+            throw "signtool.exe not found on runner"
+          }
+
+          $targets = Get-ChildItem -Path "release" -Filter "*.exe" -File
+          if (!$targets) {
+            throw "No .exe found in release/"
+          }
+
+          foreach ($t in $targets) {
+            & $signtool sign /f $pfxPath /p $env:PFX_PASSWORD /fd SHA256 /tr $timestamp /td SHA256 /v $t.FullName
+          }
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          path: |
+            release/*.exe
+          if-no-files-found: error
+
+      - name: Create/update draft GitHub Release (tag push)
+        if: ${{ github.event_name == 'push' }}
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: |
+            release/*.exe
+          fail_on_unmatched_files: true
+
+      - name: Create/update GitHub Release (manual)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ inputs.tag }}
+          draft: ${{ !inputs.publish }}
+          files: |
+            release/*.exe
+          fail_on_unmatched_files: true
