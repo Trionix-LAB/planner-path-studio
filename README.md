@@ -1,137 +1,372 @@
-# Planner Path Studio (Trionix Planner)
+# Planner Path Studio
 
-Прототип пользовательского интерфейса для планирования и записи миссий, созданный с использованием:
-- Vite + React + TypeScript
-- Tailwind + shadcn-ui
-- Leaflet (react-leaflet)
+> A mission planning and recording interface for underwater robotics and mapping operations
 
-## Разработка
+Desktop application for real-time tracking, mission planning, and data recording with support for multiple agents and telemetry devices.
+
+**Tech Stack:** Vite + React + TypeScript, Tailwind CSS + shadcn/ui, Leaflet (OpenStreetMap)
+
+**Live Demo:** [https://docs.trionix-lab.ru/planner-path-studio/](https://docs.trionix-lab.ru/planner-path-studio/)
+
+---
+
+## 🚀 Quick Start
 
 ```sh
-npm i
+# Install dependencies
+npm install
+
+# Start development server
 npm run dev
 ```
 
-## Документация
+The application will be available at `http://localhost:8080`
 
-Ссылки на внутреннюю документацию (ключевые файлы):
+---
 
-- [docs/PROCESS.md](docs/PROCESS.md) — инженерный процесс и правила работы с requirements/issues/PR
-- [spec/spec.md](spec/spec.md) — область MVP, поведение и целевые показатели производительности
-- [screens.md](docs/screens.md) — экраны, макеты и навигационные потоки
-- [mission-format.md](docs/mission-format.md) — формат хранения миссии на диске (`mission.json`, `routes/*.geojson`, `tracks/*.csv`)
-- [electron-telemetry-provider.md](docs/electron-telemetry-provider.md) — заметки о телеметрии для сборки Electron
-- [roadmap.md](docs/roadmap.md) — дорожная карта проекта
-- [tasks.md](docs/tasks.md) — задачи и TODO
+## 📋 Engineering Process
 
-Полный список документов: [`docs/`](docs/)
+This project follows a strict, documented engineering process designed for human-AI collaboration:
 
-**Примечание:** при желании могу добавить якорные ссылки на ключевые секции внутри документов (например, `mission-format.md#compatibility`) для быстрого перехода.
+**→ Read first:** [**docs/process/PROCESS.md**](docs/process/PROCESS.md)
 
-## Симуляторы
+The process ensures traceability: **requirement → issue → PR → code**
 
-В репозитории есть CLI-симуляторы оборудования для локальной разработки и CI. Они отправляют UDP-данные в приложение.
+Key principles:
+- Single source of truth: `spec/spec.md` contains all system requirements
+- GitHub-based workflow: issues with labels (`status:backlog`, `status:todo`, `status:in-progress`)
+- Formal requirements: every requirement has a unique ID (`R-XXX`)
+- PR discipline: all PRs must reference an issue and specification ID
+- ADR for architectural decisions: stored in `spec/adr/`
 
-Перед запуском:
+---
+
+## 📚 Documentation
+
+### Core Documentation
+
+| Document | Description |
+|----------|-------------|
+| [**docs/process/PROCESS.md**](docs/process/PROCESS.md) | Engineering process, issue workflow, PR guidelines |
+| [**spec/spec.md**](spec/spec.md) | MVP scope, system requirements, performance targets |
+| [**docs/screens.md**](docs/screens.md) | Screen layouts, navigation flows, UX specification |
+| [**docs/mission-format.md**](docs/mission-format.md) | On-disk mission format (`mission.json`, GeoJSON, CSV) |
+| [**docs/roadmap.md**](docs/roadmap.md) | Development roadmap and sprint planning |
+
+### Additional Documentation
+
+- [**docs/tasks.md**](docs/tasks.md) — Current tasks and TODO items
+- [**docs/devices.md**](docs/devices.md) — Hardware device specifications
+- [**docs/electron-telemetry-provider.md**](docs/electron-telemetry-provider.md) — Electron telemetry integration notes
+- [**spec/adr/**](spec/adr/) — Architectural Decision Records
+
+**Full documentation:** [`docs/`](docs/) | **Interactive dashboard:** [`docs/index.html`](https://docs.trionix-lab.ru/planner-path-studio/)
+
+---
+
+## 🔧 Development Tools
+
+### Available Commands
 
 ```sh
-npm i
+# Development
+npm run dev              # Start dev server with HMR
+npm run build            # Production build
+npm run build:dev        # Development build
+npm run preview          # Preview production build locally
+
+# Code Quality
+npm run lint             # Run ESLint
+npm run typecheck        # Run TypeScript type checking
+npm run test             # Run tests once (Vitest)
+npm run test:watch       # Run tests in watch mode
+npm run verify           # Run all checks: typecheck + lint + test + build
+
+# Electron Desktop App
+npm run electron:dev     # Start Electron app in dev mode with HMR
+npm run electron:build   # Build portable Windows executable
+
+# Deployment
+npm run deploy           # Deploy to GitHub Pages
 ```
 
-### Zima2R (UDP @AZMLOC/@AZMREM)
+### Project Structure
 
-- Стрим телеметрии в приложение:
+```
+planner-path-studio/
+├── src/                      # Application source code
+│   ├── pages/               # Route pages (StartScreen, MapWorkspace, NotFound)
+│   ├── features/            # Domain/feature modules (map, mission, telemetry)
+│   ├── components/          # React components
+│   │   ├── ui/             # Reusable UI components (shadcn/ui)
+│   │   ├── map/            # Map-specific components
+│   │   └── dialogs/        # Dialog components
+│   ├── platform/            # Platform abstraction layer (web/electron)
+│   ├── hooks/              # Custom React hooks
+│   ├── lib/                # Utilities and helpers
+│   └── test/               # Test utilities and setup
+├── docs/                    # Documentation
+│   ├── process/            # Engineering process documentation
+│   └── features/           # Feature specifications
+├── spec/                    # System requirements and specifications
+│   ├── spec.md             # Main specification file
+│   └── adr/                # Architecture Decision Records
+├── electron/               # Electron main process
+├── tools/                  # Development tools (simulators)
+└── public/                 # Static assets
+```
 
+---
+
+## 🎮 Hardware Simulators
+
+CLI simulators for local development and CI testing. These tools send UDP telemetry data to the application, enabling testing without physical hardware.
+
+### Zima2R Simulator (UDP @AZMLOC/@AZMREM)
+
+Simulates Zima2R acoustic positioning system for underwater tracking.
+
+**Stream telemetry:**
 ```sh
 npm run zima:sim -- --to 127.0.0.1:28127 --rate 1 --beacon-ids 1,2,3
 ```
 
-- Проигрывание сценария (пример: `scenario.json` в корне):
-
+**Playback scenario** (example: `scenario.json` in project root):
 ```sh
 npm run zima:sim -- --mode playback --replay ./scenario.json --to 127.0.0.1:28127
 ```
 
-- (Опционально) включить приём/эхо команд:
-
+**With command echo** (optional):
 ```sh
 npm run zima:sim -- --to 127.0.0.1:28127 --command-port 28128 --command-echo true
 ```
 
-Документация: `docs/features/zima-simulator.md`.
+**Use cases:**
+- Protocol parsing validation
+- Agent tracking and beacon binding (`rem_addr`)
+- Connection loss and error handling
+- CI automated testing
 
-### GNSS-UDP (NMEA 0183)
+📖 **Documentation:** [docs/features/zima-simulator.md](docs/features/zima-simulator.md)
 
-- Стрим NMEA в приложение:
+### GNSS-UDP Simulator (NMEA 0183)
 
+Simulates GNSS compass for positioning and heading data.
+
+**Stream NMEA messages:**
 ```sh
 npm run gnss:sim -- --to 127.0.0.1:28128 --rate 2
 ```
 
-- Проигрывание сценария:
-
+**Playback scenario:**
 ```sh
 npm run gnss:sim -- --mode playback --replay ./path/to/scenario.yaml --to 127.0.0.1:28128
 ```
 
-Документация: `docs/features/gnss-udp-simulator.md`.
+**Use cases:**
+- NMEA parser testing (GGA, RMC, HDT)
+- Connection timeout handling
+- Malformed message handling
+- CI automated testing
 
-## Тесты / Линт
+📖 **Documentation:** [docs/features/gnss-udp-simulator.md](docs/features/gnss-udp-simulator.md)
+
+### CI Integration
+
+Both simulators can be used in CI pipelines:
+- Deterministic playback scenarios for reproducible tests
+- Automated integration testing without hardware
+- Protocol compliance validation
+
+---
+
+## 🧪 Testing & Quality Assurance
+
+### Running Tests
 
 ```sh
+# Run all tests once
 npm run test
+
+# Watch mode for development
+npm run test:watch
+
+# Full verification suite
+npm run verify  # typecheck + lint + test + build
+```
+
+### Test Framework
+
+- **Vitest** for unit and integration tests
+- **Testing Library** for component testing
+- **JSDOM** for browser environment simulation
+
+Test files are located in `src/test/` and alongside features using `*.test.ts` or `*.spec.ts` naming.
+
+### Linting
+
+```sh
 npm run lint
 ```
 
-## Развёртывание
+ESLint configuration with React hooks and TypeScript support.
 
-Чтобы опубликовать проект на GitHub Pages, выполните:
+---
+
+## 🚢 Deployment
+
+### GitHub Pages
+
+Deploy the web version to GitHub Pages:
 
 ```sh
 npm run deploy
 ```
 
-**Как это работает:**
-1. Выполняется `npm run build` для создания продакшен-сборки в папке `dist`.
-2. Пакет `gh-pages` публикует содержимое `dist` в ветку `gh-pages`.
-3. GitHub автоматически хостит содержимое из этой ветки.
+This command:
+1. Builds the production bundle (`npm run build`)
+2. Publishes `dist/` to the `gh-pages` branch using `gh-pages` package
+3. GitHub automatically hosts the content
 
-Демо: [https://docs.trionix-lab.ru/planner-path-studio/](https://docs.trionix-lab.ru/planner-path-studio/)
+**Live demo:** [https://docs.trionix-lab.ru/planner-path-studio/](https://docs.trionix-lab.ru/planner-path-studio/)
 
-## Готовность для Electron ✅
+---
 
-Платформозависимые возможности (диалоги файловой системы, устройства, офлайн-тайлы) инкапсулированы за интерфейсом `src/platform/*`. В проект добавлены скелет Electron и реализация платформы для Electron, которые обеспечивают реальный доступ к диску и диалогам, сохраняя при этом пользовательский интерфейс без изменений.
+## 🖥️ Electron Desktop App
 
-### Быстрый старт — Electron (Windows)
+The application is platform-ready with desktop capabilities encapsulated behind `src/platform/*` interface.
 
-- Разработка (HMR + Electron):
+### Features
+
+- **Real file system access:** Native folder picker, mission file read/write
+- **Settings persistence:** JSON storage in app data directory (`app.getPath('userData')`)
+- **Security:** Context isolation enabled, IPC via preload script
+- **Portable builds:** No installation required
+
+### Development
 
 ```sh
-npm i
-npm run electron:dev
+npm install
+npm run electron:dev  # Starts Vite dev server + Electron with HMR
 ```
 
-- Сборка переносимого Windows-исполняемого файла:
+### Building Windows Executable
 
 ```sh
 npm run electron:build
 ```
 
-Шаг упаковки формирует переносимый исполняемый файл в `release/` (например, `release/Planner Path Studio-Portable-0.0.0.exe`). Если упаковка не удаётся из‑за прав ОС при распаковке вспомогательных инструментов для подписи, включите **Режим разработчика** в Windows или запустите сборку в терминале с правами администратора; также в конфиге установлен `win.signAndEditExecutable=false`, чтобы избежать частой проблемы со символьными ссылками.
+Output: `release/Planner Path Studio-Portable-0.0.0.exe`
 
-### Что меняется в Electron
+**Note:** If build fails due to OS permissions when unpacking signing tools:
+- Enable **Developer Mode** in Windows, or
+- Run build in administrator terminal
+- Alternatively, `win.signAndEditExecutable=false` is already configured to avoid symlink issues
 
-- Файловая система: открытие/создание миссий использует системный диалог выбора папки (`dialog.showOpenDialog`), а файлы миссий (например, `mission.json`, `routes/*.geojson`, `tracks/*.csv`) читаются и записываются в выбранную папку с помощью Node `fs` через IPC.
-- Настройки сохраняются в JSON-файл в директории данных приложения (Electron `app.getPath('userData')/settings.json`).
-- Безопасность: рендерер использует `contextIsolation: true` и `nodeIntegration: false`; через `preload` предоставляется узкий набор методов IPC.
+### What Changes in Electron
 
-### Веб-режим по-прежнему работает 🌐
+| Feature | Web Version | Electron Version |
+|---------|------------|------------------|
+| File System | In-memory / localStorage | Native `fs` via IPC |
+| Mission Open/Save | Browser limitations | System folder picker dialog |
+| Settings Storage | localStorage | JSON file in `userData` directory |
+| Offline Tiles | Not available | Can be implemented with local cache |
+| Device Access | Web APIs only | Full Node.js device access |
 
-- Для разработки: `npm run dev`
-- Для продакшен‑сборки: `npm run build` (для специальной сборки с `--mode electron` мы используем `base: './'`, поэтому стандартные веб‑сборки остаются без изменений)
+### Dual Mode Support
 
-### Прочее
+Both web and Electron builds work from the same codebase:
+- Web: `npm run dev` → `npm run build`
+- Electron: `npm run electron:dev` → `npm run electron:build`
 
-- В `.gitignore` уже добавлены артефакты упаковки (`release/`, `win-unpacked/`, `dist/`), файлы окружения, логи и кэши.
-- По желанию могу добавить иконку/метаданные автора и краткий раздел в документации разработчика о том, как устроены файлы миссии на диске.
+Platform-specific code is isolated in `src/platform/` with separate implementations for web and Electron.
+
+---
+
+## 🏗️ Architecture
+
+### Platform Abstraction
+
+Platform-dependent features (file system, dialogs, device access, offline tiles) are encapsulated behind the `src/platform/*` interface:
+
+```
+src/platform/
+├── PlatformInterface.ts    # Abstract interface
+├── web/                     # Web implementation (localStorage, etc.)
+└── electron/                # Electron implementation (Node.js APIs)
+```
+
+The UI remains unchanged across platforms, with the platform layer handling environment-specific implementations.
+
+### Mission Data Format
+
+Missions are stored as folder structures on disk:
+
+```
+mission-name/
+├── mission.json           # Metadata, UI state, track sessions
+├── tracks/
+│   ├── track-001.csv     # GPS tracks with timestamps
+│   └── track-002.csv
+├── routes/
+│   └── routes.geojson    # Planning objects (routes, survey areas, lanes)
+└── markers/
+    └── markers.geojson   # User markers with descriptions
+```
+
+📖 **Full specification:** [docs/mission-format.md](docs/mission-format.md)
+
+### Coordinate Systems
+
+- **Input/Storage:** WGS84 lat/lon (EPSG:4326)
+- **Map Display:** Web Mercator (EPSG:3857) for OSM tiles
+- **Measurements:** Local UTM zone for metric calculations
+- **GeoJSON:** Standard `[lon, lat]` coordinate order
+
+---
+
+## 🤝 Contributing
+
+1. Read [docs/process/PROCESS.md](docs/process/PROCESS.md) for engineering process
+2. Check [spec/spec.md](spec/spec.md) for system requirements
+3. Follow the workflow: requirement → issue → PR → code
+4. All PRs must reference an issue and specification ID
+5. Run `npm run verify` before submitting PRs
+
+### Issue Labels
+
+- `status:backlog` — Idea, not yet ready for development
+- `status:todo` — Ready for implementation (Definition of Ready met)
+- `status:in-progress` — Currently being worked on
+- `status:done` — Completed (optional)
+
+### Commit Format
+
+```
+<kind>(<area>): <summary>
+
+Examples:
+feat(map): implement R-042 route editing
+fix(telemetry): connection timeout handling
+spec(mission): clarify autosave behavior
+```
+
+---
+
+## 📄 License
+
+See repository license file for details.
+
+---
+
+## 🔗 Links
+
+- **Repository:** [github.com/Trionix-LAB/planner-path-studio](https://github.com/Trionix-LAB/planner-path-studio)
+- **Live Demo:** [docs.trionix-lab.ru/planner-path-studio](https://docs.trionix-lab.ru/planner-path-studio/)
+- **Documentation Dashboard:** [docs/index.html](https://docs.trionix-lab.ru/planner-path-studio/)
+- **Organization:** [Trionix LAB](https://github.com/Trionix-LAB)
+
+---
+
+**Built with ❤️ for underwater robotics and mapping operations**
 
