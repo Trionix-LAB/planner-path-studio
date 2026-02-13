@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planner Path Studio - Текущее состояние проекта</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 2rem;
+            text-align: center;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .status-overview {
+            display: flex;
+            justify-content: space-around;
+            margin: 2rem 0;
+            flex-wrap: wrap;
+        }
+        .status-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 1rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            flex: 1;
+            min-width: 200px;
+            text-align: center;
+        }
+        .status-card.ok { border-left: 5px solid #27ae60; }
+        .status-card.partial { border-left: 5px solid #f39c12; }
+        .status-card.unknown { border-left: 5px solid #95a5a6; }
+        .status-card.not { border-left: 5px solid #e74c3c; }
+        .links {
+            margin: 2rem 0;
+        }
+        .links a {
+            display: inline-block;
+            margin: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .links a:hover {
+            background: #2980b9;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 2rem 0;
+            background: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+        }
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            background: #34495e;
+            color: white;
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Planner Path Studio</h1>
+        <p>Инструмент планирования и мониторинга водолазных работ</p>
+        <p>Текущее состояние проекта (на основе аудита реализации)</p>
+    </header>
+
+    <div class="container">
+        <section>
+            <h2>Обзор статуса требований</h2>
+            <div class="status-overview">
+                <div class="status-card ok">
+                    <h3>Реализовано</h3>
+                    <p>40+ требований</p>
+                </div>
+                <div class="status-card partial">
+                    <h3>Частично</h3>
+                    <p>4 требования</p>
+                </div>
+                <div class="status-card unknown">
+                    <h3>Неизвестно</h3>
+                    <p>1 требование</p>
+                </div>
+                <div class="status-card not">
+                    <h3>Не реализовано</h3>
+                    <p>0 требований</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Ключевые документы</h2>
+            <div class="links">
+                <a href="https://github.com/Trionix-LAB/planner-path-studio/blob/main/spec/spec.md">Спецификация (spec.md)</a>
+                <a href="https://github.com/Trionix-LAB/planner-path-studio/blob/main/spec/implementation-audit.md">Аудит реализации</a>
+                <a href="https://github.com/Trionix-LAB/planner-path-studio/blob/main/README.md">README проекта</a>
+                <a href="https://github.com/Trionix-LAB/planner-path-studio/issues">Открытые задачи (Issues)</a>
+            </div>
+        </section>
+
+        <section>
+            <h2>Основные возможности (реализованные)</h2>
+            <ul>
+                <li>Отображение карты с подложкой OpenStreetMap</li>
+                <li>Система координат и масштабирование (линейка, сетка)</li>
+                <li>Реалтайм-отслеживание агентов и базовой станции</li>
+                <li>Запись треков с поддержкой нескольких агентов</li>
+                <li>Планирование: маршруты, зоны обследования, галсы</li>
+                <li>Управление миссиями: создание, открытие, экспорт</li>
+                <li>Настройки интерфейса и стилей</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Текущие задачи на исправление</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Issue</th>
+                        <th>Описание</th>
+                        <th>Статус</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/42">#42</a></td>
+                        <td>Конвертация черновика в миссию без потери данных</td>
+                        <td>todo</td>
+                    </tr>
+                    <tr>
+                        <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/43">#43</a></td>
+                        <td>Синхронизация папки миссий между экранами</td>
+                        <td>todo</td>
+                    </tr>
+                    <tr>
+                        <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/44">#44</a></td>
+                        <td>Точность метрической сетки (UTM)</td>
+                        <td>todo</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Как запустить проект</h2>
+            <pre><code>npm install
+npm run dev</code></pre>
+            <p>Подробности в <a href="https://github.com/Trionix-LAB/planner-path-studio/blob/main/README.md">README</a>.</p>
+        </section>
+    </div>
+
+    <footer class="footer">
+        <p>&copy; 2026 Trionix LAB. Проект на GitHub: <a href="https://github.com/Trionix-LAB/planner-path-studio" style="color: #bdc3c7;">planner-path-studio</a></p>
+        <p>Последнее обновление: 13 февраля 2026</p>
+    </footer>
+</body>
+</html>
