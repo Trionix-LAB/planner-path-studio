@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultDiver, normalizeDivers } from '@/features/mission';
 
-describe('divers model', () => {
+describe('divers model (R-017 — beacon id)', () => {
   it('creates default diver with separate beacon id', () => {
     const diver = createDefaultDiver(0);
     expect(diver.id).toBe('1');

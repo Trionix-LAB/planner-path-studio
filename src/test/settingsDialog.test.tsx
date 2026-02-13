@@ -63,7 +63,7 @@ const getBeaconIdInput = (): HTMLInputElement => {
   return field;
 };
 
-describe('SettingsDialog beacon id availability', () => {
+describe('SettingsDialog beacon id availability (R-017)', () => {
   it('disables beacon id input when zima profile is not assigned', async () => {
     await renderDialog({
       isZimaAssignedInProfile: false,

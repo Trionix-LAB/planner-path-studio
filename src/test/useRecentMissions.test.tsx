@@ -15,7 +15,7 @@ vi.mock('@/features/mission/model/recentMissions', async () => {
 
 import { useRecentMissions } from '@/hooks/useRecentMissions';
 
-describe('useRecentMissions', () => {
+describe('useRecentMissions (R-014 — Recent missions hook)', () => {
   it('reloads when missionsDir or limit changes and exposes reload()', async () => {
     loadRecentMissionsMock.mockResolvedValue([{ name: 'A', rootPath: 'C:/Missions/A', dateLabel: 'x' }]);
 

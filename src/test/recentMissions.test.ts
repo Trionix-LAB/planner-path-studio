@@ -38,7 +38,7 @@ const createPlatform = ({ isElectron, files = {}, mtimes = {} }: TestPlatformOpt
   },
 });
 
-describe('loadRecentMissions', () => {
+describe('loadRecentMissions (R-014 — Recent missions)', () => {
   it('sorts by mtime and applies limit in electron mode', async () => {
     const files = {
       'C:/Missions/A/mission.json': JSON.stringify({ name: 'Mission A', updated_at: '2026-01-01T10:00:00.000Z' }),

@@ -22,7 +22,7 @@ const createMission = (): MissionDocument => ({
   },
 });
 
-describe('track recorder', () => {
+describe('track recorder (R-015 — multi-agent track recording)', () => {
   it('starts, pauses, resumes and stops with track metadata updates', () => {
     let state = createTrackRecorderState(createMission(), {});
 

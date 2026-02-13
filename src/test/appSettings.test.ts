@@ -37,7 +37,7 @@ describe('app settings', () => {
     expect(normalized.defaults.connection.port).toBe(65535);
   });
 
-  it('merges mission ui overrides onto defaults', () => {
+  it('merges mission ui overrides onto defaults (R-046)', () => {
     const defaults = createDefaultAppSettings().defaults;
     const effective = mergeDefaultsWithMissionUi(defaults, {
       follow_diver: false,

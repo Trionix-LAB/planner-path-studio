@@ -41,7 +41,7 @@ const createMemoryStoreWithReadLog = (): { store: FileStoreBridge; readLog: stri
 };
 
 describe('mission repository', () => {
-  it('stores provided mission ui on create', async () => {
+  it('stores provided mission ui on create (R-046)', async () => {
     const store = createMemoryStore();
     const repository = createMissionRepository(store);
     const rootPath = 'C:/Missions/UiMission';

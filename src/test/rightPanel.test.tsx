@@ -14,7 +14,7 @@ const testAgent: DiverUiConfig = {
   navigation_source: 'simulation',
 };
 
-describe('RightPanel HUD defaults', () => {
+describe('RightPanel HUD defaults (includes agent track UI — R-015)', () => {
   it('shows no telemetry values and disabled connection state', () => {
     render(
       <RightPanel

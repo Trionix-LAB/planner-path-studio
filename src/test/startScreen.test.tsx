@@ -173,7 +173,7 @@ describe('StartScreen missions actions', () => {
     confirmSpy.mockRestore();
   });
 
-  it('opens a new empty draft from the draft button', async () => {
+  it('opens a new empty draft from the draft button (R-016)', async () => {
     render(
       <MemoryRouter>
         <StartScreen />
@@ -184,7 +184,7 @@ describe('StartScreen missions actions', () => {
     expect(mocks.navigate).toHaveBeenCalledWith('/map?mode=new-draft');
   });
 
-  it('shows and opens recover action only when recoverable draft exists', async () => {
+  it('shows and opens recover action only when recoverable draft exists (R-016)', async () => {
     mocks.exists.mockResolvedValue(true);
 
     render(
