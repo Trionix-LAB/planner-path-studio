@@ -138,52 +138,71 @@
 
         <section>
             <h2>Текущие и будущие задачи</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Issue</th>
-                        <th>Описание</th>
-                        <th>Статус</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/42">#42</a></td>
-                        <td>Конвертация черновика в миссию без потери данных</td>
-                        <td>todo</td>
-                    </tr>
-                    <tr>
-                        <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/43">#43</a></td>
-                        <td>Синхронизация папки миссий между экранами</td>
-                        <td>todo</td>
-                    </tr>
-                    <tr>
-                        <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/44">#44</a></td>
-                        <td>Точность метрической сетки (UTM)</td>
-                        <td>todo</td>
-                    </tr>
-                    <tr>
-                        <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/21">#21</a></td>
-                        <td>Добавить GitHub workflow для релиза и публикации артефакта</td>
-                        <td>backlog</td>
-                    </tr>
-                    <tr>
-                        <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/18">#18</a></td>
-                        <td>Рефакторинг расположения кнопки «Оборудование» на стартовом экране</td>
-                        <td>backlog</td>
-                    </tr>
-                    <tr>
-                        <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/3">#3</a></td>
-                        <td>Smoke test: create → edit → autosave → reopen → export</td>
-                        <td>backlog</td>
-                    </tr>
-                    <tr>
-                        <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/2">#2</a></td>
-                        <td>Undo/Redo for planning objects</td>
-                        <td>backlog</td>
-                    </tr>
-                </tbody>
-            </table>
+            <div class="tasks-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem;">
+                <div class="status-card" style="padding:1rem;">
+                    <h3>Todo ✅</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Issue</th>
+                                <th>Описание</th>
+                                <th>Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/42">#42</a></td>
+                                <td>Конвертация черновика в миссию без потери данных</td>
+                                <td>todo</td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/43">#43</a></td>
+                                <td>Синхронизация папки миссий между экранами</td>
+                                <td>todo</td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/44">#44</a></td>
+                                <td>Точность метрической сетки (UTM)</td>
+                                <td>todo</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="status-card" style="padding:1rem;">
+                    <h3>Backlog ⚠️</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Issue</th>
+                                <th>Описание</th>
+                                <th>Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/21">#21</a></td>
+                                <td>Добавить GitHub workflow для релиза и публикации артефакта</td>
+                                <td>backlog</td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/18">#18</a></td>
+                                <td>Рефакторинг расположения кнопки «Оборудование» на стартовом экране</td>
+                                <td>backlog</td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/3">#3</a></td>
+                                <td>Smoke test: create → edit → autosave → reopen → export</td>
+                                <td>backlog</td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://github.com/Trionix-LAB/planner-path-studio/issues/2">#2</a></td>
+                                <td>Undo/Redo for planning objects</td>
+                                <td>backlog</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </section>
 
         <section>
@@ -196,7 +215,7 @@ npm run dev</code></pre>
 
     <footer class="footer">
         <p>&copy; 2026 Trionix LAB. Проект на GitHub: <a href="https://github.com/Trionix-LAB/planner-path-studio" style="color: #bdc3c7;">planner-path-studio</a></p>
-        <p>Последнее обновление: 13 февраля 2026</p>
+        <p>Последнее обновление: 14 февраля 2026</p>
     </footer>
 </body>
 </html>
