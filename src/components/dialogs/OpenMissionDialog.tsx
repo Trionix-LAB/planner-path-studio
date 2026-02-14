@@ -9,9 +9,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FolderOpen, AlertTriangle, Clock, ChevronRight } from 'lucide-react';
 import { platform } from "@/platform";
 import { useRecentMissions } from '@/hooks/useRecentMissions';
+import { ALL_MISSIONS_LIMIT } from '@/features/mission/model/recentMissions';
+import { useMissionListView, type MissionSortMode } from '@/hooks/useMissionListView';
 
 interface OpenMissionDialogProps {
   open: boolean;
@@ -19,10 +22,17 @@ interface OpenMissionDialogProps {
   onConfirm: (path: string) => void;
 }
 
+const SORT_OPTIONS: ReadonlyArray<{ value: MissionSortMode; label: string }> = [
+  { value: 'date-desc', label: 'Дата: новые сначала' },
+  { value: 'date-asc', label: 'Дата: старые сначала' },
+  { value: 'name', label: 'Имя: А-Я' },
+];
+
 const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogProps) => {
   const [folder, setFolder] = useState(platform.paths.defaultMissionsDir());
   const [error, setError] = useState<string | null>(null);
-  const { missions: recentMissions } = useRecentMissions();
+  const { missions: recentMissions } = useRecentMissions({ limit: ALL_MISSIONS_LIMIT });
+  const { pagedMissions, page, setPage, totalPages, sortMode, setSortMode } = useMissionListView(recentMissions);
 
   const handleConfirm = () => {
     if (folder.trim()) {
@@ -83,15 +93,29 @@ const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogP
           )}
 
           <div className="border-t border-border pt-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-              <Clock className="w-4 h-4" />
-              Недавние миссии
+            <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground mb-2">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                Миссии
+              </div>
+              <Select value={sortMode} onValueChange={(value) => setSortMode(value as MissionSortMode)}>
+                <SelectTrigger className="h-8 w-52" aria-label="Сортировка миссий">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORT_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
-              {recentMissions.length === 0 ? (
+              {pagedMissions.length === 0 ? (
                 <div className="px-3 py-2 text-sm text-muted-foreground">Нет доступных миссий</div>
               ) : (
-                recentMissions.map((mission) => (
+                pagedMissions.map((mission) => (
                   <button
                     key={mission.rootPath}
                     className="w-full text-left px-3 py-2 rounded hover:bg-secondary flex items-center justify-between"
@@ -109,6 +133,29 @@ const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogP
                 ))
               )}
             </div>
+            {recentMissions.length > 0 ? (
+              <div className="pt-3 flex items-center justify-between gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={page <= 1}
+                >
+                  Назад
+                </Button>
+                <span className="text-xs text-muted-foreground">Страница {page} из {totalPages}</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  disabled={page >= totalPages}
+                >
+                  Вперед
+                </Button>
+              </div>
+            ) : null}
           </div>
         </div>
 

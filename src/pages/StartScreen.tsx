@@ -5,26 +5,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FilePlus, FolderOpen, FileText, RotateCcw, Clock, ChevronRight, Cpu, Trash2 } from 'lucide-react';
 import { platform } from '@/platform';
 import { useRecentMissions } from '@/hooks/useRecentMissions';
-import { ALL_MISSIONS_LIMIT, RECENT_MISSIONS_LIMIT } from '@/features/mission/model/recentMissions';
+import { ALL_MISSIONS_LIMIT } from '@/features/mission/model/recentMissions';
 import { useDelayedMissionDeletion } from '@/hooks/useDelayedMissionDeletion';
+import { useMissionListView, type MissionSortMode } from '@/hooks/useMissionListView';
 
 const MISSIONS_DIR_SETTINGS_KEY = 'planner.missionsDir';
 const MISSION_DELETE_UNDO_DELAY_MS = 7000;
-const MISSION_LIMIT_OPTIONS = ['5', '10', '15', '20', 'all'] as const;
+const SORT_OPTIONS: ReadonlyArray<{ value: MissionSortMode; label: string }> = [
+  { value: 'date-desc', label: 'Дата: новые сначала' },
+  { value: 'date-asc', label: 'Дата: старые сначала' },
+  { value: 'name', label: 'Имя: А-Я' },
+];
 
 const StartScreen = () => {
   const navigate = useNavigate();
   const [hasRecoverableDraft, setHasRecoverableDraft] = useState(false);
   const [missionsDir, setMissionsDir] = useState(() => platform.paths.defaultMissionsDir());
-  const [missionLimitValue, setMissionLimitValue] = useState<(typeof MISSION_LIMIT_OPTIONS)[number]>(
-    String(RECENT_MISSIONS_LIMIT) as (typeof MISSION_LIMIT_OPTIONS)[number],
-  );
-  const selectedMissionLimit =
-    missionLimitValue === 'all' ? ALL_MISSIONS_LIMIT : Math.max(1, Number(missionLimitValue) || RECENT_MISSIONS_LIMIT);
   const { missions: recentMissions, reload } = useRecentMissions({
     missionsDir,
-    limit: selectedMissionLimit,
+    limit: ALL_MISSIONS_LIMIT,
   });
+  const { pagedMissions, page, setPage, totalPages, sortMode, setSortMode } = useMissionListView(recentMissions);
   const { pendingMissions, scheduleDelete, undoDelete } = useDelayedMissionDeletion({
     platform,
     delayMs: MISSION_DELETE_UNDO_DELAY_MS,
@@ -160,34 +161,34 @@ const StartScreen = () => {
           <div className="panel-header flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4" />
-              <span>Недавние миссии</span>
+              <span>Миссии</span>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={handlePickMissionsDirectory}>
                 Папка миссий
               </Button>
-              <Select value={missionLimitValue} onValueChange={(value) => setMissionLimitValue(value as (typeof MISSION_LIMIT_OPTIONS)[number])}>
-                <SelectTrigger className="h-8 w-28">
+              <Select value={sortMode} onValueChange={(value) => setSortMode(value as MissionSortMode)}>
+                <SelectTrigger className="h-8 w-52" aria-label="Сортировка миссий">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="5">5</SelectItem>
-                  <SelectItem value="10">10</SelectItem>
-                  <SelectItem value="15">15</SelectItem>
-                  <SelectItem value="20">20</SelectItem>
-                  <SelectItem value="all">все</SelectItem>
+                  {SORT_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
           <div className="px-4 py-2 text-xs text-muted-foreground border-b border-border">
-            Путь: <span className="font-mono">{missionsDir}</span> · Лимит: {missionLimitValue === 'all' ? 'все' : missionLimitValue}
+            Путь: <span className="font-mono">{missionsDir}</span> · Страница {page} из {totalPages} · По 5 на странице
           </div>
           <div className="divide-y divide-border">
-            {recentMissions.length === 0 ? (
+            {pagedMissions.length === 0 ? (
               <div className="px-4 py-3 text-sm text-muted-foreground">Нет доступных миссий</div>
             ) : (
-              recentMissions.map((mission) => (
+              pagedMissions.map((mission) => (
                 <div key={mission.rootPath} className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:bg-secondary/50 transition-colors">
                   <button
                     className="flex-1 min-w-0 text-left"
@@ -222,6 +223,27 @@ const StartScreen = () => {
                 </div>
               ))
             )}
+            {recentMissions.length > 0 ? (
+              <div className="px-4 py-3 flex items-center justify-between gap-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={page <= 1}
+                >
+                  Назад
+                </Button>
+                <span className="text-xs text-muted-foreground">Страница {page} из {totalPages}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  disabled={page >= totalPages}
+                >
+                  Вперед
+                </Button>
+              </div>
+            ) : null}
             {pendingMissions.length > 0 ? (
               <div className="px-4 py-2 text-xs text-muted-foreground">
                 {pendingMissions.length === 1

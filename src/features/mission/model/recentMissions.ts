@@ -7,6 +7,7 @@ export type RecentMissionItem = {
   name: string;
   rootPath: string;
   dateLabel: string;
+  updatedAtMs: number;
 };
 
 type MissionFileData = {
@@ -115,5 +116,6 @@ export const loadRecentMissions = async (
       name: mission.name,
       rootPath: mission.rootPath,
       dateLabel: formatDate(mission.dateValue),
+      updatedAtMs: mission.dateValue,
     }));
 };
