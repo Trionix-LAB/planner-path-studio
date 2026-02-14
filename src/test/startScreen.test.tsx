@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import StartScreen from '@/pages/StartScreen';
+import { ALL_MISSIONS_LIMIT } from '@/features/mission/model/recentMissions';
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -77,7 +78,7 @@ describe('StartScreen missions actions', () => {
     mocks.reload.mockResolvedValue(undefined);
     mocks.scheduleDelete.mockResolvedValue(undefined);
     mocks.recentMissionsHook.mockReturnValue({
-      missions: [{ name: 'Mission A', rootPath: 'C:/Missions/A', dateLabel: '1 янв. 2026, 10:00' }],
+      missions: [{ name: 'Mission A', rootPath: 'C:/Missions/A', dateLabel: '1 янв. 2026, 10:00', updatedAtMs: 1_735_721_600_000 }],
       reload: mocks.reload,
     });
   });
@@ -103,47 +104,33 @@ describe('StartScreen missions actions', () => {
     expect(mocks.reload).toHaveBeenCalledTimes(1);
   });
 
-  it('changes missions limit via combobox options', async () => {
+  it('uses shared missions source with full fetch and shows renamed section title', async () => {
     render(
       <MemoryRouter>
         <StartScreen />
       </MemoryRouter>,
     );
 
+    expect(screen.getByText('Миссии')).toBeInTheDocument();
     expect(mocks.recentMissionsHook).toHaveBeenCalledWith({
       missionsDir: 'C:/Missions',
-      limit: 5,
+      limit: ALL_MISSIONS_LIMIT,
+    });
+  });
+
+  it('shows empty placeholder when there are no missions', async () => {
+    mocks.recentMissionsHook.mockReturnValue({
+      missions: [],
+      reload: mocks.reload,
     });
 
-    const selectMissionLimit = async (label: string) => {
-      const trigger = screen.getByRole('combobox');
-      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-      fireEvent.mouseDown(trigger, { button: 0 });
-      fireEvent.click(trigger);
+    render(
+      <MemoryRouter>
+        <StartScreen />
+      </MemoryRouter>,
+    );
 
-      const option =
-        (await screen.queryByRole('option', { name: label })) ??
-        (await screen.findByText(label));
-      fireEvent.click(option);
-    };
-
-    await selectMissionLimit('20');
-
-    await waitFor(() => {
-      expect(mocks.recentMissionsHook).toHaveBeenLastCalledWith({
-        missionsDir: 'C:/Missions',
-        limit: 20,
-      });
-    });
-
-    await selectMissionLimit('все');
-
-    await waitFor(() => {
-      expect(mocks.recentMissionsHook).toHaveBeenLastCalledWith({
-        missionsDir: 'C:/Missions',
-        limit: Number.POSITIVE_INFINITY,
-      });
-    });
+    expect(screen.getByText('Нет доступных миссий')).toBeInTheDocument();
   });
 
   it('asks confirmation before deleting mission and schedules delete only on confirm', async () => {
