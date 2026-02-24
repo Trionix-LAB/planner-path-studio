@@ -101,9 +101,9 @@ git push -u origin "<branch>"
 Создать PR (или обновить существующий) и заполнить body:
 
 - `Fixes #<issue_number>`
-- `Spec: R-XXX` / `Spec: New requirement` / `Spec: n/a` (или `Spec: Internal change`)
+- `Spec: R-XXX` / `Spec: New requirement` / `Spec: n/a` (или `Spec: Internal change`). Используйте `n/a` когда задача не затрагивает поведение и спецификацию; в таком случае мотивация в `Why` становится единственным контрактом.
 - `Plan: tasks/T-<issue_number>.md`
-- `Why: ...` (2–5 строк, техническая мотивация; для `chore` задач это ключевое поле)
+- `Why: ...` (2–5 строк, техническая мотивация; для `Spec: n/a` и `chore` задач это ключевое поле)
 
 Команды (примерно):
 
