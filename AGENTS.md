@@ -27,9 +27,15 @@ Rule of thumb: if something is described in those docs, do not restate it here�
 - Lint: `npm run lint`
 - Build: `npm run build`
 
-## PR hygiene (summary)
-- Work should be traceable: requirement → issue → PR → code (details in `docs/PROCESS.md`).
-- If behavior changes, update `spec/spec.md` accordingly.
+## Agent-Specific Workflow (Plan Gate)
+
+This repo uses a plan-first workflow described in `docs/agents/AGENT_WORKFLOWS.md`. In short:
+
+- For any incoming request, first verify the current Issue/PR state (FSM labels like `status:*`, `plan:*`). Use the `agent-report` skill (`.agents/skills/agent-report`) to check for blockers (e.g., missing `plan:approved`).
+- Do not self-approve PRs and do not apply the `plan:approved` label yourself; plan approval is a human gate.
+- Create/update `tasks/T-XXXX.md` first and get plan approval before implementing behavior changes.
+- If scope changes mid-stream, update the plan (and `spec.md` if needed) and re-approve before continuing.
+
 
 ## Commit message formatting (important) ⚠️
 - Never include literal `\n` sequences in commit messages or PR/issue titles — they break rendering in git logs, CI, and changelogs.
