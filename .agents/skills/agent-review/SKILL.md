@@ -22,12 +22,11 @@ gh pr view <pr_number> --json body,labels,baseRefName,headRefName
 
 ### 2) Validate PR body contract
 
-PR body должен содержать:
-
-- `Fixes #<issue_number>`
-- `Spec: R-XXX` (или `Spec: New requirement` / `Spec: n/a` для задач, где поведение не меняется и спецификация не используется)
-- `Plan: tasks/T-<issue_number>.md`
-- `Why: ...` (2–5 строк; особенно важно для `Spec: n/a`, т.к. это единственный поясняющий текст)
+PR body обязан включать:
+- `Fixes #XXXX` (связывание с Issue).
+- `Spec: R-XXX` (ссылка на контракт или `New requirement` / `n/a`).
+- `Plan: tasks/T-XXXX.md` (ссылка на план).
+- `Why: ...` (2–5 строк, объясняющих продуктовую или техническую мотивацию).
 
 Если чего-то не хватает — обновить body через `gh pr edit`.
 

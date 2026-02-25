@@ -1,15 +1,11 @@
-## Summary
-- What does this change do?
-
-## Links
 Fixes #
-
-## Spec
 Spec: R-XXX
+Plan: tasks/T-XXXX.md
 
-## Notes
-- Anything reviewers / agents should know?
+## Why
+<!-- 2–5 строк, объясняющих продуктовую или техническую мотивацию -->
 
 ## Checklist
 - [ ] Tests added/updated (if applicable)
 - [ ] If behavior changed, spec.md updated in this PR
+- [ ] Plan artifact `tasks/T-XXXX.md` created/updated

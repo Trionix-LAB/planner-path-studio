@@ -22,13 +22,10 @@ description: "Prepare an Issue for Plan Gate by creating a plan-only PR. Use whe
 gh issue view <issue_number>
 ```
 
-Выбрать тип и нормализовать заголовок:
-
-- Если меняется внешнее поведение/контракт: используй `feat(area): ...` или `fix(area): ...` (и обнови `spec.md` по необходимости).
-- Если поведение **не меняется** и `spec.md` **не трогаешь** (tech debt / infra / refactoring): используй `chore(area): ...`.
+Выбрать тип и нормализовать заголовок (`feat`, `fix`, `spec`, `chore`, `docs`, `idea`). Перевести задачу в состояние готовности к планированию:
 
 ```bash
-gh issue edit <issue_number> --title "<normalized title>"
+gh issue edit <issue_number> --title "<normalized title>" --remove-label "status:backlog" --add-label "status:todo"
 ```
 
 ### 2) Create/switch branch
@@ -98,12 +95,12 @@ git push -u origin "<branch>"
 
 ### 7) Create/update PR for Plan Gate
 
-Создать PR (или обновить существующий) и заполнить body:
+Создать PR (или обновить существующий) и заполнить body строго по шаблону:
 
 - `Fixes #<issue_number>`
-- `Spec: R-XXX` / `Spec: New requirement` / `Spec: n/a` (или `Spec: Internal change`). Используйте `n/a` когда задача не затрагивает поведение и спецификацию; в таком случае мотивация в `Why` становится единственным контрактом.
+- `Spec: R-XXX` (или `New requirement` / `n/a`)
 - `Plan: tasks/T-<issue_number>.md`
-- `Why: ...` (2–5 строк, техническая мотивация; для `Spec: n/a` и `chore` задач это ключевое поле)
+- `Why: ...` (2–5 строк, объясняющих продуктовую или техническую мотивацию)
 
 Команды (примерно):
 

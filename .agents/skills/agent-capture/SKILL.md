@@ -41,30 +41,27 @@ description: "Create a new GitHub Issue in `status:backlog` using the repo’s a
 ### 1) Normalize the issue title
 
 Собрать заголовок в одном из форматов:
-
 - `feat(area): ...`
 - `fix(area): ...`
-- `chore(area): ...`
 - `spec(area): ...`
-- `chore(area): architecture audit ...`
-
-Если исходно это “idea”, допустимо начать с `idea(area): ...`, но стараться сразу нормализовать под `feat/fix/...`.
+- `chore(area): ...`
+- `docs(area): ...`
+- `idea(area): ...` (используется только для `status:backlog`)
 
 ### 2) Create the Issue (GitHub)
 
-Создать issue и применить лейбл `status:backlog` (и другие нужные лейблы проекта, если они существуют):
+Создать issue и применить лейбл `status:backlog`:
 
 ```bash
 gh issue create --title "<title>" --body "<body>" --label "status:backlog"
 ```
 
-Тело issue (минимум):
-
-- `Why:` 2–5 строк мотивации
-- `Observed:` (для багов)
-- `Expected:` (для багов)
-- `Repro:` (для багов, если применимо)
-- `Notes:` контекст/ссылки/ограничения
+**Тело Issue (согласно контракту):**
+- **Spec:** `R-XXX` или `New requirement`
+- **Goal:** Ожидаемый результат (1-3 пункта)
+- **Plan:** Ссылка на `tasks/T-XXXX.md` (будет заполнено позже)
+- **Acceptance:** Критерии приемки (чекбоксы)
+- **Notes:** Контекст, допущения, ссылки.
 
 Если нужно поправить заголовок/лейблы после создания:
 

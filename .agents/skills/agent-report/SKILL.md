@@ -31,15 +31,16 @@ gh pr list --search "<id>" --state open
 
 ### B) Scope: project
 
-Собрать списки и сгруппировать по состояниям:
+Собрать списки и сгруппировать по 4 основным состояниям:
+- `backlog` (`status:backlog`) — Входящие.
+- `todo` (`status:todo`) — Планирование / Готовы к плану.
+- `in-progress` (`status:in-progress`) — Реализация (план утвержден).
+- `done` (`status:done`) — Завершено.
 
-- `backlog` (например `status:backlog`)
-- `plan review` (есть PR без `plan:approved`)
+Также выделить промежуточные состояния PR:
+- `plan review` (PR открыт, но нет `plan:approved`)
 - `plan changes requested` (`plan:changes-requested`)
-- `todo` (`status:todo`)
-- `in-progress` (`status:in-progress`)
-- `review` (`ready:review` или аналог)
-- open PRs
+- `review` (код написан, ожидается апрув реализации)
 
 Примеры запросов:
 

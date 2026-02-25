@@ -48,7 +48,17 @@ gh issue comment <issue_number> --body "Started implementation on PR #<pr_number
 
 ### 5) Commit and push to the same PR
 
-Коммиты должны оставаться в том же PR; обновить PR body при необходимости.
+**Строгий формат коммитов:**
+- Заголовок: `R-XXX: Short description` (используй ID требования из `spec.md`).
+- Тело: Обязательная строка `Why: ...` (2–5 строк мотивации).
+
+Это необходимо для сохранения контекста при использовании `git blame`.
+
+Пример:
+```bash
+git commit -m "R-021: add validation logic
+Why: to prevent null pointer exceptions when user is not logged in"
+```
 
 ## Output contract
 
