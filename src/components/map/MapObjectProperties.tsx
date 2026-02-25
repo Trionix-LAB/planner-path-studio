@@ -22,7 +22,7 @@ interface MapObjectPropertiesProps {
   onSave: (id: string, updates: Partial<MapObject>) => void;
   onClose: () => void;
   onDelete?: (id: string) => void;
-  onRegenerateLanes?: (id: string) => void;
+  onRegenerateLanes?: (id: string, updates?: Partial<MapObject>) => void;
   onPickLaneEdge?: (id: string) => void;
   onPickLaneStart?: (id: string) => void;
   zoneLanesOutdated?: boolean;
@@ -147,6 +147,18 @@ const MapObjectProperties = ({
     onSave(object.id, { visible: nextVisible });
   };
 
+  const handleRegenerateClick = () => {
+    if (object.type !== 'zone') return;
+    
+    const updates: Partial<MapObject> = {
+      laneAngle: toLaneAngle(laneAngle, object.laneAngle),
+      laneWidth: Number.isFinite(Number(laneWidth)) ? Number(laneWidth) : object.laneWidth,
+    };
+    
+    onRegenerateLanes?.(object.id, updates);
+    setIsDirty(false);
+  };
+
   return (
     <div className="h-full flex flex-col text-[13px]">
       <div className="px-2.5 py-1.5 border-b border-sidebar-border flex items-center justify-between gap-2">
@@ -252,9 +264,6 @@ const MapObjectProperties = ({
               <div className="flex items-center gap-2 p-2.5 bg-warning/10 border border-warning/30 rounded-md">
                 <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
                 <span className="text-[13px] flex-1 leading-5">Галсы неактуальны</span>
-                <Button size="sm" variant="outline" className="h-8 px-2.5 text-xs" onClick={() => onRegenerateLanes?.(object.id)}>
-                  Перегенерировать
-                </Button>
               </div>
             )}
 
@@ -272,8 +281,9 @@ const MapObjectProperties = ({
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Ширина галса (м)</Label>
+              <Label htmlFor="lane-width" className="text-xs text-muted-foreground">Ширина галса (м)</Label>
               <Input
+                id="lane-width"
                 className="h-9 text-sm"
                 type="number"
                 value={laneWidth}
@@ -283,7 +293,7 @@ const MapObjectProperties = ({
               />
             </div>
 
-            <Button className="w-full h-9 mt-1 text-sm" variant="secondary" onClick={() => onRegenerateLanes?.(object.id)}>
+            <Button className="w-full h-9 mt-1 text-sm" variant="secondary" onClick={handleRegenerateClick}>
               Перегенерировать галсы
             </Button>
 

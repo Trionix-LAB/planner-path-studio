@@ -89,7 +89,7 @@ interface MapCanvasProps {
   ) => void;
   onObjectUpdate?: (id: string, updates: Partial<MapObject>) => void;
   onObjectDelete?: (id: string) => void;
-  onRegenerateLanes?: (id: string) => void;
+  onRegenerateLanes?: (id: string, updates?: Partial<MapObject>) => void;
   onLanePickCancel?: () => void;
   onLanePickEdge?: (zoneId: string, bearingDeg: number) => void;
   onLanePickStart?: (zoneId: string, point: { lat: number; lon: number }) => void;
