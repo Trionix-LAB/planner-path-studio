@@ -1890,9 +1890,14 @@ const MapWorkspace = () => {
   );
 
   const handleRegenerateLanes = useCallback(
-    (id: string) => {
-      const zone = objects.find((obj) => obj.id === id && obj.type === 'zone');
+    (id: string, updates?: Partial<MapObject>) => {
+      let zone = objects.find((obj) => obj.id === id && obj.type === 'zone');
       if (!zone) return;
+
+      if (updates) {
+        zone = { ...zone, ...updates };
+        setObjects((prev) => prev.map((obj) => (obj.id === id ? { ...obj, ...updates } : obj)));
+      }
 
       const nextLanes = generateLanesFromZoneObject(zone);
       if (nextLanes.length === 0) {

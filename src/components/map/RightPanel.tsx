@@ -33,7 +33,7 @@ interface RightPanelProps {
   onObjectSelect: (id: string | null) => void;
   onObjectUpdate?: (id: string, updates: Partial<MapObject>) => void;
   onObjectDelete?: (id: string) => void;
-  onRegenerateLanes?: (id: string) => void;
+  onRegenerateLanes?: (id: string, updates?: Partial<MapObject>) => void;
   onPickLaneEdge?: (id: string) => void;
   onPickLaneStart?: (id: string) => void;
   onTrackDelete?: (trackId: string) => void;
