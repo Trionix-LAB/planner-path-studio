@@ -1,88 +1,45 @@
 ---
 name: agent-capture
-description: "Create a new GitHub Issue in `status:backlog` using the repo’s agent workflow. Use when the user says `capture` (or asks to “создать/зафиксировать задачу/идею/баг/аудит”) and you need to open an intake issue via `gh issue create`, apply the right labels, and produce `issue_number` + `issue_url` in a predictable output format."
+description: "Create a new GitHub Issue in `status:backlog` and help formulate its Definition of Done (Acceptance) and Spec. Use when the user says `capture` (or asks to “создать задачу”)."
 ---
 
-# Agent capture
+# Agent capture (capture_and_prepare)
 
 ## Overview
 
-Создавать входящие задачи (feature/bug/chore/audit/spec) как GitHub Issue в состоянии `status:backlog`.
-
-## Preconditions
-
-- Доступ к репозиторию и настроенный GitHub CLI: `gh auth status`.
-- Достаточно контекста, чтобы заполнить: `type` (`feature|bug|chore|audit|spec`), `area`, короткое описание.
+Создать входящую задачу в `status:backlog` и помочь человеку сформулировать Definition of Done (Acceptance) и Spec (R-XXX).
 
 ## Workflow
 
-### 0) Ask clarifying questions only if there are gaps
-
-**Правило:** задавать уточняющие вопросы *только* если без них нельзя корректно создать issue. Если информации достаточно — сразу создавать issue, а мелкие допущения фиксировать в `Notes:` как `Assumptions: ...`.
-
-Минимально необходимая информация:
-
-- `type`: что это — feature/bug/chore/audit/spec
-- `area`: короткий модуль/область в скобках (например, `sim`, `ui`, `robot`, `firmware`, `docs`)
-- 1–2 предложения описания сути
-
-Для `bug` дополнительно (если отсутствует — спросить):
-
-- `Observed:` что происходит
-- `Expected:` что должно происходить
-- (опционально) `Repro:` шаги/условия
-
-Если есть пробелы, задать **1–3** коротких вопроса и дождаться ответа. Пример:
-
-- “Это `bug` или `feature`?”
-- “Какой `area` поставить (например `sim`/`firmware`/`robot`/`ui`/`docs`)?“
-- “Для бага: что *Observed* и что *Expected*?”
+### 0) Help formulate DoD and Spec
+**Правило:** Агент не просто создает issue, а выступает в роли системного аналитика.
+- Если в запросе мало конкретики, спросить про **Acceptance Criteria** (DoD) и **Spec** (какое поведение системы меняется).
+- Цель: Подготовить задачу так, чтобы переход в `status:todo` был осознанным «пуском».
 
 ### 1) Normalize the issue title
-
-Собрать заголовок в одном из форматов:
-- `feat(area): ...`
-- `fix(area): ...`
-- `spec(area): ...`
-- `chore(area): ...`
-- `docs(area): ...`
-- `idea(area): ...` (используется только для `status:backlog`)
+Собрать заголовок: `type(area): description`.
+Типы: `feat`, `fix`, `spec`, `chore`, `docs`, `idea`.
 
 ### 2) Create the Issue (GitHub)
-
-Создать issue и применить лейбл `status:backlog`:
+Создать issue с лейблом `status:backlog`:
 
 ```bash
 gh issue create --title "<title>" --body "<body>" --label "status:backlog"
 ```
 
-**Тело Issue (согласно контракту):**
-- **Spec:** `R-XXX` или `New requirement`
-- **Goal:** Ожидаемый результат (1-3 пункта)
-- **Plan:** Ссылка на `tasks/T-XXXX.md` (будет заполнено позже)
-- **Acceptance:** Критерии приемки (чекбоксы)
-- **Notes:** Контекст, допущения, ссылки.
+**Тело Issue:**
+- **Goal:** Ожидаемый результат.
+- **Acceptance:** Чек-лист критериев приемки (DoD).
+- **Spec:** Ссылка на `R-XXX` (если применимо).
+- **Notes:** Контекст и допущения.
 
-Если нужно поправить заголовок/лейблы после создания:
+## Guardrails
+- Не открывать PR на этом этапе.
+- Если информации достаточно, сразу предлагать перевод в `status:todo` для старта реализации.
 
-```bash
-gh issue edit <id> --title "<normalized title>"
-gh issue edit <id> --add-label "status:backlog"
-```
-
-### 3) Return a structured result
-
-Считать `issue_number`/`issue_url` из вывода `gh` (или через `gh issue view`), и завершить команду структурированным итогом:
-
+## Output contract
 ```
 RESULT=ok|fail
 ISSUE=<number>
-PR=
-NEXT=plan <issue_number>
+NEXT=Wait for status:todo or clarify DoD
 ```
-
-## Guardrails
-
-- `capture` не создаёт PR и не меняет код.
-- Не превращать `capture` в интервью: вопросы — только по явным пробелам, иначе фиксировать допущения в `Notes:`.
-- Если в репо нет лейбла `status:backlog`, явно сообщить об этом и продолжить без лейбла (или предложить создать лейбл).

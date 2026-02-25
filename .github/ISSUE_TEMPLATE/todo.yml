@@ -46,20 +46,11 @@ body:
     validations:
       required: true
 
-  - type: input
-    id: plan
-    attributes:
-      label: Plan reference
-      description: "Ссылка на файл плана (заполнится агентом или вручную)."
-      placeholder: "tasks/T-XXXX.md"
-    validations:
-      required: false
-
   - type: textarea
     id: acceptance
     attributes:
-      label: Acceptance criteria
-      description: "Проверяемые пункты. 2–6 чекбоксов."
+      label: Definition of Done (Acceptance)
+      description: "Четкие критерии, по которым вы примете работу. Агент будет опираться на них."
       value: |
         - [ ] ...
         - [ ] ...
