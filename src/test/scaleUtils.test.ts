@@ -28,6 +28,14 @@ describe('scale utils', () => {
     expect(scale.label).toBe('2 км');
   });
 
+  it('reduces scale distance monotonically when zooming in by full steps', () => {
+    const metersPerPixelByStep = [1000, 500, 250, 125, 62.5, 31.25, 15.625, 7.8125];
+    const distances = metersPerPixelByStep.map((metersPerPx) => computeScaleFromMetersPerPixel(metersPerPx).distanceM);
+    for (let i = 1; i < distances.length; i += 1) {
+      expect(distances[i]).toBeLessThan(distances[i - 1]);
+    }
+  });
+
   it('computes and formats scale ratio labels', () => {
     const denominator = computeScaleRatioFromMetersPerPixel(1);
     expect(denominator).toBe(3780);
