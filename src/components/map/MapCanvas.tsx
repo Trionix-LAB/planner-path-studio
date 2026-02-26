@@ -339,7 +339,7 @@ const CenterOnObjectRequest = ({
       return;
     }
 
-    map.fitBounds(bounds, { padding: [24, 24], maxZoom: 18, animate: true });
+    map.fitBounds(bounds, { padding: [24, 24], maxZoom: platform.map.maxZoom(), animate: true });
   }, [map, objects, onMissingGeometry, request]);
 
   return null;
@@ -1198,6 +1198,7 @@ const MapCanvas = ({
       <MapContainer
         center={mapView ? [mapView.center_lat, mapView.center_lon] : followPosition}
         zoom={mapView?.zoom ?? 16}
+        maxZoom={platform.map.maxZoom()}
         className="w-full h-full"
         ref={mapRef}
         doubleClickZoom={false}
@@ -1205,6 +1206,9 @@ const MapCanvas = ({
       >
         <TileLayer
           url={platform.map.tileLayerUrl()}
+          attribution={platform.map.tileLayerAttribution()}
+          maxNativeZoom={platform.map.maxNativeZoom()}
+          maxZoom={platform.map.maxZoom()}
         />
 
         {/* Grid */}

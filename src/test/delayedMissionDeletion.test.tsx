@@ -15,6 +15,8 @@ const createPlatform = (
   map: {
     tileLayerUrl: () => '',
     tileLayerAttribution: () => '',
+    maxNativeZoom: () => 19,
+    maxZoom: () => 22,
   },
   fs: {
     pickDirectory: async () => null,

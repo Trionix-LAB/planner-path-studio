@@ -32,6 +32,8 @@ vi.mock('@/platform', () => ({
     map: {
       tileLayerUrl: () => '',
       tileLayerAttribution: () => '',
+      maxNativeZoom: () => 19,
+      maxZoom: () => 22,
     },
     fs: {
       pickDirectory: mocks.pickDirectory,

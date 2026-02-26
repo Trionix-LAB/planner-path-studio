@@ -37,6 +37,8 @@ export type Platform = {
   map: {
     tileLayerUrl: () => string;
     tileLayerAttribution: () => string;
+    maxNativeZoom: () => number;
+    maxZoom: () => number;
   };
   fs: FileSystemBridge;
   settings: SettingsBridge;

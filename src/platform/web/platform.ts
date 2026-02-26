@@ -43,6 +43,8 @@ export const webPlatform: Platform = {
   map: {
     tileLayerUrl: () => "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
     tileLayerAttribution: () => '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxNativeZoom: () => 19,
+    maxZoom: () => 22,
   },
   fs: {
     pickDirectory: async (options) => {
