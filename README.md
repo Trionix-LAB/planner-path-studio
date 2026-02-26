@@ -329,14 +329,12 @@ Map tiles and zoom behavior are configured in the platform layer (`src/platform/
 
 Optional env vars:
 
-- `VITE_MAP_PROVIDER` - `osm` (default), `openmarine`, or `maptiler`
-- `VITE_MAPTILER_KEY` - required when `VITE_MAP_PROVIDER=maptiler`
+- `VITE_MAP_PROVIDER` - `osm` (default) or `openmarine`
 - `VITE_MAP_ZOOM_SNAP` - zoom snap step (default: `1`)
 - `VITE_MAP_ZOOM_DELTA` - zoom delta per action (default: `1`)
 - `VITE_MAP_WHEEL_PX_PER_ZOOM_LEVEL` - wheel sensitivity (default: `120`)
 
 `openmarine` uses OSM as base tiles and adds OpenSeaMap seamark overlay.
-If `maptiler` is selected without a key, the app falls back to OSM.
 
 ---
 

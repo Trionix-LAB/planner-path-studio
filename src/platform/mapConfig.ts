@@ -1,4 +1,4 @@
-export type MapProviderId = 'osm' | 'openmarine' | 'maptiler';
+export type MapProviderId = 'osm' | 'openmarine';
 
 export type MapConfig = {
   provider: MapProviderId;
@@ -43,7 +43,6 @@ const OSM_CONFIG: MapConfig = {
 
 const normalizeProvider = (value: string | undefined): MapProviderId => {
   if (value?.trim().toLowerCase() === 'openmarine') return 'openmarine';
-  if (value?.trim().toLowerCase() === 'maptiler') return 'maptiler';
   return 'osm';
 };
 
@@ -74,26 +73,6 @@ export const resolveMapConfig = (env: EnvSource): MapConfig => {
     DEFAULT_WHEEL_PX_PER_ZOOM_LEVEL,
     { min: 1, max: 1000 },
   );
-
-  if (provider === 'maptiler') {
-    const mapTilerKey = env.VITE_MAPTILER_KEY?.trim();
-    if (mapTilerKey) {
-      return {
-        provider: 'maptiler',
-        tileLayerUrl: `https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=${encodeURIComponent(mapTilerKey)}`,
-        tileLayerAttribution:
-          '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> ' +
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxNativeZoom: 22,
-        maxZoom: 22,
-        tileSize: 256,
-        detectRetina: true,
-        zoomSnap,
-        zoomDelta,
-        wheelPxPerZoomLevel,
-      };
-    }
-  }
 
   if (provider === 'openmarine') {
     return {
