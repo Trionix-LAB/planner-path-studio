@@ -13,6 +13,10 @@ import {
   type SegmentLengthsMode,
 } from "@/features/mission";
 import { parseLaneAngleInput } from "@/features/mission/model/laneAngle";
+import {
+  clampDiverMarkerSizePx,
+  DIVER_MARKER_SIZE_DEFAULT_PX,
+} from "@/features/mission/model/diverMarkerSize";
 import type { AppUiDefaults } from "@/features/settings";
 import type { DiverUiConfig } from "@/features/mission";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
@@ -107,7 +111,7 @@ interface MapCanvasProps {
 
 // Custom diver icon
 const createDiverIcon = (course: number, isFollowing: boolean, color: string, sizePx: number) => {
-  const size = Math.max(12, Math.min(64, Math.trunc(sizePx)));
+  const size = clampDiverMarkerSizePx(sizePx, DIVER_MARKER_SIZE_DEFAULT_PX);
   const iconSize = Math.max(10, Math.round(size * 0.5));
   return L.divIcon({
     className: "diver-marker",

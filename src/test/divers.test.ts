@@ -48,4 +48,34 @@ describe('divers model (R-017 — beacon id)', () => {
     expect(diver.id).toBe('2');
     expect(diver.beacon_id).toBe('2');
   });
+
+  it('accepts arbitrary marker size and clamps only by common range', () => {
+    const [diverWithCustomSize] = normalizeDivers([
+      {
+        uid: 'u-1',
+        id: 'agent-1',
+        beacon_id: '1',
+        title: 'Agent 1',
+        marker_color: '#0ea5e9',
+        marker_size_px: 27,
+        track_color: '#a855f7',
+        navigation_source: 'zima2r',
+      },
+    ]);
+    const [diverAboveMax] = normalizeDivers([
+      {
+        uid: 'u-2',
+        id: 'agent-2',
+        beacon_id: '2',
+        title: 'Agent 2',
+        marker_color: '#0ea5e9',
+        marker_size_px: 999,
+        track_color: '#a855f7',
+        navigation_source: 'zima2r',
+      },
+    ]);
+
+    expect(diverWithCustomSize.marker_size_px).toBe(27);
+    expect(diverAboveMax.marker_size_px).toBe(256);
+  });
 });
