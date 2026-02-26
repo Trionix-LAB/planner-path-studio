@@ -24,6 +24,12 @@ import {
   type AppUiDefaults,
 } from '@/features/settings';
 import type { DiverUiConfig, NavigationSourceId } from '@/features/mission';
+import {
+  clampDiverMarkerSizePx,
+  DIVER_MARKER_SIZE_DEFAULT_PX,
+  DIVER_MARKER_SIZE_MAX_PX,
+  DIVER_MARKER_SIZE_MIN_PX,
+} from '@/features/mission/model/diverMarkerSize';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -126,7 +132,7 @@ const SettingsDialog = ({
         beacon_id: defaultBeaconId,
         title: `Маяк ${index + 1}`,
         marker_color: '#0ea5e9',
-        marker_size_px: 32,
+        marker_size_px: DIVER_MARKER_SIZE_DEFAULT_PX,
         track_color: '#a855f7',
         navigation_source: navigationSourceOptions[0]?.id ?? 'zima2r',
       },
@@ -746,10 +752,14 @@ const SettingsDialog = ({
                             <Label>Размер маркера</Label>
                             <Input
                               inputMode="numeric"
+                              type="number"
+                              min={DIVER_MARKER_SIZE_MIN_PX}
+                              max={DIVER_MARKER_SIZE_MAX_PX}
+                              step={1}
                               value={String(diver.marker_size_px)}
                               onChange={(e) =>
                                 updateDiver(index, {
-                                  marker_size_px: clampNumber(e.target.value, 32, 12, 64),
+                                  marker_size_px: clampDiverMarkerSizePx(e.target.value, DIVER_MARKER_SIZE_DEFAULT_PX),
                                 })
                               }
                             />

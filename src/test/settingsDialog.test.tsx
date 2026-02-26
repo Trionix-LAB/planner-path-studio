@@ -63,6 +63,15 @@ const getBeaconIdInput = (): HTMLInputElement => {
   return field;
 };
 
+const getMarkerSizeInput = (): HTMLInputElement => {
+  const label = screen.getByText('Размер маркера');
+  const field = label.parentElement?.querySelector('input');
+  if (!field) {
+    throw new Error('Marker size input not found');
+  }
+  return field;
+};
+
 describe('SettingsDialog beacon id availability (R-017)', () => {
   it('disables beacon id input when zima profile is not assigned', async () => {
     await renderDialog({
@@ -89,5 +98,46 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
     });
 
     expect(getBeaconIdInput()).toBeDisabled();
+  });
+
+  it('keeps custom marker size value (not only preset sizes)', async () => {
+    const onApplyDivers = vi.fn();
+    render(
+      <SettingsDialog
+        open
+        onOpenChange={vi.fn()}
+        value={baseDefaults}
+        missionDivers={[buildDiver('zima2r')]}
+        isZimaAssignedInProfile={true}
+        baseStationNavigationSource={null}
+        onApply={vi.fn()}
+        onApplyDivers={onApplyDivers}
+        onApplyBaseStationNavigationSource={vi.fn()}
+        onReset={vi.fn()}
+        onResetDivers={vi.fn()}
+        navigationSourceOptions={[
+          { id: 'zima2r', label: 'Zima2R' },
+          { id: 'gnss-udp', label: 'GNSS-UDP' },
+        ]}
+      />,
+    );
+
+    const connectionTab = screen.getByRole('tab', { name: 'Агенты' });
+    fireEvent.mouseDown(connectionTab);
+    fireEvent.click(connectionTab);
+    fireEvent.keyDown(connectionTab, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Водолазы')).toBeInTheDocument();
+    });
+
+    fireEvent.change(getMarkerSizeInput(), { target: { value: '27' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Применить' }));
+
+    await waitFor(() => {
+      expect(onApplyDivers).toHaveBeenCalled();
+    });
+    const appliedDivers = onApplyDivers.mock.calls.at(-1)?.[0] as DiverUiConfig[];
+    expect(appliedDivers[0].marker_size_px).toBe(27);
   });
 });

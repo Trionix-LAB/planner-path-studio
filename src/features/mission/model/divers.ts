@@ -1,18 +1,15 @@
 import type { DiverUiConfig, NavigationSourceId } from './types';
+import {
+  clampDiverMarkerSizePx,
+  DIVER_MARKER_SIZE_DEFAULT_PX,
+} from './diverMarkerSize';
 
 const DEFAULT_DIVER_MARKER_COLOR = '#0ea5e9';
 const DEFAULT_DIVER_TRACK_COLOR = '#a855f7';
-const DEFAULT_DIVER_MARKER_SIZE = 32;
 const DEFAULT_NAVIGATION_SOURCE: NavigationSourceId = 'zima2r';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const clampInt = (value: unknown, fallback: number, min: number, max: number): number => {
-  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, Math.trunc(n)));
-};
 
 const normalizeHexColor = (value: unknown, fallback: string): string => {
   if (typeof value !== 'string') return fallback;
@@ -46,7 +43,7 @@ export const createDefaultDiver = (index: number): DiverUiConfig => ({
   beacon_id: String(Math.max(0, Math.min(15, index))),
   title: `Маяк ${index + 1}`,
   marker_color: DEFAULT_DIVER_MARKER_COLOR,
-  marker_size_px: DEFAULT_DIVER_MARKER_SIZE,
+  marker_size_px: DIVER_MARKER_SIZE_DEFAULT_PX,
   track_color: DEFAULT_DIVER_TRACK_COLOR,
   navigation_source: DEFAULT_NAVIGATION_SOURCE,
 });
@@ -73,7 +70,7 @@ export const normalizeDivers = (raw: unknown): DiverUiConfig[] => {
       beacon_id,
       title: normalizeText(item.title, fallback.title),
       marker_color: normalizeHexColor(item.marker_color, fallback.marker_color),
-      marker_size_px: clampInt(item.marker_size_px, fallback.marker_size_px, 12, 64),
+      marker_size_px: clampDiverMarkerSizePx(item.marker_size_px, fallback.marker_size_px),
       track_color: normalizeHexColor(item.track_color, fallback.track_color),
       navigation_source: normalizeNavigationSource(item.navigation_source, fallback.navigation_source),
     } satisfies DiverUiConfig;
