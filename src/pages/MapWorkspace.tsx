@@ -35,9 +35,11 @@ import {
   createTrackRecorderState,
   didZoneLaneInputsChange,
   generateLanesFromZoneObject,
+  isConvexZonePolygon,
   markZoneLanesOutdated,
   mapObjectsToGeoJson,
   normalizeDivers,
+  toConvexZonePolygon,
   replaceZoneLanes,
   trackRecorderReduce,
   type DiverUiConfig,
@@ -1853,9 +1855,18 @@ const MapWorkspace = () => {
   const handleObjectUpdate = useCallback(
     (id: string, updates: Partial<MapObject>) => {
       const zoneBeforeUpdate = objects.find((obj) => obj.id === id && obj.type === 'zone');
-      setObjects((prev) => prev.map((obj) => (obj.id === id ? { ...obj, ...updates } : obj)));
+      const nextUpdates = { ...updates };
 
-      if (zoneBeforeUpdate && didZoneLaneInputsChange(zoneBeforeUpdate, updates)) {
+      if (zoneBeforeUpdate && nextUpdates.geometry?.type === 'zone') {
+        nextUpdates.geometry = {
+          ...nextUpdates.geometry,
+          points: toConvexZonePolygon(nextUpdates.geometry.points),
+        };
+      }
+
+      setObjects((prev) => prev.map((obj) => (obj.id === id ? { ...obj, ...nextUpdates } : obj)));
+
+      if (zoneBeforeUpdate && didZoneLaneInputsChange(zoneBeforeUpdate, nextUpdates)) {
         setOutdatedZoneIds((prev) => markZoneLanesOutdated(prev, id));
       }
     },
@@ -1965,16 +1976,26 @@ const MapWorkspace = () => {
     geometry: NonNullable<MapObject['geometry']>,
     options?: { preserveActiveTool?: boolean; initial?: Partial<MapObject> },
   ) => {
+    const normalizedGeometry =
+      geometry.type === 'zone'
+        ? {
+            ...geometry,
+            points: toConvexZonePolygon(geometry.points),
+          }
+        : geometry;
+
+    if (normalizedGeometry.type === 'zone' && !isConvexZonePolygon(normalizedGeometry.points)) return;
+
     const { id: _id, type: _type, geometry: _geometry, ...initial } = options?.initial ?? {};
     const newObject: MapObject = {
       id: crypto.randomUUID(),
-      type: geometry.type,
-      name: getNextObjectName(geometry.type),
+      type: normalizedGeometry.type,
+      name: getNextObjectName(normalizedGeometry.type),
       visible: true,
-      geometry,
-      color: getDefaultObjectColor(geometry.type),
-      laneAngle: geometry.type === 'zone' ? 0 : undefined,
-      laneWidth: geometry.type === 'zone' ? 5 : undefined,
+      geometry: normalizedGeometry,
+      color: getDefaultObjectColor(normalizedGeometry.type),
+      laneAngle: normalizedGeometry.type === 'zone' ? 0 : undefined,
+      laneWidth: normalizedGeometry.type === 'zone' ? 5 : undefined,
       note: '',
       ...initial,
     };

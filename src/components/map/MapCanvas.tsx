@@ -5,7 +5,13 @@ import "leaflet/dist/leaflet.css";
 import { AlertTriangle } from "lucide-react";
 
 import type { MapObject, MapObjectGeometry, Tool } from "@/features/map/model/types";
-import { buildLaneTraversal, generateLanesForZone, type LaneFeature, type SegmentLengthsMode } from "@/features/mission";
+import {
+  buildLaneTraversal,
+  generateLanesForZone,
+  toConvexZonePolygon,
+  type LaneFeature,
+  type SegmentLengthsMode,
+} from "@/features/mission";
 import type { AppUiDefaults } from "@/features/settings";
 import type { DiverUiConfig } from "@/features/mission";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
@@ -632,10 +638,13 @@ const MapCanvas = ({
             }
           : undefined;
 
+      const points = drawingPoints.map((point) => ({ lat: point.lat, lon: point.lng }));
+      const normalizedPoints = draftType === 'zone' ? toConvexZonePolygon(points) : points;
+
       onObjectCreate?.(
         {
           type: draftType,
-          points: drawingPoints.map((point) => ({ lat: point.lat, lon: point.lng })),
+          points: normalizedPoints,
         },
         { preserveActiveTool: options?.preserveActiveTool, initial },
       );
@@ -1014,7 +1023,8 @@ const MapCanvas = ({
     if (activeTool !== 'zone' || draftLanePickMode !== 'edge') return [];
     if (drawingPoints.length < 2) return [];
 
-    const pts = drawingPoints.map((p) => ({ lat: p.lat, lon: p.lng }));
+    const raw = drawingPoints.map((p) => ({ lat: p.lat, lon: p.lng }));
+    const pts = raw.length >= 3 ? toConvexZonePolygon(raw) : raw;
     const edges: Array<{ a: { lat: number; lon: number }; b: { lat: number; lon: number }; key: string }> = [];
     for (let i = 0; i + 1 < pts.length; i += 1) {
       edges.push({ a: pts[i], b: pts[i + 1], key: `draft-edge-${i}` });
@@ -1025,11 +1035,21 @@ const MapCanvas = ({
     return edges;
   }, [activeTool, draftLanePickMode, drawingPoints]);
 
+  const draftZonePolygonPoints = useMemo(() => {
+    if (activeTool !== 'zone') return [] as Array<[number, number]>;
+    if (drawingPoints.length < 3) return drawingPoints.map((p) => [p.lat, p.lng] as [number, number]);
+    return toConvexZonePolygon(drawingPoints.map((p) => ({ lat: p.lat, lon: p.lng }))).map(
+      (point) => [point.lat, point.lon] as [number, number],
+    );
+  }, [activeTool, drawingPoints]);
+
   const draftZonePreviewLanes = useMemo(() => {
     if (activeTool !== 'zone') return [];
     if (drawingPoints.length < 3) return [];
 
-    const points = drawingPoints.map((p) => ({ lat: p.lat, lon: p.lng }));
+    const points = toConvexZonePolygon(drawingPoints.map((p) => ({ lat: p.lat, lon: p.lng })));
+    if (points.length < 3) return [];
+
     const laneWidthM = Math.max(1, Number(draftZoneLaneWidth) || 5);
     const laneAngleDeg = Number(draftZoneLaneAngle) === 90 ? 90 : 0;
 
@@ -1462,7 +1482,7 @@ const MapCanvas = ({
 
         {drawingPoints.length > 2 && activeTool === "zone" && (
           <Polygon
-            positions={drawingPoints.map((p) => [p.lat, p.lng] as [number, number])}
+            positions={draftZonePolygonPoints}
             pathOptions={{
               color: "hsl(38, 92%, 50%)",
               fillColor: "hsl(38, 92%, 50%)",
