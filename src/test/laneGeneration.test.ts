@@ -14,6 +14,20 @@ const isMostlyEastWest = (coordinates: [number, number][]): boolean => {
   return lonDelta > latDelta;
 };
 
+const toUndirectedBearing = (value: number): number => {
+  const normalized = ((value % 360) + 360) % 360;
+  return normalized >= 180 ? normalized - 180 : normalized;
+};
+
+const estimateLaneBearing = (coordinates: [number, number][]): number => {
+  const [start, end] = coordinates;
+  const meanLatRad = ((start[1] + end[1]) / 2) * (Math.PI / 180);
+  const x = (end[0] - start[0]) * Math.cos(meanLatRad);
+  const y = end[1] - start[1];
+  const bearingDeg = Math.atan2(x, y) * (180 / Math.PI);
+  return toUndirectedBearing(bearingDeg);
+};
+
 describe('lane generation', () => {
   it('generates lane features with parent linkage and sequential indexes', () => {
     const lanes = generateLanesForZone({
@@ -32,26 +46,36 @@ describe('lane generation', () => {
     );
   });
 
-  it('changes lane orientation when angle switches from 0 to 90 degrees', () => {
+  it('supports arbitrary lane angles (0, 30, 90) with expected orientation', () => {
     const lanes0 = generateLanesForZone({
       parentAreaId: 'zone-1',
       points: createRectangleZone(),
       laneAngleDeg: 0,
       laneWidthM: 10,
+      laneBearingDeg: 90,
+    });
+    const lanes30 = generateLanesForZone({
+      parentAreaId: 'zone-1',
+      points: createRectangleZone(),
+      laneAngleDeg: 30,
+      laneWidthM: 10,
+      laneBearingDeg: 90,
     });
     const lanes90 = generateLanesForZone({
       parentAreaId: 'zone-1',
       points: createRectangleZone(),
       laneAngleDeg: 90,
       laneWidthM: 10,
+      laneBearingDeg: 90,
     });
 
     expect(lanes0.length).toBeGreaterThan(0);
+    expect(lanes30.length).toBeGreaterThan(0);
     expect(lanes90.length).toBeGreaterThan(0);
 
-    const lane0IsEastWest = isMostlyEastWest(lanes0[0].geometry.coordinates);
-    const lane90IsEastWest = isMostlyEastWest(lanes90[0].geometry.coordinates);
-    expect(lane0IsEastWest).not.toBe(lane90IsEastWest);
+    expect(estimateLaneBearing(lanes0[0].geometry.coordinates)).toBeCloseTo(90, 0);
+    expect(estimateLaneBearing(lanes30[0].geometry.coordinates)).toBeCloseTo(60, 0);
+    expect(estimateLaneBearing(lanes90[0].geometry.coordinates)).toBeCloseTo(0, 0);
   });
 
   it('supports lane bearing to override auto axis', () => {

@@ -10,14 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import type { MapObject } from "@/features/map/model/types";
+import { parseLaneAngleInput } from '@/features/mission/model/laneAngle';
 import { AlertTriangle } from 'lucide-react';
 
 interface ObjectPropertiesDialogProps {
@@ -50,8 +44,8 @@ const ObjectPropertiesDialog = ({ open, onOpenChange, object, onSave }: ObjectPr
     onSave({
       name,
       note,
-      laneAngle: parseInt(laneAngle),
-      laneWidth: parseInt(laneWidth),
+      laneAngle: parseLaneAngleInput(laneAngle, object.laneAngle ?? 0),
+      laneWidth: Number.isFinite(Number(laneWidth)) ? Number(laneWidth) : object.laneWidth,
     });
   };
 
@@ -109,18 +103,15 @@ const ObjectPropertiesDialog = ({ open, onOpenChange, object, onSave }: ObjectPr
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Угол галсов</Label>
-                  <Select value={laneAngle} onValueChange={(v) => {
-                    setLaneAngle(v);
-                    setLanesOutdated(true);
-                  }}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="0">0°</SelectItem>
-                      <SelectItem value="90">90°</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    type="number"
+                    step="1"
+                    value={laneAngle}
+                    onChange={(e) => {
+                      setLaneAngle(e.target.value);
+                      setLanesOutdated(true);
+                    }}
+                  />
                 </div>
 
                 <div className="space-y-2">

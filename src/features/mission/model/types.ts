@@ -129,7 +129,7 @@ export type SurveyAreaFeature = {
   };
   properties: BaseFeatureProperties & {
     kind: 'survey_area';
-    lane_angle_deg: 0 | 90;
+    lane_angle_deg: number;
     lane_width_m: number;
     lane_bearing_deg?: number;
     lane_start_lat?: number;

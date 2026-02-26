@@ -4,14 +4,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import type { MapObject } from '@/features/map/model/types';
+import { parseLaneAngleInput } from '@/features/mission/model/laneAngle';
 import type { AppUiDefaults } from '@/features/settings';
 import { AlertTriangle, Trash2, X } from 'lucide-react';
 import { haversineDistanceMeters } from './scaleUtils';
@@ -42,15 +36,6 @@ const normalizeHexColor = (value: string, fallback: string): string => {
     return trimmed.toLowerCase();
   }
   return fallback;
-};
-
-const toLaneAngle = (value: string, fallback: number | undefined): 0 | 90 | undefined => {
-  const numeric = Number(value);
-  if (numeric === 90) return 90;
-  if (numeric === 0) return 0;
-  if (fallback === 90) return 90;
-  if (fallback === 0) return 0;
-  return undefined;
 };
 
 const formatRouteLength = (meters: number): string => {
@@ -126,7 +111,7 @@ const MapObjectProperties = ({
     }
 
     if (object.type === 'zone') {
-      updates.laneAngle = toLaneAngle(laneAngle, object.laneAngle);
+      updates.laneAngle = parseLaneAngleInput(laneAngle, object.laneAngle ?? 0);
       updates.laneWidth = Number.isFinite(Number(laneWidth)) ? Number(laneWidth) : object.laneWidth;
       updates.visible = zoneVisible;
     }
@@ -151,7 +136,7 @@ const MapObjectProperties = ({
     if (object.type !== 'zone') return;
     
     const updates: Partial<MapObject> = {
-      laneAngle: toLaneAngle(laneAngle, object.laneAngle),
+      laneAngle: parseLaneAngleInput(laneAngle, object.laneAngle ?? 0),
       laneWidth: Number.isFinite(Number(laneWidth)) ? Number(laneWidth) : object.laneWidth,
     };
     
@@ -269,15 +254,13 @@ const MapObjectProperties = ({
 
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Угол галсов</Label>
-              <Select value={laneAngle} onValueChange={(value) => handleFieldChange(setLaneAngle, value)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0">0°</SelectItem>
-                  <SelectItem value="90">90°</SelectItem>
-                </SelectContent>
-              </Select>
+              <Input
+                className="h-9 text-sm"
+                type="number"
+                step="1"
+                value={laneAngle}
+                onChange={(e) => handleFieldChange(setLaneAngle, e.target.value)}
+              />
             </div>
 
             <div className="space-y-1.5">
