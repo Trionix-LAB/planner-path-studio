@@ -5,6 +5,7 @@ export type { DraftLoadMode } from './model/draftSession';
 export { buildTrackSegments, bundleToMapObjects, mapObjectsToGeoJson } from './model/adapters';
 export type { TrackSegment } from './model/adapters';
 export { generateLanesForZone } from './model/laneGeneration';
+export { isConvexZonePolygon, toConvexZonePolygon } from './model/zoneGeometry';
 export { buildLaneTraversal } from './model/laneWaypoints';
 export type { LaneTraversal, LaneWaypoint } from './model/laneWaypoints';
 export {
