@@ -15,7 +15,7 @@ description: "Produce a concise status report based on the new FSM labels. Use w
 Сгруппировать задачи по 4 основным состояниям:
 - **`backlog`** (`status:backlog`): Идет проработка DoD.
 - **`todo`** (`status:todo`): Готовы к автономному исполнению.
-- **`in-progress`** (`status:in-progress`): Агент пишет код/план в PR.
+- **`in-progress`** (`status:in-progress`): Агент пишет код и лог действий в PR.
 - **`done`** (`status:done`): Завершено.
 
 ### 2) Identify Blockers

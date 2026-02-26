@@ -1,4 +1,4 @@
 interface:
   display_name: "Агент: execute (Main Cycle)"
   short_description: "Автономная реализация задачи из status:todo"
-  default_prompt: "Используй $agent-execute, чтобы перевести задачу в in-progress, зафиксировать план в tasks/ и реализовать код/тесты."
+  default_prompt: "Используй $agent-execute, чтобы перевести задачу в in-progress, зафиксировать лог действий в tasks/ и реализовать код/тесты."

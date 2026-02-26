@@ -30,22 +30,22 @@ gh pr list --search "Fixes #<issue_number>" --state open --json number,headRefNa
 gh issue edit <issue_number> --remove-label "status:todo" --add-label "status:in-progress"
 ```
 
-### 2) Declarative Planning (`tasks/T-XXXX.md`)
-Создать лог намерений (Chain-of-Thought) в `tasks/T-<issue_number>.md`.
+### 2) Tasks Log (`tasks/T-XXXX.md`)
+Создать лог действий (Observability) в `tasks/T-<issue_number>.md`.
 **Шаблон:**
 - **Why:** Зачем это нужно?
 - **Goal:** Что изменится?
 - **Plan:** 3–7 чекбоксов реализации (включая тесты).
 - **Acceptance:** Ссылка на DoD из Issue.
 
-*Примечание: План фиксируется для наблюдаемости, ручной апрув плана не требуется.*
+*Примечание: Лог фиксируется в одном PR с кодом для наблюдаемости.*
 
 ### 3) Update Spec (`spec.md`)
 Если задача меняет поведение или фиксит баг без спецификации — обновить `spec.md`, добавив/изменив правила `R-XXX`.
 
 ### 4) Implementation & Verification
 - **Test-First:** Сначала падающий тест, потом код.
-- Выполнить шаги из `tasks/`.
+- Выполнить шаги из лога в `tasks/`.
 - Прогнать локальные проверки (build, lint, test).
 
 ### 5) PR & Why
@@ -54,11 +54,11 @@ gh issue edit <issue_number> --remove-label "status:todo" --add-label "status:in
 **Шаблон PR Body:**
 - `Fixes #<issue_number>`
 - `Spec: R-XXX` (или `New requirement` / `n/a`)
-- `Plan: tasks/T-<issue_number>.md`
+- `Tasks Log: tasks/T-<issue_number>.md`
 - `Why: <мотивация>`
 
 ## Guardrails
-- Один PR на задачу: требования + план + код.
+- Один PR на задачу: лог + спека + тесты + код.
 - Если человек пишет "Request Changes" в PR, агент корректирует `tasks/` и код в этом же PR.
 
 ## Output contract
