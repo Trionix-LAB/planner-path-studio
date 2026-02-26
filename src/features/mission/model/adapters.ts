@@ -1,4 +1,5 @@
 import type { MapObject } from '@/features/map/model/types';
+import { normalizeLaneAngleDeg } from './laneAngle';
 import type {
   FeatureCollection,
   MarkerFeature,
@@ -54,7 +55,7 @@ export const bundleToMapObjects = (bundle: MissionBundle): MapObject[] => {
         visible: true,
         color: getColorFromStyle(feature.properties.style),
         note: feature.properties.note ?? undefined,
-        laneAngle: feature.properties.lane_angle_deg,
+        laneAngle: normalizeLaneAngleDeg(feature.properties.lane_angle_deg),
         laneWidth: feature.properties.lane_width_m,
         laneBearingDeg:
           typeof feature.properties.lane_bearing_deg === 'number' ? feature.properties.lane_bearing_deg : undefined,
@@ -145,7 +146,7 @@ export const mapObjectsToGeoJson = (
           note: object.note ?? null,
           created_at: now,
           updated_at: now,
-          lane_angle_deg: object.laneAngle === 90 ? 90 : 0,
+          lane_angle_deg: normalizeLaneAngleDeg(typeof object.laneAngle === 'number' ? object.laneAngle : 0),
           lane_width_m: object.laneWidth ?? 5,
           ...(typeof object.laneBearingDeg === 'number' && Number.isFinite(object.laneBearingDeg)
             ? { lane_bearing_deg: object.laneBearingDeg }

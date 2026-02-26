@@ -12,6 +12,7 @@ import {
   type LaneFeature,
   type SegmentLengthsMode,
 } from "@/features/mission";
+import { parseLaneAngleInput } from "@/features/mission/model/laneAngle";
 import type { AppUiDefaults } from "@/features/settings";
 import type { DiverUiConfig } from "@/features/mission";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
@@ -434,7 +435,7 @@ const MapCanvas = ({
     position: { x: number; y: number };
     draftType: 'route' | 'zone';
   } | null>(null);
-  const [draftZoneLaneAngle, setDraftZoneLaneAngle] = useState<'0' | '90'>('0');
+  const [draftZoneLaneAngle, setDraftZoneLaneAngle] = useState('0');
   const [draftZoneLaneWidth, setDraftZoneLaneWidth] = useState('10');
   const [draftZoneBearingDeg, setDraftZoneBearingDeg] = useState<number | null>(null);
   const [draftZoneStart, setDraftZoneStart] = useState<{ lat: number; lon: number } | null>(null);
@@ -631,7 +632,7 @@ const MapCanvas = ({
       const initial =
         draftType === 'zone'
           ? {
-              laneAngle: Number(draftZoneLaneAngle) === 90 ? 90 : 0,
+              laneAngle: parseLaneAngleInput(draftZoneLaneAngle, 0),
               laneWidth: Math.max(1, Number(draftZoneLaneWidth) || 5),
               laneBearingDeg: typeof draftZoneBearingDeg === 'number' ? draftZoneBearingDeg : undefined,
               laneStart: draftZoneStart ?? undefined,
@@ -1051,7 +1052,7 @@ const MapCanvas = ({
     if (points.length < 3) return [];
 
     const laneWidthM = Math.max(1, Number(draftZoneLaneWidth) || 5);
-    const laneAngleDeg = Number(draftZoneLaneAngle) === 90 ? 90 : 0;
+    const laneAngleDeg = parseLaneAngleInput(draftZoneLaneAngle, 0);
 
     return generateLanesForZone({
       parentAreaId: 'draft-zone',
@@ -1651,15 +1652,16 @@ const MapCanvas = ({
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Угол</div>
-                <select
+                <div className="text-xs text-muted-foreground">Угол (°)</div>
+                <input
                   className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  type="number"
+                  min={0}
+                  max={360}
+                  step={1}
                   value={draftZoneLaneAngle}
-                  onChange={(e) => setDraftZoneLaneAngle(e.target.value === '90' ? '90' : '0')}
-                >
-                  <option value="0">0°</option>
-                  <option value="90">90°</option>
-                </select>
+                  onChange={(e) => setDraftZoneLaneAngle(e.target.value)}
+                />
               </div>
               <div className="space-y-1">
                 <div className="text-xs text-muted-foreground">Ширина (м)</div>

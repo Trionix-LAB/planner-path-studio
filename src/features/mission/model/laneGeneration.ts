@@ -1,5 +1,6 @@
 import type { GeoPoint } from '@/features/map/model/types';
 import type { LaneFeature } from './types';
+import { normalizeLaneAngleDeg } from './laneAngle';
 
 type PointXY = {
   x: number;
@@ -9,7 +10,7 @@ type PointXY = {
 type ZoneLaneGenerationInput = {
   parentAreaId: string;
   points: GeoPoint[];
-  laneAngleDeg: 0 | 90;
+  laneAngleDeg: number;
   laneWidthM: number;
   laneBearingDeg?: number;
   start?: GeoPoint;
@@ -46,6 +47,16 @@ const bearingToUnitVector = (bearingDeg: number): PointXY => {
   // x = East, y = North
   const x = Math.sin(rad);
   const y = Math.cos(rad);
+  const length = Math.hypot(x, y) || 1;
+  return { x: x / length, y: y / length };
+};
+
+const rotate = (vector: PointXY, angleDeg: number): PointXY => {
+  const rad = angleDeg * DEG_TO_RAD;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const x = vector.x * cos - vector.y * sin;
+  const y = vector.x * sin + vector.y * cos;
   const length = Math.hypot(x, y) || 1;
   return { x: x / length, y: y / length };
 };
@@ -148,7 +159,7 @@ export const generateLanesForZone = (input: ZoneLaneGenerationInput): LaneFeatur
     typeof input.laneBearingDeg === 'number' && Number.isFinite(input.laneBearingDeg)
       ? bearingToUnitVector(toUndirectedBearingDeg(input.laneBearingDeg))
       : principalDirection(hullPoints);
-  const laneDirection = input.laneAngleDeg === 90 ? { x: -baseAxis.y, y: baseAxis.x } : baseAxis;
+  const laneDirection = rotate(baseAxis, normalizeLaneAngleDeg(input.laneAngleDeg));
   const normal = { x: -laneDirection.y, y: laneDirection.x };
   const laneStep = Number.isFinite(input.laneWidthM) ? Math.max(1, input.laneWidthM) : 5;
 

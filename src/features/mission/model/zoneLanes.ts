@@ -1,5 +1,6 @@
 import type { MapObject } from '@/features/map/model/types';
 import { generateLanesForZone } from './laneGeneration';
+import { normalizeLaneAngleDeg } from './laneAngle';
 import type { LaneFeature } from './types';
 
 export type OutdatedZoneIds = Record<string, true>;
@@ -12,7 +13,7 @@ export const generateLanesFromZoneObject = (zone: MapObject): LaneFeature[] => {
   return generateLanesForZone({
     parentAreaId: zone.id,
     points: zone.geometry.points,
-    laneAngleDeg: zone.laneAngle === 90 ? 90 : 0,
+    laneAngleDeg: normalizeLaneAngleDeg(typeof zone.laneAngle === 'number' ? zone.laneAngle : 0),
     laneWidthM: Number.isFinite(zone.laneWidth) ? Math.max(1, zone.laneWidth ?? 5) : 5,
     laneBearingDeg: zone.laneBearingDeg,
     start: zone.laneStart,

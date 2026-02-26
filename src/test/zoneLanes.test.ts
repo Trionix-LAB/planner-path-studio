@@ -4,6 +4,7 @@ import {
   cascadeDeleteZone,
   clearZoneLanesOutdated,
   didZoneLaneInputsChange,
+  generateLanesFromZoneObject,
   markZoneLanesOutdated,
   replaceZoneLanes,
 } from '@/features/mission';
@@ -121,5 +122,22 @@ describe('zone lanes state helpers', () => {
     expect(result.removedLaneCount).toBe(2);
     expect(result.laneFeatures.map((lane) => lane.properties.id)).toEqual(['lane-z2-1']);
     expect(result.outdatedZoneIds).toEqual({ 'zone-2': true });
+  });
+
+  it('normalizes zone lane angle before lane generation', () => {
+    const zoneA = createZone('zone-a');
+    zoneA.laneAngle = 30;
+    zoneA.laneBearingDeg = 90;
+
+    const zoneB = createZone('zone-b');
+    zoneB.laneAngle = 210;
+    zoneB.laneBearingDeg = 90;
+
+    const lanesA = generateLanesFromZoneObject(zoneA);
+    const lanesB = generateLanesFromZoneObject(zoneB);
+
+    expect(lanesA.length).toBeGreaterThan(0);
+    expect(lanesB.length).toBeGreaterThan(0);
+    expect(lanesA[0].geometry.coordinates).toEqual(lanesB[0].geometry.coordinates);
   });
 });
