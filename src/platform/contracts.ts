@@ -37,6 +37,21 @@ export type Platform = {
   map: {
     tileLayerUrl: () => string;
     tileLayerAttribution: () => string;
+    maxNativeZoom: () => number;
+    maxZoom: () => number;
+    tileSubdomains: () => string | string[] | undefined;
+    tileSize: () => number | undefined;
+    detectRetina: () => boolean | undefined;
+    overlayTileLayerUrl: () => string | undefined;
+    overlayTileLayerAttribution: () => string | undefined;
+    overlayMaxNativeZoom: () => number | undefined;
+    overlayMaxZoom: () => number | undefined;
+    overlayTileSubdomains: () => string | string[] | undefined;
+    overlayTileSize: () => number | undefined;
+    overlayDetectRetina: () => boolean | undefined;
+    zoomSnap: () => number;
+    zoomDelta: () => number;
+    wheelPxPerZoomLevel: () => number;
   };
   fs: FileSystemBridge;
   settings: SettingsBridge;

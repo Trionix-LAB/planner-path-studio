@@ -284,6 +284,7 @@ const ApplyMapView = ({
   isFollowing: boolean;
 }) => {
   const map = useMap();
+  const zoomSnap = platform.map.zoomSnap();
 
   useEffect(() => {
     if (!mapView) return;
@@ -291,12 +292,13 @@ const ApplyMapView = ({
 
     const center = map.getCenter();
     const zoom = map.getZoom();
+    const targetZoom = normalizeZoomLevel(mapView.zoom, zoomSnap);
     const dLat = Math.abs(center.lat - mapView.center_lat);
     const dLon = Math.abs(center.lng - mapView.center_lon);
-    if (dLat < 1e-7 && dLon < 1e-7 && zoom === mapView.zoom) return;
+    if (dLat < 1e-7 && dLon < 1e-7 && zoom === targetZoom) return;
 
-    map.setView([mapView.center_lat, mapView.center_lon], mapView.zoom, { animate: false });
-  }, [isFollowing, map, mapView]);
+    map.setView([mapView.center_lat, mapView.center_lon], targetZoom, { animate: false });
+  }, [isFollowing, map, mapView, zoomSnap]);
 
   return null;
 };
@@ -339,7 +341,7 @@ const CenterOnObjectRequest = ({
       return;
     }
 
-    map.fitBounds(bounds, { padding: [24, 24], maxZoom: 18, animate: true });
+    map.fitBounds(bounds, { padding: [24, 24], maxZoom: platform.map.maxZoom(), animate: true });
   }, [map, objects, onMissingGeometry, request]);
 
   return null;
@@ -389,6 +391,12 @@ const segmentLengthIcon = (label: string): L.DivIcon =>
 type ZoneWithGeometry = MapObject & { geometry: { type: 'zone'; points: Array<{ lat: number; lon: number }> } };
 const isZoneWithGeometry = (obj: MapObject | undefined): obj is ZoneWithGeometry =>
   Boolean(obj && obj.type === 'zone' && obj.geometry?.type === 'zone');
+
+const normalizeZoomLevel = (value: number, snap: number): number => {
+  if (!Number.isFinite(value)) return 16;
+  if (!Number.isFinite(snap) || snap <= 0) return value;
+  return Math.round(value / snap) * snap;
+};
 
 const MapCanvas = ({
   activeTool,
@@ -1187,6 +1195,19 @@ const MapCanvas = ({
     return <>{handles}</>;
   };
 
+  const tileSubdomains = platform.map.tileSubdomains();
+  const tileSize = platform.map.tileSize();
+  const detectRetina = platform.map.detectRetina();
+  const overlayTileLayerUrl = platform.map.overlayTileLayerUrl();
+  const overlayTileLayerAttribution = platform.map.overlayTileLayerAttribution();
+  const overlayMaxNativeZoom = platform.map.overlayMaxNativeZoom();
+  const overlayMaxZoom = platform.map.overlayMaxZoom();
+  const overlayTileSubdomains = platform.map.overlayTileSubdomains();
+  const overlayTileSize = platform.map.overlayTileSize();
+  const overlayDetectRetina = platform.map.overlayDetectRetina();
+  const zoomSnap = platform.map.zoomSnap();
+  const normalizedInitialZoom = normalizeZoomLevel(mapView?.zoom ?? 16, zoomSnap);
+
   return (
     <div className={cn(
       "w-full h-full relative",
@@ -1197,7 +1218,11 @@ const MapCanvas = ({
     )}>
       <MapContainer
         center={mapView ? [mapView.center_lat, mapView.center_lon] : followPosition}
-        zoom={mapView?.zoom ?? 16}
+        zoom={normalizedInitialZoom}
+        maxZoom={platform.map.maxZoom()}
+        zoomSnap={zoomSnap}
+        zoomDelta={platform.map.zoomDelta()}
+        wheelPxPerZoomLevel={platform.map.wheelPxPerZoomLevel()}
         className="w-full h-full"
         ref={mapRef}
         doubleClickZoom={false}
@@ -1205,7 +1230,24 @@ const MapCanvas = ({
       >
         <TileLayer
           url={platform.map.tileLayerUrl()}
+          attribution={platform.map.tileLayerAttribution()}
+          maxNativeZoom={platform.map.maxNativeZoom()}
+          maxZoom={platform.map.maxZoom()}
+          {...(tileSubdomains ? { subdomains: tileSubdomains } : {})}
+          {...(typeof tileSize === 'number' ? { tileSize } : {})}
+          {...(typeof detectRetina === 'boolean' ? { detectRetina } : {})}
         />
+        {overlayTileLayerUrl && overlayTileLayerAttribution ? (
+          <TileLayer
+            url={overlayTileLayerUrl}
+            attribution={overlayTileLayerAttribution}
+            maxZoom={overlayMaxZoom ?? platform.map.maxZoom()}
+            {...(typeof overlayMaxNativeZoom === 'number' ? { maxNativeZoom: overlayMaxNativeZoom } : {})}
+            {...(overlayTileSubdomains ? { subdomains: overlayTileSubdomains } : {})}
+            {...(typeof overlayTileSize === 'number' ? { tileSize: overlayTileSize } : {})}
+            {...(typeof overlayDetectRetina === 'boolean' ? { detectRetina: overlayDetectRetina } : {})}
+          />
+        ) : null}
 
         {/* Grid */}
         {layers.grid && (

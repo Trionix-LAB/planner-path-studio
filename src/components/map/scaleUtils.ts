@@ -14,7 +14,8 @@ type ScaleOptions = {
 
 const EARTH_RADIUS_M = 6378137;
 const DEG_TO_RAD = Math.PI / 180;
-const NICE_FACTORS = [1, 2, 5];
+// Include 3 to reduce duplicate labels across adjacent zoom levels.
+const NICE_FACTORS = [1, 2, 3, 5];
 
 const DEFAULT_TARGET_WIDTH_PX = 100;
 const DEFAULT_MIN_WIDTH_PX = 60;

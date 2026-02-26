@@ -1,4 +1,5 @@
 import type { Platform } from '@/platform/contracts';
+import { resolveMapConfig } from '@/platform/mapConfig';
 
 const readRememberedPath = (key: string): string | null => {
   try {
@@ -71,6 +72,7 @@ const getApi = (): ElectronApi | null => {
 };
 
 const normalizeStorePath = (value: string): string => value.replace(/\\/g, '/').trim();
+const mapConfig = resolveMapConfig(import.meta.env as Record<string, string | undefined>);
 
 export const electronPlatform: Platform = {
   runtime: {
@@ -81,8 +83,23 @@ export const electronPlatform: Platform = {
     defaultExportsDir: () => readRememberedPath('planner.exportsDir') ?? DEFAULT_EXPORTS_DIR,
   },
   map: {
-    tileLayerUrl: () => 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    tileLayerAttribution: () => '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    tileLayerUrl: () => mapConfig.tileLayerUrl,
+    tileLayerAttribution: () => mapConfig.tileLayerAttribution,
+    maxNativeZoom: () => mapConfig.maxNativeZoom,
+    maxZoom: () => mapConfig.maxZoom,
+    tileSubdomains: () => mapConfig.tileSubdomains,
+    tileSize: () => mapConfig.tileSize,
+    detectRetina: () => mapConfig.detectRetina,
+    overlayTileLayerUrl: () => mapConfig.overlayTileLayerUrl,
+    overlayTileLayerAttribution: () => mapConfig.overlayTileLayerAttribution,
+    overlayMaxNativeZoom: () => mapConfig.overlayMaxNativeZoom,
+    overlayMaxZoom: () => mapConfig.overlayMaxZoom,
+    overlayTileSubdomains: () => mapConfig.overlayTileSubdomains,
+    overlayTileSize: () => mapConfig.overlayTileSize,
+    overlayDetectRetina: () => mapConfig.overlayDetectRetina,
+    zoomSnap: () => mapConfig.zoomSnap,
+    zoomDelta: () => mapConfig.zoomDelta,
+    wheelPxPerZoomLevel: () => mapConfig.wheelPxPerZoomLevel,
   },
   fs: {
     pickDirectory: async (options) => {
