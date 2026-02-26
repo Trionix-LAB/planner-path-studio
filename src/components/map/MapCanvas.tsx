@@ -1656,6 +1656,8 @@ const MapCanvas = ({
                 <input
                   className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm"
                   type="number"
+                  min={0}
+                  max={360}
                   step={1}
                   value={draftZoneLaneAngle}
                   onChange={(e) => setDraftZoneLaneAngle(e.target.value)}

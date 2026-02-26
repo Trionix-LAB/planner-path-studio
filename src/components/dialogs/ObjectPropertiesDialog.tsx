@@ -105,6 +105,8 @@ const ObjectPropertiesDialog = ({ open, onOpenChange, object, onSave }: ObjectPr
                   <Label>Угол галсов</Label>
                   <Input
                     type="number"
+                    min="0"
+                    max="360"
                     step="1"
                     value={laneAngle}
                     onChange={(e) => {

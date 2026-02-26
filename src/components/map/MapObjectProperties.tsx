@@ -257,6 +257,8 @@ const MapObjectProperties = ({
               <Input
                 className="h-9 text-sm"
                 type="number"
+                min="0"
+                max="360"
                 step="1"
                 value={laneAngle}
                 onChange={(e) => handleFieldChange(setLaneAngle, e.target.value)}

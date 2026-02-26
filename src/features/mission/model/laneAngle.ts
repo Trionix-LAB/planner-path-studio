@@ -1,6 +1,11 @@
-export const normalizeLaneAngleDeg = (value: number): number => {
+export const clampLaneAngleInputDeg = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
-  return ((value % 180) + 180) % 180;
+  return Math.min(360, Math.max(0, value));
+};
+
+export const normalizeLaneAngleDeg = (value: number): number => {
+  const clamped = clampLaneAngleInputDeg(value);
+  return clamped % 180;
 };
 
 export const parseLaneAngleInput = (value: string, fallback = 0): number => {
