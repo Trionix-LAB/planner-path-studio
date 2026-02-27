@@ -32,6 +32,8 @@ describe('top toolbar mission menu', () => {
       button: 0,
       ctrlKey: false,
     });
+    const menu = await screen.findByRole('menu');
+    expect(menu.className).toContain('z-[11000]');
     fireEvent.click(await screen.findByRole('menuitem', { name: 'На старт' }));
 
     expect(onGoToStart).toHaveBeenCalledTimes(1);

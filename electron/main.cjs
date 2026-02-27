@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 const dgram = require('dgram');
@@ -364,6 +364,7 @@ const createMainWindow = async () => {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -385,6 +386,7 @@ const createMainWindow = async () => {
   } else {
     await win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
+  win.setMenuBarVisibility(false);
 
   return win;
 };
@@ -538,6 +540,7 @@ const registerIpcHandlers = () => {
 };
 
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   registerIpcHandlers();
   await createMainWindow();
 
