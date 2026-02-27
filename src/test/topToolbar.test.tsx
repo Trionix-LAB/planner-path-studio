@@ -23,6 +23,7 @@ describe('top toolbar mission menu', () => {
         onOpenOpen={vi.fn()}
         onOpenExport={vi.fn()}
         onOpenSettings={vi.fn()}
+        onOpenOfflineMaps={vi.fn()}
         onFinishMission={vi.fn()}
         onGoToStart={onGoToStart}
       />,

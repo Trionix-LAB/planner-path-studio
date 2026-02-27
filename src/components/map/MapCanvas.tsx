@@ -31,6 +31,10 @@ import { ZoneDraftLanePanel } from './ZoneDraftLanePanel';
 import { getDefaultZoneLanePanelIconPosition, getDefaultZoneLanePanelPosition } from './zoneDraftLanePanelUtils';
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import CachedTileLayer from './CachedTileLayer';
+
+const TRANSPARENT_TILE =
+  'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
 // Fix leaflet default marker icons (bundle local assets; don't depend on CDN).
 const iconProto = L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown };
@@ -108,6 +112,7 @@ interface MapCanvasProps {
   onLanePickStart?: (zoneId: string, point: { lat: number; lon: number }) => void;
   onMapScaleChange?: (scale: string) => void;
   onMapViewChange?: (view: { center_lat: number; center_lon: number; zoom: number }) => void;
+  onMapBoundsChange?: (bounds: { north: number; south: number; east: number; west: number }) => void;
   onMapDrag: () => void;
 }
 
@@ -199,6 +204,7 @@ const MapEvents = ({
   onMapContextMenu,
   onMapScaleChange,
   onMapViewChange,
+  onMapBoundsChange,
 }: {
   onCursorMove: (pos: { lat: number; lon: number }) => void;
   onMapClick: (e: L.LeafletMouseEvent) => void;
@@ -206,6 +212,7 @@ const MapEvents = ({
   onMapContextMenu: (e: L.LeafletMouseEvent) => void;
   onMapScaleChange?: (scale: string) => void;
   onMapViewChange?: (view: { center_lat: number; center_lon: number; zoom: number }) => void;
+  onMapBoundsChange?: (bounds: { north: number; south: number; east: number; west: number }) => void;
 }) => {
   const map = useMap();
   const viewTimerRef = useRef<number | null>(null);
@@ -214,20 +221,27 @@ const MapEvents = ({
   }, [map, onMapScaleChange]);
 
   const scheduleViewReport = useCallback(() => {
-    if (!onMapViewChange) return;
+    if (!onMapViewChange && !onMapBoundsChange) return;
     if (viewTimerRef.current !== null) {
       window.clearTimeout(viewTimerRef.current);
     }
 
     viewTimerRef.current = window.setTimeout(() => {
       const center = map.getCenter();
-      onMapViewChange({
+      const bounds = map.getBounds();
+      onMapViewChange?.({
         center_lat: center.lat,
         center_lon: center.lng,
         zoom: map.getZoom(),
       });
+      onMapBoundsChange?.({
+        north: bounds.getNorth(),
+        south: bounds.getSouth(),
+        east: bounds.getEast(),
+        west: bounds.getWest(),
+      });
     }, 250);
-  }, [map, onMapViewChange]);
+  }, [map, onMapBoundsChange, onMapViewChange]);
 
   useMapEvents({
     mousemove: (e) => {
@@ -473,6 +487,7 @@ const MapCanvas = ({
   onLanePickStart,
   onMapScaleChange,
   onMapViewChange,
+  onMapBoundsChange,
   onMapDrag,
 }: MapCanvasProps) => {
   const [drawingPoints, setDrawingPoints] = useState<L.LatLng[]>([]);
@@ -1246,7 +1261,7 @@ const MapCanvas = ({
 
   const tileSubdomains = platform.map.tileSubdomains();
   const tileSize = platform.map.tileSize();
-  const detectRetina = platform.map.detectRetina();
+  const baseMaxNativeZoom = platform.map.maxNativeZoom();
   const overlayTileLayerUrl = platform.map.overlayTileLayerUrl();
   const overlayTileLayerAttribution = platform.map.overlayTileLayerAttribution();
   const overlayMaxNativeZoom = platform.map.overlayMaxNativeZoom();
@@ -1277,20 +1292,20 @@ const MapCanvas = ({
         doubleClickZoom={false}
         attributionControl={false}
       >
-        <TileLayer
-          url={platform.map.tileLayerUrl()}
-          attribution={platform.map.tileLayerAttribution()}
-          maxNativeZoom={platform.map.maxNativeZoom()}
-          maxZoom={platform.map.maxZoom()}
-          {...(tileSubdomains ? { subdomains: tileSubdomains } : {})}
-          {...(typeof tileSize === 'number' ? { tileSize } : {})}
-          {...(typeof detectRetina === 'boolean' ? { detectRetina } : {})}
+        <CachedTileLayer
+          providerKey={platform.map.tileLayerUrl()}
+          urlTemplate={platform.map.tileLayerUrl()}
+          subdomains={tileSubdomains}
+          tileSize={typeof tileSize === 'number' ? tileSize : 256}
+          maxNativeZoom={baseMaxNativeZoom}
+          zIndex={1}
         />
         {overlayTileLayerUrl && overlayTileLayerAttribution ? (
           <TileLayer
             url={overlayTileLayerUrl}
             attribution={overlayTileLayerAttribution}
             maxZoom={overlayMaxZoom ?? platform.map.maxZoom()}
+            errorTileUrl={TRANSPARENT_TILE}
             {...(typeof overlayMaxNativeZoom === 'number' ? { maxNativeZoom: overlayMaxNativeZoom } : {})}
             {...(overlayTileSubdomains ? { subdomains: overlayTileSubdomains } : {})}
             {...(typeof overlayTileSize === 'number' ? { tileSize: overlayTileSize } : {})}
@@ -1317,6 +1332,7 @@ const MapCanvas = ({
           onMapDrag={onMapDrag}
           onMapScaleChange={onMapScaleChange}
           onMapViewChange={onMapViewChange}
+          onMapBoundsChange={onMapBoundsChange}
           onMapContextMenu={() => {
             setObjectMenuState(null);
             setDrawingMenuState(null);

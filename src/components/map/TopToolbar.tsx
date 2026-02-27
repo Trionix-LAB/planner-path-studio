@@ -23,6 +23,7 @@ import {
   Loader2,
   AlertCircle,
   Home,
+  CloudDownload,
 } from 'lucide-react';
 import type { Tool } from "@/features/map/model/types";
 import { cn } from '@/lib/utils';
@@ -45,6 +46,7 @@ interface TopToolbarProps {
   onOpenOpen: () => void;
   onOpenExport: () => void;
   onOpenSettings: () => void;
+  onOpenOfflineMaps: () => void;
   onFinishMission: () => void;
   onGoToStart: () => void;
 }
@@ -67,6 +69,7 @@ const TopToolbar = ({
   onOpenOpen,
   onOpenExport,
   onOpenSettings,
+  onOpenOfflineMaps,
   onFinishMission,
   onGoToStart,
 }: TopToolbarProps) => {
@@ -106,6 +109,10 @@ const TopToolbar = ({
           <DropdownMenuItem onClick={onOpenExport}>
             <Download className="w-4 h-4 mr-2" />
             Экспорт...
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onOpenOfflineMaps}>
+            <CloudDownload className="w-4 h-4 mr-2" />
+            Скачать карты...
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onFinishMission} disabled={isDraft}>
