@@ -11,6 +11,9 @@ describe('app settings', () => {
     expect(settings.defaults.measurements.grid.line_style).toBe('dashed');
     expect(settings.defaults.connection.host).toBe('localhost');
     expect(settings.defaults.connection.port).toBe(9000);
+    expect(settings.workspace.map_panels.top_collapsed).toBe(false);
+    expect(settings.workspace.map_panels.left_collapsed).toBe(false);
+    expect(settings.workspace.map_panels.right_collapsed).toBe(false);
   });
 
   it('clamps invalid numeric settings', () => {
@@ -25,6 +28,13 @@ describe('app settings', () => {
         },
         measurements: { grid: { mode: 'manual', step_m: -10 } },
       },
+      workspace: {
+        map_panels: {
+          top_collapsed: true,
+          left_collapsed: true,
+          right_collapsed: false,
+        },
+      },
     };
     const normalized = normalizeAppSettings(raw);
     expect(normalized.defaults.coordinates.precision).toBe(12);
@@ -35,6 +45,9 @@ describe('app settings', () => {
     expect(normalized.defaults.measurements.grid.line_style).toBe('dashed');
     expect(normalized.defaults.connection.host).toBe('localhost');
     expect(normalized.defaults.connection.port).toBe(65535);
+    expect(normalized.workspace.map_panels.top_collapsed).toBe(true);
+    expect(normalized.workspace.map_panels.left_collapsed).toBe(true);
+    expect(normalized.workspace.map_panels.right_collapsed).toBe(false);
   });
 
   it('merges mission ui overrides onto defaults (R-046)', () => {

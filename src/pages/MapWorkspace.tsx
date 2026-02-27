@@ -5,6 +5,7 @@ import RightPanel from '@/components/map/RightPanel';
 import LeftPanel from '@/components/map/LeftPanel';
 import StatusBar from '@/components/map/StatusBar';
 import MapCanvas from '@/components/map/MapCanvas';
+import MapWorkspaceFrame, { type MapPanelsCollapsedState } from '@/components/map/MapWorkspaceFrame';
 import CreateMissionDialog from '@/components/dialogs/CreateMissionDialog';
 import OpenMissionDialog from '@/components/dialogs/OpenMissionDialog';
 import ExportDialog from '@/components/dialogs/ExportDialog';
@@ -139,6 +140,12 @@ const DEFAULT_LAYERS: LayersState = {
   grid: false,
   scaleBar: true,
   diver: true,
+};
+
+const DEFAULT_MAP_PANELS_COLLAPSED: MapPanelsCollapsedState = {
+  top: false,
+  left: false,
+  right: false,
 };
 
 const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
@@ -386,6 +393,9 @@ const MapWorkspace = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [cursorPosition, setCursorPosition] = useState({ lat: 59.934, lon: 30.335 });
   const [mapScale, setMapScale] = useState('1:--');
+  const [mapPanelsCollapsed, setMapPanelsCollapsed] = useState<MapPanelsCollapsedState>(
+    DEFAULT_MAP_PANELS_COLLAPSED,
+  );
   const [mapView, setMapView] = useState<MissionUiState['map_view'] | null>(null);
   const [coordPrecision, setCoordPrecision] = useState(DEFAULT_APP_SETTINGS.defaults.coordinates.precision);
   const [gridSettings, setGridSettings] = useState<AppUiDefaults['measurements']['grid']>(
@@ -447,6 +457,7 @@ const MapWorkspace = () => {
   const lastRecordedFixByAgentRef = useRef<Record<string, number>>({});
   const missionDiversRef = useRef<DiverUiConfig[]>(createDefaultDivers(1));
   const appSettingsRef = useRef<AppSettingsV1>(DEFAULT_APP_SETTINGS);
+  const appSettingsReadyRef = useRef(false);
   const latestSnapshotRef = useRef<WorkspaceSnapshot>({
     missionRootPath: null,
     recordingState: createTrackRecorderState(null, {}, {}),
@@ -979,6 +990,12 @@ const MapWorkspace = () => {
         setStyles(normalized.defaults.styles);
         setConnectionSettings(normalized.defaults.connection);
         setCenterOnObjectSelect(normalized.defaults.interactions.center_on_object_select);
+        setMapPanelsCollapsed({
+          top: normalized.workspace.map_panels.top_collapsed,
+          left: normalized.workspace.map_panels.left_collapsed,
+          right: normalized.workspace.map_panels.right_collapsed,
+        });
+        appSettingsReadyRef.current = true;
 
         if (location.pathname === '/create-mission') {
           setShowCreateMission(true);
@@ -1004,6 +1021,7 @@ const MapWorkspace = () => {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Не удалось открыть миссию';
         window.alert(message);
+        appSettingsReadyRef.current = true;
         await loadDraft('resume');
       }
     };
@@ -1013,6 +1031,35 @@ const MapWorkspace = () => {
       void releaseCurrentLock();
     };
   }, [loadDraft, location.pathname, location.search, releaseCurrentLock, repository, updateFromBundle]);
+
+  useEffect(() => {
+    if (!appSettingsReadyRef.current) return;
+
+    const current = appSettingsRef.current.workspace.map_panels;
+    if (
+      current.top_collapsed === mapPanelsCollapsed.top &&
+      current.left_collapsed === mapPanelsCollapsed.left &&
+      current.right_collapsed === mapPanelsCollapsed.right
+    ) {
+      return;
+    }
+
+    const nextSettings: AppSettingsV1 = {
+      ...appSettingsRef.current,
+      workspace: {
+        map_panels: {
+          top_collapsed: mapPanelsCollapsed.top,
+          left_collapsed: mapPanelsCollapsed.left,
+          right_collapsed: mapPanelsCollapsed.right,
+        },
+      },
+    };
+
+    appSettingsRef.current = nextSettings;
+    void platform.settings.writeJson(APP_SETTINGS_STORAGE_KEY, nextSettings).catch(() => {
+      // Best effort persistence for workspace layout.
+    });
+  }, [mapPanelsCollapsed]);
 
   useEffect(() => {
     // Per R-015: recording is no longer auto-started for all agents.
@@ -1614,6 +1661,7 @@ const MapWorkspace = () => {
     const nextSettings: AppSettingsV1 = {
       schema_version: DEFAULT_APP_SETTINGS.schema_version,
       defaults: next,
+      workspace: appSettingsRef.current.workspace,
     };
 
     appSettingsRef.current = nextSettings;
@@ -1830,6 +1878,22 @@ const MapWorkspace = () => {
     })();
   }, [isDraft, missionRootPath, navigate, persistMissionSnapshot, releaseCurrentLock]);
 
+  const openCreateMissionDialog = useCallback(() => {
+    window.requestAnimationFrame(() => setShowCreateMission(true));
+  }, []);
+
+  const openOpenMissionDialog = useCallback(() => {
+    window.requestAnimationFrame(() => setShowOpenMission(true));
+  }, []);
+
+  const openExportDialog = useCallback(() => {
+    window.requestAnimationFrame(() => setShowExport(true));
+  }, []);
+
+  const openSettingsDialog = useCallback(() => {
+    window.requestAnimationFrame(() => setShowSettings(true));
+  }, []);
+
   const handleFinishMission = () => {
     if (isDraft) return;
     if (!window.confirm('Завершить миссию и перейти в черновик?')) {
@@ -2020,52 +2084,56 @@ const MapWorkspace = () => {
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden relative">
-      <TopToolbar
-        missionName={missionName}
-        isDraft={isDraft}
-        autoSaveStatus={autoSaveStatus}
-        activeTool={activeTool}
-        trackStatus={trackStatus}
-        showSimulationControls={showSimulationControls}
-        isRecordingEnabled={isRecordingControlsEnabled}
-        simulationEnabled={showSimulationControls ? simulationEnabled : undefined}
-        simulateConnectionError={showSimulationControls ? simulateConnectionError : undefined}
-        onToolChange={handleToolChange}
-        onTrackAction={handleTrackAction}
-        onSimulationToggle={showSimulationControls ? () => setSimulationEnabled((prev) => !prev) : undefined}
-        onSimulationErrorToggle={
-          showSimulationControls ? () => setSimulateConnectionError((prev) => !prev) : undefined
+      <MapWorkspaceFrame
+        collapsed={mapPanelsCollapsed}
+        onCollapsedChange={setMapPanelsCollapsed}
+        top={
+          <TopToolbar
+            missionName={missionName}
+            isDraft={isDraft}
+            autoSaveStatus={autoSaveStatus}
+            activeTool={activeTool}
+            trackStatus={trackStatus}
+            showSimulationControls={showSimulationControls}
+            isRecordingEnabled={isRecordingControlsEnabled}
+            simulationEnabled={showSimulationControls ? simulationEnabled : undefined}
+            simulateConnectionError={showSimulationControls ? simulateConnectionError : undefined}
+            onToolChange={handleToolChange}
+            onTrackAction={handleTrackAction}
+            onSimulationToggle={showSimulationControls ? () => setSimulationEnabled((prev) => !prev) : undefined}
+            onSimulationErrorToggle={
+              showSimulationControls ? () => setSimulateConnectionError((prev) => !prev) : undefined
+            }
+            onOpenCreate={openCreateMissionDialog}
+            onOpenOpen={openOpenMissionDialog}
+            onOpenExport={openExportDialog}
+            onOpenSettings={openSettingsDialog}
+            onFinishMission={handleFinishMission}
+            onGoToStart={handleGoToStart}
+          />
         }
-        onOpenCreate={() => setShowCreateMission(true)}
-        onOpenOpen={() => setShowOpenMission(true)}
-        onOpenExport={() => setShowExport(true)}
-        onOpenSettings={() => setShowSettings(true)}
-        onFinishMission={handleFinishMission}
-        onGoToStart={handleGoToStart}
-      />
-
-      <div className="flex-1 flex overflow-hidden">
-        <LeftPanel
-          layers={layers}
-          onLayerToggle={handleLayerToggle}
-          divers={missionDivers}
-          trackStatusByAgentId={trackStatusByAgentId}
-          selectedAgentId={selectedAgentId}
-          pinnedAgentId={pinnedAgentId}
-          onAgentSelect={setSelectedAgentId}
-          onAgentCenter={handleAgentCenter}
-          onAgentToggleRecording={handleAgentToggleRecording}
-          onAgentPin={handleAgentPin}
-          isDraft={isDraft}
-          isRecordingEnabled={isRecordingControlsEnabled}
-          objects={objects}
-          selectedObjectId={selectedObjectId}
-          onObjectSelect={handleObjectSelect}
-          onObjectCenter={handleObjectCenter}
-          onObjectDelete={handleObjectDelete}
-        />
-
-        <div className="flex-1 relative">
+        left={
+          <LeftPanel
+            layers={layers}
+            onLayerToggle={handleLayerToggle}
+            divers={missionDivers}
+            trackStatusByAgentId={trackStatusByAgentId}
+            selectedAgentId={selectedAgentId}
+            pinnedAgentId={pinnedAgentId}
+            onAgentSelect={setSelectedAgentId}
+            onAgentCenter={handleAgentCenter}
+            onAgentToggleRecording={handleAgentToggleRecording}
+            onAgentPin={handleAgentPin}
+            isDraft={isDraft}
+            isRecordingEnabled={isRecordingControlsEnabled}
+            objects={objects}
+            selectedObjectId={selectedObjectId}
+            onObjectSelect={handleObjectSelect}
+            onObjectCenter={handleObjectCenter}
+            onObjectDelete={handleObjectDelete}
+          />
+        }
+        center={
           <MapCanvas
             activeTool={activeTool}
             laneFeatures={laneFeatures}
@@ -2117,39 +2185,41 @@ const MapWorkspace = () => {
             onMapScaleChange={setMapScale}
             onMapViewChange={handleMapViewChange}
           />
-        </div>
-
-        <RightPanel
-          diverData={selectedAgentDiverData}
-          hasTelemetryData={hasSelectedAgentTelemetry}
-          hasTelemetryHistory={hasPrimaryTelemetryHistory}
-          coordPrecision={coordPrecision}
-          styles={styles}
-          connectionStatus={connectionStatus}
-          isConnectionEnabled={isPrimarySourceEnabled}
-          selectedAgent={selectedAgent}
-          selectedAgentTrackStatus={selectedAgentTrackStatus}
-          selectedAgentActiveTrackNumber={selectedAgentActiveTrackNumber}
-          missionDocument={missionDocument}
-          trackStatusByAgentId={trackStatusByAgentId}
-          selectedObject={selectedObject}
-          onObjectSelect={handleObjectSelect}
-          onObjectUpdate={handleObjectUpdate}
-          onObjectDelete={handleObjectDelete}
-          onRegenerateLanes={handleRegenerateLanes}
-          onPickLaneEdge={beginPickLaneEdge}
-          onPickLaneStart={beginPickLaneStart}
-          selectedZoneLanesOutdated={selectedZoneLanesOutdated}
-          selectedZoneLaneCount={selectedZoneLaneCount}
-          onTrackDelete={handleTrackDelete}
-        />
-      </div>
-
-      <StatusBar
-        cursorPosition={cursorPosition}
-        coordPrecision={coordPrecision}
-        scale={mapScale}
-        activeTool={activeTool}
+        }
+        right={
+          <RightPanel
+            diverData={selectedAgentDiverData}
+            hasTelemetryData={hasSelectedAgentTelemetry}
+            hasTelemetryHistory={hasPrimaryTelemetryHistory}
+            coordPrecision={coordPrecision}
+            styles={styles}
+            connectionStatus={connectionStatus}
+            isConnectionEnabled={isPrimarySourceEnabled}
+            selectedAgent={selectedAgent}
+            selectedAgentTrackStatus={selectedAgentTrackStatus}
+            selectedAgentActiveTrackNumber={selectedAgentActiveTrackNumber}
+            missionDocument={missionDocument}
+            trackStatusByAgentId={trackStatusByAgentId}
+            selectedObject={selectedObject}
+            onObjectSelect={handleObjectSelect}
+            onObjectUpdate={handleObjectUpdate}
+            onObjectDelete={handleObjectDelete}
+            onRegenerateLanes={handleRegenerateLanes}
+            onPickLaneEdge={beginPickLaneEdge}
+            onPickLaneStart={beginPickLaneStart}
+            selectedZoneLanesOutdated={selectedZoneLanesOutdated}
+            selectedZoneLaneCount={selectedZoneLaneCount}
+            onTrackDelete={handleTrackDelete}
+          />
+        }
+        status={
+          <StatusBar
+            cursorPosition={cursorPosition}
+            coordPrecision={coordPrecision}
+            scale={mapScale}
+            activeTool={activeTool}
+          />
+        }
       />
 
       <CreateMissionDialog

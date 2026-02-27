@@ -30,11 +30,16 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, onCloseAutoFocus, ...props }, ref) => (
+>(({ className, children, onOpenAutoFocus, onCloseAutoFocus, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      onOpenAutoFocus={(e) => {
+        // Defensive reset for Radix layering edge-cases (e.g. dialog opened from dropdown menu).
+        document.body.style.pointerEvents = "";
+        onOpenAutoFocus?.(e);
+      }}
       onCloseAutoFocus={(e) => {
         // Radix DismissableLayer may leave body.style.pointerEvents stuck at "none"
         // when the dialog is closed with exit animations. Force-reset it.

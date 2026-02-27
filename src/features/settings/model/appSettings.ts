@@ -47,6 +47,13 @@ export type AppUiDefaults = {
 export type AppSettingsV1 = {
   schema_version: typeof APP_SETTINGS_SCHEMA_VERSION;
   defaults: AppUiDefaults;
+  workspace: {
+    map_panels: {
+      top_collapsed: boolean;
+      left_collapsed: boolean;
+      right_collapsed: boolean;
+    };
+  };
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -115,6 +122,13 @@ export const createDefaultAppSettings = (): AppSettingsV1 => ({
       marker: { color: '#22c55e' },
     },
   },
+  workspace: {
+    map_panels: {
+      top_collapsed: false,
+      left_collapsed: false,
+      right_collapsed: false,
+    },
+  },
 });
 
 export const normalizeAppSettings = (raw: unknown): AppSettingsV1 => {
@@ -131,6 +145,8 @@ export const normalizeAppSettings = (raw: unknown): AppSettingsV1 => {
   const measurementsRaw = isRecord(defaultsRaw.measurements) ? defaultsRaw.measurements : {};
   const gridRaw = isRecord(measurementsRaw.grid) ? measurementsRaw.grid : {};
   const stylesRaw = isRecord(defaultsRaw.styles) ? defaultsRaw.styles : {};
+  const workspaceRaw = isRecord(raw.workspace) ? raw.workspace : {};
+  const mapPanelsRaw = isRecord(workspaceRaw.map_panels) ? workspaceRaw.map_panels : {};
 
   const trackStyleRaw = isRecord(stylesRaw.track) ? stylesRaw.track : {};
   const routeStyleRaw = isRecord(stylesRaw.route) ? stylesRaw.route : {};
@@ -207,6 +223,22 @@ export const normalizeAppSettings = (raw: unknown): AppSettingsV1 => {
         marker: {
           color: normalizeHexColor(markerStyleRaw.color, base.defaults.styles.marker.color),
         },
+      },
+    },
+    workspace: {
+      map_panels: {
+        top_collapsed:
+          typeof mapPanelsRaw.top_collapsed === 'boolean'
+            ? mapPanelsRaw.top_collapsed
+            : base.workspace.map_panels.top_collapsed,
+        left_collapsed:
+          typeof mapPanelsRaw.left_collapsed === 'boolean'
+            ? mapPanelsRaw.left_collapsed
+            : base.workspace.map_panels.left_collapsed,
+        right_collapsed:
+          typeof mapPanelsRaw.right_collapsed === 'boolean'
+            ? mapPanelsRaw.right_collapsed
+            : base.workspace.map_panels.right_collapsed,
       },
     },
   };

@@ -80,7 +80,7 @@ const TopToolbar = ({
   return (
     <div className="h-12 bg-card border-b border-border flex items-center px-2 gap-1">
       {/* Mission Menu */}
-      <DropdownMenu>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="h-8 px-3 gap-2">
             <span className="font-medium">

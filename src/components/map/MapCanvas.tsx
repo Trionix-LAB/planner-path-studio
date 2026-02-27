@@ -305,6 +305,41 @@ const ApplyMapView = ({
   return null;
 };
 
+const SyncMapSizeWithLayout = () => {
+  const map = useMap();
+
+  useEffect(() => {
+    const invalidate = () => {
+      map.invalidateSize({ pan: false, debounceMoveend: true });
+    };
+
+    const rafId = window.requestAnimationFrame(invalidate);
+    const timeoutId = window.setTimeout(invalidate, 120);
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        window.requestAnimationFrame(invalidate);
+      });
+      observer.observe(map.getContainer());
+    }
+
+    const handleWindowResize = () => {
+      window.requestAnimationFrame(invalidate);
+    };
+    window.addEventListener('resize', handleWindowResize);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timeoutId);
+      observer?.disconnect();
+      window.removeEventListener('resize', handleWindowResize);
+    };
+  }, [map]);
+
+  return null;
+};
+
 const CenterOnObjectRequest = ({
   request,
   objects,
@@ -814,9 +849,18 @@ const MapCanvas = ({
   // Keyboard shortcut handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"][data-state="open"]')) {
+        return;
+      }
+
       // Ignore shortcuts if user is typing in an input/textarea
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable ||
+        Boolean(target.closest('[contenteditable="true"], [role="textbox"]'))
+      ) {
         return;
       }
 
@@ -1278,6 +1322,7 @@ const MapCanvas = ({
             setDrawingMenuState(null);
           }}
         />
+        <SyncMapSizeWithLayout />
 
         <ApplyMapView mapView={mapView} isFollowing={isFollowing} />
         <CenterOnObjectRequest request={centerRequest} objects={objects} onMissingGeometry={handleMissingGeometry} />
