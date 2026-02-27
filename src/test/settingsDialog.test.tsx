@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import SettingsDialog from '@/components/dialogs/SettingsDialog';
-import { createDefaultAppSettings } from '@/features/settings';
+import { APP_THEME_STORAGE_KEY, createDefaultAppSettings } from '@/features/settings';
 import type { DiverUiConfig } from '@/features/mission';
 
 const baseDefaults = createDefaultAppSettings().defaults;
@@ -139,5 +139,53 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
     });
     const appliedDivers = onApplyDivers.mock.calls.at(-1)?.[0] as DiverUiConfig[];
     expect(appliedDivers[0].marker_size_px).toBe(27);
+  });
+});
+
+describe('SettingsDialog theme toggle (T-90)', () => {
+  it('changes root class and persists selected theme across remount', async () => {
+    window.localStorage.removeItem(APP_THEME_STORAGE_KEY);
+    document.documentElement.classList.remove('dark', 'light');
+    document.documentElement.classList.add('dark');
+
+    const baseProps = {
+      open: true,
+      onOpenChange: vi.fn(),
+      value: baseDefaults,
+      missionDivers: [buildDiver('zima2r')],
+      isZimaAssignedInProfile: true,
+      baseStationNavigationSource: null,
+      onApply: vi.fn(),
+      onApplyDivers: vi.fn(),
+      onApplyBaseStationNavigationSource: vi.fn(),
+      onReset: vi.fn(),
+      onResetDivers: vi.fn(),
+      navigationSourceOptions: [
+        { id: 'zima2r' as const, label: 'Zima2R' },
+        { id: 'gnss-udp' as const, label: 'GNSS-UDP' },
+      ],
+    };
+
+    const { unmount } = render(<SettingsDialog {...baseProps} />);
+    const defaultsTab = screen.getByRole('tab', { name: 'По умолчанию' });
+    fireEvent.mouseDown(defaultsTab);
+    fireEvent.click(defaultsTab);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Светлая' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Применить' }));
+
+    await waitFor(() => {
+      expect(document.documentElement.classList.contains('light')).toBe(true);
+    });
+    expect(window.localStorage.getItem(APP_THEME_STORAGE_KEY)).toBe('light');
+
+    unmount();
+
+    render(<SettingsDialog {...baseProps} />);
+    const defaultsTabAfterRemount = screen.getByRole('tab', { name: 'По умолчанию' });
+    fireEvent.mouseDown(defaultsTabAfterRemount);
+    fireEvent.click(defaultsTabAfterRemount);
+    fireEvent.keyDown(defaultsTabAfterRemount, { key: 'Enter' });
+    expect(screen.getByRole('button', { name: 'Светлая' })).toHaveAttribute('aria-pressed', 'true');
   });
 });
