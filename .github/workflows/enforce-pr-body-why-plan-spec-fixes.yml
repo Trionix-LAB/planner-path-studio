@@ -1,4 +1,4 @@
-name: Enforce PR body (Fixes + Spec + Plan + Why)
+name: Enforce PR body (Fixes + Spec + Tasks Log + Why)
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ jobs:
   enforce:
     runs-on: ubuntu-latest
     steps:
-      - name: Require Fixes/Spec/Plan/Why when code changes
+      - name: Require Fixes/Spec/Tasks Log/Why when code changes
         uses: actions/github-script@v7
         with:
           script: |
@@ -68,13 +68,13 @@ jobs:
 
             const hasFixes = /(^|\n)\s*Fixes\s+#\d+\b/i.test(body);
             const hasSpec  = /(^|\n)\s*Spec:\s*(R-\d{3,}(\b|$)|New requirements?\b)/i.test(body);
-            const hasPlan  = /(^|\n)\s*Plan:\s*tasks\/T-\d+\.md\b/i.test(body);
+            const hasTasksLog  = /(^|\n)\s*Tasks\s+Log:\s*tasks\/T-\d+\.md\b/i.test(body);
             const hasWhy   = /(^|\n)\s*Why:\s*\S+/i.test(body);
 
             const missing = [];
             if (!hasFixes) missing.push("Fixes #<issue>");
             if (!hasSpec)  missing.push("Spec: R-XXX (or Spec: New requirement)");
-            if (!hasPlan)  missing.push("Plan: tasks/T-XXXX.md");
+            if (!hasTasksLog)  missing.push("Tasks Log: tasks/T-XXXX.md");
             if (!hasWhy)   missing.push("Why: ...");
 
             if (missing.length) {
@@ -84,9 +84,9 @@ jobs:
                 `\n\nExample:\n` +
                 `Fixes #123\n` +
                 `Spec: R-013\n` +
-                `Plan: tasks/T-0123.md\n` +
+                `Tasks Log: tasks/T-0123.md\n` +
                 `\nWhy:\n- ...`
               );
             } else {
-              core.info("OK: PR body contains Fixes + Spec + Plan + Why.");
+              core.info("OK: PR body contains Fixes + Spec + Tasks Log + Why.");
             }
