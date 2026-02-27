@@ -10,6 +10,7 @@ import CreateMissionDialog from '@/components/dialogs/CreateMissionDialog';
 import OpenMissionDialog from '@/components/dialogs/OpenMissionDialog';
 import ExportDialog from '@/components/dialogs/ExportDialog';
 import SettingsDialog from '@/components/dialogs/SettingsDialog';
+import OfflineMapsDialog from '@/components/dialogs/OfflineMapsDialog';
 import type { MapObject, Tool } from '@/features/map/model/types';
 
 import {
@@ -122,6 +123,13 @@ type WorkspaceSnapshot = {
   segmentLengthsMode: SegmentLengthsMode;
   styles: AppUiDefaults['styles'];
   isLoaded: boolean;
+};
+
+type MapBounds = {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
 };
 
 const DEFAULT_DIVER_DATA = {
@@ -391,12 +399,14 @@ const MapWorkspace = () => {
   const [showOpenMission, setShowOpenMission] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showOfflineMaps, setShowOfflineMaps] = useState(false);
   const [cursorPosition, setCursorPosition] = useState({ lat: 59.934, lon: 30.335 });
   const [mapScale, setMapScale] = useState('1:--');
   const [mapPanelsCollapsed, setMapPanelsCollapsed] = useState<MapPanelsCollapsedState>(
     DEFAULT_MAP_PANELS_COLLAPSED,
   );
   const [mapView, setMapView] = useState<MissionUiState['map_view'] | null>(null);
+  const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
   const [coordPrecision, setCoordPrecision] = useState(DEFAULT_APP_SETTINGS.defaults.coordinates.precision);
   const [gridSettings, setGridSettings] = useState<AppUiDefaults['measurements']['grid']>(
     DEFAULT_APP_SETTINGS.defaults.measurements.grid,
@@ -1521,6 +1531,21 @@ const MapWorkspace = () => {
     });
   }, []);
 
+  const handleMapBoundsChange = useCallback((next: MapBounds) => {
+    setMapBounds((prev) => {
+      if (
+        prev &&
+        prev.north === next.north &&
+        prev.south === next.south &&
+        prev.east === next.east &&
+        prev.west === next.west
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
+
   const handleLayerToggle = (layer: keyof LayersState) => {
     if (layer === 'diver') return;
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
@@ -1894,6 +1919,10 @@ const MapWorkspace = () => {
     window.requestAnimationFrame(() => setShowSettings(true));
   }, []);
 
+  const openOfflineMapsDialog = useCallback(() => {
+    window.requestAnimationFrame(() => setShowOfflineMaps(true));
+  }, []);
+
   const handleFinishMission = () => {
     if (isDraft) return;
     if (!window.confirm('Завершить миссию и перейти в черновик?')) {
@@ -2108,6 +2137,7 @@ const MapWorkspace = () => {
             onOpenOpen={openOpenMissionDialog}
             onOpenExport={openExportDialog}
             onOpenSettings={openSettingsDialog}
+            onOpenOfflineMaps={openOfflineMapsDialog}
             onFinishMission={handleFinishMission}
             onGoToStart={handleGoToStart}
           />
@@ -2184,6 +2214,7 @@ const MapWorkspace = () => {
             onLanePickStart={handlePickedLaneStart}
             onMapScaleChange={setMapScale}
             onMapViewChange={handleMapViewChange}
+            onMapBoundsChange={handleMapBoundsChange}
           />
         }
         right={
@@ -2287,6 +2318,18 @@ const MapWorkspace = () => {
         }
         onToggleEquipment={isElectronRuntime ? handleToggleEquipmentConnection : undefined}
         onOpenEquipment={handleOpenEquipmentScreen}
+      />
+
+      <OfflineMapsDialog
+        open={showOfflineMaps}
+        onOpenChange={setShowOfflineMaps}
+        tileUrlTemplate={platform.map.tileLayerUrl()}
+        tileSubdomains={platform.map.tileSubdomains()}
+        providerKey={platform.map.tileLayerUrl()}
+        maxZoom={platform.map.maxZoom()}
+        maxNativeZoom={platform.map.maxNativeZoom()}
+        viewBounds={mapBounds}
+        currentZoom={mapView?.zoom ?? 12}
       />
     </div>
   );
