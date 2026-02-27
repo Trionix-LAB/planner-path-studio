@@ -3,7 +3,7 @@ import { Wifi, WifiOff, Radio, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MapObjectProperties from './MapObjectProperties';
 import type { AppUiDefaults } from '@/features/settings';
-import type { DiverUiConfig, MissionDocument, TrackRecorderStatus } from '@/features/mission';
+import type { DiverUiConfig, LaneFeature, MissionDocument, TrackRecorderStatus } from '@/features/mission';
 
 interface RightPanelProps {
   /** HUD data for the selected agent (or primary if none selected) */
@@ -30,6 +30,7 @@ interface RightPanelProps {
   selectedObject: MapObject | null;
   selectedZoneLanesOutdated: boolean;
   selectedZoneLaneCount: number | null;
+  selectedZoneLaneFeatures?: LaneFeature[];
   onObjectSelect: (id: string | null) => void;
   onObjectUpdate?: (id: string, updates: Partial<MapObject>) => void;
   onObjectDelete?: (id: string) => void;
@@ -67,6 +68,7 @@ const RightPanel = ({
   selectedObject,
   selectedZoneLanesOutdated,
   selectedZoneLaneCount,
+  selectedZoneLaneFeatures,
   onObjectSelect,
   onObjectUpdate,
   onObjectDelete,
@@ -301,6 +303,7 @@ const RightPanel = ({
             onPickLaneStart={onPickLaneStart}
             zoneLanesOutdated={selectedObject.type === 'zone' ? selectedZoneLanesOutdated : undefined}
             zoneLaneCount={selectedObject.type === 'zone' ? selectedZoneLaneCount : undefined}
+            zoneLaneFeatures={selectedObject.type === 'zone' ? selectedZoneLaneFeatures : undefined}
           />
         ) : (
           <div className="h-full flex items-center justify-center px-4 text-center text-xs text-muted-foreground">

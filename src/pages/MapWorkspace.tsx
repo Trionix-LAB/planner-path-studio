@@ -560,6 +560,12 @@ const MapWorkspace = () => {
     if (!selectedObject || selectedObject.type !== 'zone') return null;
     return countZoneLanes(laneFeatures, selectedObject.id);
   }, [laneFeatures, selectedObject]);
+  const selectedZoneLaneFeatures = useMemo<LaneFeature[]>(() => {
+    if (!selectedObject || selectedObject.type !== 'zone') return [];
+    return laneFeatures
+      .filter((feature) => feature.properties.parent_area_id === selectedObject.id)
+      .sort((a, b) => a.properties.lane_index - b.properties.lane_index);
+  }, [laneFeatures, selectedObject]);
   const selectedZoneLanesOutdated = useMemo(() => {
     if (!selectedObject || selectedObject.type !== 'zone') return false;
     return Boolean(outdatedZoneIds[selectedObject.id]);
@@ -2240,6 +2246,7 @@ const MapWorkspace = () => {
             onPickLaneStart={beginPickLaneStart}
             selectedZoneLanesOutdated={selectedZoneLanesOutdated}
             selectedZoneLaneCount={selectedZoneLaneCount}
+            selectedZoneLaneFeatures={selectedZoneLaneFeatures}
             onTrackDelete={handleTrackDelete}
           />
         }
