@@ -27,6 +27,8 @@ import { MapContextMenu } from "./MapContextMenu";
 import { GridLayer } from "./GridLayer";
 import { ScaleBar } from "./ScaleBar";
 import { computeScaleRatioLabelFromMap, haversineDistanceMeters } from './scaleUtils';
+import { ZoneDraftLanePanel } from './ZoneDraftLanePanel';
+import { getDefaultZoneLanePanelIconPosition, getDefaultZoneLanePanelPosition } from './zoneDraftLanePanelUtils';
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -443,15 +445,15 @@ const MapCanvas = ({
     position: { x: number; y: number };
     objectId?: string;
   } | null>(null);
-  const [drawingMenuState, setDrawingMenuState] = useState<{
-    position: { x: number; y: number };
-    draftType: 'route' | 'zone';
-  } | null>(null);
+  const [drawingMenuState, setDrawingMenuState] = useState<{ position: { x: number; y: number } } | null>(null);
   const [draftZoneLaneAngle, setDraftZoneLaneAngle] = useState('0');
   const [draftZoneLaneWidth, setDraftZoneLaneWidth] = useState('10');
   const [draftZoneBearingDeg, setDraftZoneBearingDeg] = useState<number | null>(null);
   const [draftZoneStart, setDraftZoneStart] = useState<{ lat: number; lon: number } | null>(null);
   const [draftLanePickMode, setDraftLanePickMode] = useState<'none' | 'edge' | 'start'>('none');
+  const [zoneDraftPanelPosition, setZoneDraftPanelPosition] = useState(() => getDefaultZoneLanePanelPosition());
+  const [zoneDraftPanelIconPosition, setZoneDraftPanelIconPosition] = useState(() => getDefaultZoneLanePanelIconPosition());
+  const [zoneDraftPanelMinimized, setZoneDraftPanelMinimized] = useState(false);
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
 
   const mapRef = useRef<L.Map | null>(null);
@@ -572,11 +574,11 @@ const MapCanvas = ({
   };
 
   const getDrawingMenuPosition = useCallback(
-    (clientX: number, clientY: number, draftType: 'route' | 'zone'): { x: number; y: number } => {
-      const offsetX = draftType === 'zone' ? 28 : 0;
-      const offsetY = draftType === 'zone' ? 64 : 20;
-      const width = draftType === 'zone' ? 320 : 180;
-      const height = draftType === 'zone' ? 380 : 120;
+    (clientX: number, clientY: number): { x: number; y: number } => {
+      const offsetX = 0;
+      const offsetY = 20;
+      const width = 180;
+      const height = 120;
       const padding = 12;
 
       const desiredX = clientX + offsetX;
@@ -728,10 +730,13 @@ const MapCanvas = ({
           setDraftLanePickMode('none');
         }
         setDrawingPoints((prev) => [...prev, latlng]);
-        setDrawingMenuState({
-          position: getDrawingMenuPosition(e.originalEvent.clientX, e.originalEvent.clientY, activeTool),
-          draftType: activeTool,
-        });
+        if (activeTool === 'route') {
+          setDrawingMenuState({
+            position: getDrawingMenuPosition(e.originalEvent.clientX, e.originalEvent.clientY),
+          });
+        } else {
+          setDrawingMenuState(null);
+        }
       } else if (activeTool === "marker") {
         if (onObjectCreate) {
           onObjectCreate({ type: "marker", point: { lat: latlng.lat, lon: latlng.lng } });
@@ -1665,7 +1670,7 @@ const MapCanvas = ({
       )}
 
       {/* Drawing Context Menu */}
-      {drawingMenuState && drawingPoints.length > 0 && drawingMenuState.draftType === 'route' && (
+      {drawingMenuState && drawingPoints.length > 0 && (
         <MapContextMenu
           position={drawingMenuState.position}
           onClose={() => setDrawingMenuState(null)}
@@ -1687,115 +1692,28 @@ const MapCanvas = ({
         />
       )}
 
-      {drawingMenuState && drawingPoints.length > 0 && drawingMenuState.draftType === 'zone' && (
-        <div
-          className="fixed z-[9999] w-[320px] bg-popover text-popover-foreground rounded-md border border-border shadow-md p-3 animate-in fade-in zoom-in-95 duration-100"
-          style={{ top: drawingMenuState.position.y, left: drawingMenuState.position.x }}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <div className="text-sm font-medium mb-2">Параметры галсов</div>
-
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Угол (°)</div>
-                <input
-                  className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm"
-                  type="number"
-                  min={0}
-                  max={360}
-                  step={1}
-                  value={draftZoneLaneAngle}
-                  onChange={(e) => setDraftZoneLaneAngle(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Ширина (м)</div>
-                <input
-                  className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm"
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={draftZoneLaneWidth}
-                  onChange={(e) => setDraftZoneLaneWidth(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground">Ориентация</div>
-              <div className="flex items-center justify-between gap-2">
-                <div className="font-mono text-xs">
-                  {typeof draftZoneBearingDeg === 'number' ? `по грани (${Math.round(draftZoneBearingDeg)}°)` : 'авто'}
-                </div>
-                <button
-                  type="button"
-                  className="h-8 px-2 rounded-md border border-input text-xs hover:bg-accent"
-                  onClick={() => setDraftLanePickMode('edge')}
-                  disabled={drawingPoints.length < 2}
-                >
-                  Выбрать грань
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground">Старт</div>
-              <div className="flex items-center justify-between gap-2">
-                <div className="font-mono text-xs">
-                  {draftZoneStart ? `${draftZoneStart.lat.toFixed(6)}, ${draftZoneStart.lon.toFixed(6)}` : 'не выбран'}
-                </div>
-                <button
-                  type="button"
-                  className="h-8 px-2 rounded-md border border-input text-xs hover:bg-accent"
-                  onClick={() => setDraftLanePickMode('start')}
-                  disabled={drawingPoints.length < 3}
-                >
-                  Выбрать старт
-                </button>
-              </div>
-            </div>
-
-            <div className="text-xs text-muted-foreground">
-              {drawingPoints.length < 3
-                ? 'Добавьте ещё точки (минимум 3) для предпросмотра галсов.'
-                : `Предпросмотр: ${draftZonePreviewLanes.length} галсов`}
-            </div>
-
-            {draftLanePickMode !== 'none' && (
-              <div className="text-xs text-muted-foreground">
-                {draftLanePickMode === 'edge' && 'Кликните по ребру зоны на карте.'}
-                {draftLanePickMode === 'start' && 'Кликните около вершины. Старт снапается к ближайшей вершине.'}
-                <button
-                  type="button"
-                  className="ml-2 text-primary hover:underline"
-                  onClick={() => setDraftLanePickMode('none')}
-                >
-                  Отмена
-                </button>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between gap-2 pt-1">
-              <button
-                type="button"
-                className="h-9 px-3 rounded-md border border-input text-sm hover:bg-accent"
-                onClick={() => clearDrawing()}
-              >
-                Удалить черновик
-              </button>
-              <button
-                type="button"
-                className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm disabled:opacity-50"
-                onClick={() => completeDrawing('zone')}
-                disabled={drawingPoints.length < 3}
-              >
-                Завершить зону
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ZoneDraftLanePanel
+        open={activeTool === 'zone' && drawingPoints.length > 0}
+        minimized={zoneDraftPanelMinimized}
+        panelPosition={zoneDraftPanelPosition}
+        iconPosition={zoneDraftPanelIconPosition}
+        laneAngle={draftZoneLaneAngle}
+        laneWidth={draftZoneLaneWidth}
+        laneBearingDeg={draftZoneBearingDeg}
+        laneStart={draftZoneStart}
+        drawingPointsCount={drawingPoints.length}
+        previewLanesCount={draftZonePreviewLanes.length}
+        lanePickMode={draftLanePickMode}
+        onDragStart={armMapClickSuppression}
+        onPanelPositionChange={setZoneDraftPanelPosition}
+        onIconPositionChange={setZoneDraftPanelIconPosition}
+        onMinimizedChange={setZoneDraftPanelMinimized}
+        onLaneAngleChange={setDraftZoneLaneAngle}
+        onLaneWidthChange={setDraftZoneLaneWidth}
+        onLanePickModeChange={setDraftLanePickMode}
+        onCancelDraft={clearDrawing}
+        onCompleteDraft={() => completeDrawing('zone')}
+      />
 
       {/* Connection timeout warning */}
       {showNoDataWarning && connectionStatus !== 'ok' && (
