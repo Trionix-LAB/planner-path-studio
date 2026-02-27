@@ -9,3 +9,12 @@ export {
   type GridMode,
 } from './model/appSettings';
 
+export {
+  APP_THEME_STORAGE_KEY,
+  applyAppTheme,
+  initAppTheme,
+  normalizeAppTheme,
+  readStoredAppTheme,
+  writeStoredAppTheme,
+  type AppTheme,
+} from './model/theme';

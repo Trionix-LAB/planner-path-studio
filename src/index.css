@@ -55,6 +55,57 @@
 
     --font-sans: 'Inter', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+
+    --map-surface: 220 15% 8%;
+    --map-grid-line: 255 255 255;
+  }
+
+  .light {
+    --background: 210 33% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 199 89% 44%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 32% 94%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 24% 92%;
+    --muted-foreground: 215 16% 36%;
+
+    --accent: 199 88% 92%;
+    --accent-foreground: 201 70% 22%;
+
+    --destructive: 0 72% 44%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 72% 34%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 46%;
+    --warning-foreground: 0 0% 8%;
+
+    --border: 214 32% 84%;
+    --input: 214 32% 90%;
+    --ring: 199 89% 44%;
+
+    --sidebar-background: 210 33% 96%;
+    --sidebar-foreground: 222 47% 12%;
+    --sidebar-primary: 199 89% 44%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 30% 92%;
+    --sidebar-accent-foreground: 222 47% 12%;
+    --sidebar-border: 214 32% 82%;
+    --sidebar-ring: 199 89% 44%;
+
+    --map-surface: 210 40% 97%;
+    --map-grid-line: 15 23 42;
   }
 }
 
@@ -113,10 +164,11 @@
   }
 
   .map-container {
-    @apply relative bg-[hsl(220,15%,8%)] overflow-hidden;
+    @apply relative overflow-hidden;
+    background-color: hsl(var(--map-surface));
     background-image: 
-      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+      linear-gradient(rgb(var(--map-grid-line) / 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--map-grid-line) / 0.06) 1px, transparent 1px);
     background-size: 50px 50px;
   }
 }

@@ -20,7 +20,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   APP_SETTINGS_SCHEMA_VERSION,
+  applyAppTheme,
   normalizeAppSettings,
+  readStoredAppTheme,
+  writeStoredAppTheme,
+  type AppTheme,
   type AppUiDefaults,
 } from '@/features/settings';
 import type { DiverUiConfig, NavigationSourceId } from '@/features/mission';
@@ -89,12 +93,14 @@ const SettingsDialog = ({
   );
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [themeDraft, setThemeDraft] = useState<AppTheme>(() => readStoredAppTheme());
 
   useEffect(() => {
     if (!open) return;
     setDraft(value);
     setDiversDraft(missionDivers);
     setBaseStationSourceDraft(baseStationNavigationSource);
+    setThemeDraft(readStoredAppTheme());
     setIsDirty(false);
   }, [open, value, missionDivers, baseStationNavigationSource]);
 
@@ -110,6 +116,11 @@ const SettingsDialog = ({
 
   const updateBaseStationSource = (next: NavigationSourceId | null) => {
     setBaseStationSourceDraft(next);
+    setIsDirty(true);
+  };
+
+  const updateTheme = (next: AppTheme) => {
+    setThemeDraft(next);
     setIsDirty(true);
   };
 
@@ -154,6 +165,8 @@ const SettingsDialog = ({
       await onApply(normalized);
       await onApplyDivers(diversDraft);
       await onApplyBaseStationNavigationSource(baseStationSourceDraft);
+      writeStoredAppTheme(themeDraft);
+      applyAppTheme(themeDraft);
       setIsDirty(false);
       onOpenChange(false);
     } finally {
@@ -168,6 +181,9 @@ const SettingsDialog = ({
       await onResetDivers();
       await onApplyBaseStationNavigationSource(null);
       setBaseStationSourceDraft(null);
+      setThemeDraft('dark');
+      writeStoredAppTheme('dark');
+      applyAppTheme('dark');
       setIsDirty(false);
     } finally {
       setIsSaving(false);
@@ -561,6 +577,30 @@ const SettingsDialog = ({
             </TabsContent>
 
             <TabsContent value="defaults" className="mt-0 space-y-4">
+              <div className="space-y-1.5">
+                <Label>Тема интерфейса</Label>
+                <div className="inline-flex rounded-md border border-input p-1 gap-1" role="group" aria-label="Тема интерфейса">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={themeDraft === 'dark' ? 'secondary' : 'ghost'}
+                    onClick={() => updateTheme('dark')}
+                    aria-pressed={themeDraft === 'dark'}
+                  >
+                    Тёмная
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={themeDraft === 'light' ? 'secondary' : 'ghost'}
+                    onClick={() => updateTheme('light')}
+                    aria-pressed={themeDraft === 'light'}
+                  >
+                    Светлая
+                  </Button>
+                </div>
+              </div>
+
               <label className="flex items-center gap-3">
                 <Checkbox
                   checked={draft.follow_diver}
