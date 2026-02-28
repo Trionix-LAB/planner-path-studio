@@ -8,6 +8,8 @@ declare global {
 				exists: (path: string) => Promise<boolean>;
 				readText: (path: string) => Promise<string | null>;
 				writeText: (path: string, content: string) => Promise<void>;
+				appendText: (path: string, content: string) => Promise<void>;
+				flush: (path: string) => Promise<void>;
 				remove: (path: string) => Promise<void>;
 				list: (prefix: string) => Promise<string[]>;
 				stat: (path: string) => Promise<{ mtimeMs: number } | null>;
@@ -16,6 +18,10 @@ declare global {
 				readJson: <T>(key: string) => Promise<T | null>;
 				writeJson: (key: string, value: unknown) => Promise<void>;
 				remove: (key: string) => Promise<void>;
+			};
+			lifecycle?: {
+				onPrepareClose: (listener: (payload: { token?: string }) => void) => () => void;
+				resolvePrepareClose: (payload: { token: string; ok: boolean; error?: string }) => void;
 			};
 			zima?: {
 				start: (config: {

@@ -6,10 +6,9 @@ import { FilePlus, FolderOpen, FileText, RotateCcw, Clock, ChevronRight, Cpu, Tr
 import { platform } from '@/platform';
 import { useRecentMissions } from '@/hooks/useRecentMissions';
 import { ALL_MISSIONS_LIMIT } from '@/features/mission/model/recentMissions';
+import { MISSIONS_DIR_SETTINGS_KEY } from '@/features/mission/model/constants';
 import { useDelayedMissionDeletion } from '@/hooks/useDelayedMissionDeletion';
 import { useMissionListView, type MissionSortMode } from '@/hooks/useMissionListView';
-
-const MISSIONS_DIR_SETTINGS_KEY = 'planner.missionsDir';
 const MISSION_DELETE_UNDO_DELAY_MS = 7000;
 const SORT_OPTIONS: ReadonlyArray<{ value: MissionSortMode; label: string }> = [
   { value: 'date-desc', label: 'Дата: новые сначала' },

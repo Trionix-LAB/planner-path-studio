@@ -3,7 +3,17 @@ import { resolveMapConfig } from '@/platform/mapConfig';
 
 const readRememberedPath = (key: string): string | null => {
   try {
-    return window.localStorage.getItem(key);
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'string' && parsed.trim().length > 0) {
+        return parsed.trim();
+      }
+    } catch {
+      // backward compatible with plain-string values
+    }
+    return raw.trim().length > 0 ? raw.trim() : null;
   } catch {
     return null;
   }
@@ -11,7 +21,7 @@ const readRememberedPath = (key: string): string | null => {
 
 const rememberPath = (key: string, value: string) => {
   try {
-    window.localStorage.setItem(key, value);
+    window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
     // ignore
   }
@@ -26,6 +36,8 @@ type ElectronApi = {
     exists: (path: string) => Promise<boolean>;
     readText: (path: string) => Promise<string | null>;
     writeText: (path: string, content: string) => Promise<void>;
+    appendText: (path: string, content: string) => Promise<void>;
+    flush: (path: string) => Promise<void>;
     remove: (path: string) => Promise<void>;
     list: (prefix: string) => Promise<string[]>;
     stat: (path: string) => Promise<{ mtimeMs: number } | null>;
@@ -34,6 +46,10 @@ type ElectronApi = {
     readJson: <T>(key: string) => Promise<T | null>;
     writeJson: (key: string, value: unknown) => Promise<void>;
     remove: (key: string) => Promise<void>;
+  };
+  lifecycle?: {
+    onPrepareClose: (listener: (payload: { token?: string }) => void) => () => void;
+    resolvePrepareClose: (payload: { token: string; ok: boolean; error?: string }) => void;
   };
   zima?: {
     start: (config: {
@@ -165,6 +181,16 @@ export const electronPlatform: Platform = {
       const api = getApi();
       if (!api) return;
       await api.fileStore.writeText(normalizeStorePath(path), content);
+    },
+    appendText: async (path, content) => {
+      const api = getApi();
+      if (!api) return;
+      await api.fileStore.appendText(normalizeStorePath(path), content);
+    },
+    flush: async (path) => {
+      const api = getApi();
+      if (!api) return;
+      await api.fileStore.flush(normalizeStorePath(path));
     },
     remove: async (path) => {
       const api = getApi();

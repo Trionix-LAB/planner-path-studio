@@ -6,6 +6,8 @@ const CHANNELS = {
     exists: 'planner:fileStore:exists',
     readText: 'planner:fileStore:readText',
     writeText: 'planner:fileStore:writeText',
+    appendText: 'planner:fileStore:appendText',
+    flush: 'planner:fileStore:flush',
     remove: 'planner:fileStore:remove',
     list: 'planner:fileStore:list',
     stat: 'planner:fileStore:stat',
@@ -14,6 +16,10 @@ const CHANNELS = {
     readJson: 'planner:settings:readJson',
     writeJson: 'planner:settings:writeJson',
     remove: 'planner:settings:remove',
+  },
+  lifecycle: {
+    prepareClose: 'planner:lifecycle:prepareClose',
+    prepareCloseResult: 'planner:lifecycle:prepareCloseResult',
   },
   zima: {
     start: 'planner:zima:start',
@@ -63,6 +69,8 @@ const api = {
     exists: (path) => ipcRenderer.invoke(CHANNELS.fileStore.exists, path),
     readText: (path) => ipcRenderer.invoke(CHANNELS.fileStore.readText, path),
     writeText: (path, content) => ipcRenderer.invoke(CHANNELS.fileStore.writeText, path, content),
+    appendText: (path, content) => ipcRenderer.invoke(CHANNELS.fileStore.appendText, path, content),
+    flush: (path) => ipcRenderer.invoke(CHANNELS.fileStore.flush, path),
     remove: (path) => ipcRenderer.invoke(CHANNELS.fileStore.remove, path),
     list: (prefix) => ipcRenderer.invoke(CHANNELS.fileStore.list, prefix),
     stat: (path) => ipcRenderer.invoke(CHANNELS.fileStore.stat, path),
@@ -71,6 +79,15 @@ const api = {
     readJson: (key) => ipcRenderer.invoke(CHANNELS.settings.readJson, key),
     writeJson: (key, value) => ipcRenderer.invoke(CHANNELS.settings.writeJson, key, value),
     remove: (key) => ipcRenderer.invoke(CHANNELS.settings.remove, key),
+  },
+  lifecycle: {
+    onPrepareClose: (listener) => subscribe(CHANNELS.lifecycle.prepareClose, listener),
+    resolvePrepareClose: ({ token, ok, error }) =>
+      ipcRenderer.send(CHANNELS.lifecycle.prepareCloseResult, {
+        token: typeof token === 'string' ? token : '',
+        ok: Boolean(ok),
+        error: typeof error === 'string' ? error : '',
+      }),
   },
   zima: {
     start: (config) => ipcRenderer.invoke(CHANNELS.zima.start, config),

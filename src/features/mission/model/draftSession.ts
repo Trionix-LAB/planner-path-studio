@@ -10,6 +10,10 @@ type DraftSessionLoadDeps = {
   onRecoverMissing: () => void;
 };
 
+const isDraftMissionMissingError = (error: unknown): boolean => {
+  return error instanceof Error && /Mission file not found/i.test(error.message);
+};
+
 export const resolveDraftLoadMode = (mode: string | null): DraftLoadMode => {
   if (mode === 'new-draft') return 'new';
   if (mode === 'recover') return 'recover';
@@ -31,8 +35,27 @@ export const loadDraftSession = async (
       deps.onRecoverMissing();
       return deps.createDraft();
     }
-    return deps.openDraft();
+    try {
+      return await deps.openDraft();
+    } catch (error) {
+      if (!isDraftMissionMissingError(error)) {
+        throw error;
+      }
+      deps.onRecoverMissing();
+      return deps.createDraft();
+    }
   }
 
-  return exists ? deps.openDraft() : deps.createDraft();
+  if (!exists) {
+    return deps.createDraft();
+  }
+
+  try {
+    return await deps.openDraft();
+  } catch (error) {
+    if (!isDraftMissionMissingError(error)) {
+      throw error;
+    }
+    return deps.createDraft();
+  }
 };

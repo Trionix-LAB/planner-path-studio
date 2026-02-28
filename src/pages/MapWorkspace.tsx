@@ -83,7 +83,8 @@ import { toast } from '@/hooks/use-toast';
 const DRAFT_ROOT_PATH = 'draft/current';
 const DRAFT_MISSION_NAME = 'Черновик';
 const CONNECTION_TIMEOUT_MS = 5000;
-const AUTOSAVE_DELAY_MS = 1200;
+const WAL_STAGE_DELAY_MS = 250;
+const AUTOSAVE_DELAY_MS = 900;
 
 const DEFAULT_APP_SETTINGS = createDefaultAppSettings();
 
@@ -213,6 +214,10 @@ type DiverTelemetryState = {
 
 type ProviderSourceId = 'zima2r' | 'gnss-udp' | 'gnss-com' | 'simulation';
 type DeviceProviderSourceId = Exclude<ProviderSourceId, 'simulation'>;
+type ElectronLifecycleApi = {
+  onPrepareClose: (listener: (payload: { token?: string }) => void) => () => void;
+  resolvePrepareClose: (payload: { token: string; ok: boolean; error?: string }) => void;
+};
 
 type EquipmentNavigationSourceOption = {
   id: NavigationSourceId;
@@ -295,6 +300,18 @@ const normalizeNavigationSourceId = (value: unknown): NavigationSourceId | null 
   if (typeof value !== 'string' && typeof value !== 'number') return null;
   const normalized = String(value).trim();
   return normalized.length > 0 ? normalized : null;
+};
+
+const isMissionFileMissingError = (error: unknown): boolean => {
+  return error instanceof Error && /Mission file not found/i.test(error.message);
+};
+
+const getElectronLifecycleApi = (): ElectronLifecycleApi | null => {
+  const api = (window as unknown as { electronAPI?: { lifecycle?: ElectronLifecycleApi } }).electronAPI?.lifecycle;
+  if (!api) return null;
+  if (typeof api.onPrepareClose !== 'function') return null;
+  if (typeof api.resolvePrepareClose !== 'function') return null;
+  return api;
 };
 
 const normalizeBeaconBindingKey = (value: unknown): string | null => {
@@ -516,6 +533,8 @@ const MapWorkspace = () => {
   const trackStatusByAgentId = recordingState.trackStatusByAgentId;
 
   const lockOwnerRootRef = useRef<string | null>(null);
+  const prepareCloseInFlightRef = useRef<Promise<void> | null>(null);
+  const walStageTimerRef = useRef<number | null>(null);
   const autosaveTimerRef = useRef<number | null>(null);
   const lastFixAtRef = useRef<number>(Date.now());
   const connectionStateRef = useRef<TelemetryConnectionState>('timeout');
@@ -873,6 +892,18 @@ const MapWorkspace = () => {
     await repository.releaseLock(root);
   }, [repository]);
 
+  const cancelPendingAutosave = useCallback(() => {
+    if (autosaveTimerRef.current === null) return;
+    window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = null;
+  }, []);
+
+  const cancelPendingWalStage = useCallback(() => {
+    if (walStageTimerRef.current === null) return;
+    window.clearTimeout(walStageTimerRef.current);
+    walStageTimerRef.current = null;
+  }, []);
+
   const buildMissionBundle = useCallback(
     (
       rootPath: string,
@@ -955,6 +986,11 @@ const MapWorkspace = () => {
         return;
       }
 
+      if (options?.closeActiveTrack) {
+        cancelPendingWalStage();
+        cancelPendingAutosave();
+      }
+
       const finalizedRecordingState = options?.closeActiveTrack
         ? trackRecorderReduce(snapshot.recordingState, { type: 'stopAll' })
         : snapshot.recordingState;
@@ -978,15 +1014,24 @@ const MapWorkspace = () => {
         snapshot.styles,
       );
       await repository.saveMission(bundle);
+
+      if (options?.closeActiveTrack) {
+        latestSnapshotRef.current = {
+          ...snapshot,
+          recordingState: finalizedRecordingState,
+        };
+      }
     },
-    [buildMissionBundle, repository],
+    [buildMissionBundle, cancelPendingAutosave, cancelPendingWalStage, repository],
   );
 
   const persistMissionBestEffort = useCallback(() => {
+    cancelPendingWalStage();
+    cancelPendingAutosave();
     void persistMissionSnapshot(latestSnapshotRef.current, { closeActiveTrack: true }).catch(() => {
       // Best effort on unload/pagehide.
     });
-  }, [persistMissionSnapshot]);
+  }, [cancelPendingAutosave, cancelPendingWalStage, persistMissionSnapshot]);
 
   const updateFromBundle = useCallback((bundle: MissionBundle, draftMode: boolean) => {
     const effective = mergeDefaultsWithMissionUi(appSettingsRef.current.defaults, bundle.mission.ui);
@@ -1109,20 +1154,20 @@ const MapWorkspace = () => {
         appSettingsReadyRef.current = true;
 
         if (location.pathname === '/create-mission') {
-          setShowCreateMission(true);
           await loadDraft('resume');
+          setShowCreateMission(true);
           return;
         }
 
         if (location.pathname === '/open-mission') {
-          setShowOpenMission(true);
           await loadDraft('resume');
+          setShowOpenMission(true);
           return;
         }
 
         if (missionPath) {
           await releaseCurrentLock();
-          const bundle = await repository.openMission(missionPath, { acquireLock: true });
+          const bundle = await repository.openMission(missionPath, { acquireLock: true, recoverLock: true });
           lockOwnerRootRef.current = bundle.rootPath;
           updateFromBundle(bundle, false);
           return;
@@ -1131,9 +1176,19 @@ const MapWorkspace = () => {
         await loadDraft(resolveDraftLoadMode(mode));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Не удалось открыть миссию';
-        window.alert(message);
+        const shouldSilenceDraftMissingAlert =
+          (location.pathname === '/create-mission' || location.pathname === '/open-mission') &&
+          isMissionFileMissingError(error);
+        if (!shouldSilenceDraftMissingAlert) {
+          window.alert(message);
+        }
         appSettingsReadyRef.current = true;
         await loadDraft('resume');
+        if (location.pathname === '/create-mission') {
+          setShowCreateMission(true);
+        } else if (location.pathname === '/open-mission') {
+          setShowOpenMission(true);
+        }
       }
     };
 
@@ -1183,31 +1238,46 @@ const MapWorkspace = () => {
 
   useEffect(() => {
     if (!isLoaded || !missionDocument || !missionRootPath) return;
+    if (walStageTimerRef.current !== null) {
+      window.clearTimeout(walStageTimerRef.current);
+    }
     if (autosaveTimerRef.current !== null) {
       window.clearTimeout(autosaveTimerRef.current);
     }
 
+    const buildCurrentBundle = () =>
+      buildMissionBundle(
+        missionRootPath,
+        missionDocument,
+        trackPointsByTrackId,
+        objects,
+        laneFeatures,
+        isFollowing,
+        layers,
+        missionDivers,
+        baseStationNavigationSource,
+        baseStationTelemetry,
+        mapView,
+        coordPrecision,
+        gridSettings,
+        segmentLengthsMode,
+        styles,
+      );
+
+    walStageTimerRef.current = window.setTimeout(async () => {
+      walStageTimerRef.current = null;
+      try {
+        await repository.stageMission(buildCurrentBundle());
+      } catch {
+        // keep checkpoint autosave running; status reflects checkpoint result
+      }
+    }, WAL_STAGE_DELAY_MS);
+
     setAutoSaveStatus('saving');
     autosaveTimerRef.current = window.setTimeout(async () => {
+      autosaveTimerRef.current = null;
       try {
-        const bundle = buildMissionBundle(
-          missionRootPath,
-          missionDocument,
-          trackPointsByTrackId,
-          objects,
-          laneFeatures,
-          isFollowing,
-          layers,
-          missionDivers,
-          baseStationNavigationSource,
-          baseStationTelemetry,
-          mapView,
-          coordPrecision,
-          gridSettings,
-          segmentLengthsMode,
-          styles,
-        );
-        await repository.saveMission(bundle);
+        await repository.saveMission(buildCurrentBundle());
         setAutoSaveStatus('saved');
       } catch {
         setAutoSaveStatus('error');
@@ -1215,8 +1285,13 @@ const MapWorkspace = () => {
     }, AUTOSAVE_DELAY_MS);
 
     return () => {
+      if (walStageTimerRef.current !== null) {
+        window.clearTimeout(walStageTimerRef.current);
+        walStageTimerRef.current = null;
+      }
       if (autosaveTimerRef.current !== null) {
         window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
       }
     };
   }, [
@@ -1648,16 +1723,72 @@ const MapWorkspace = () => {
   }, [deviceConnectionStatus]);
 
   useEffect(() => {
-    const handlePageHide = () => persistMissionBestEffort();
-    const handleBeforeUnload = () => persistMissionBestEffort();
+    const handlePageHide = () => {
+      persistMissionBestEffort();
+      void releaseCurrentLock();
+    };
+    const handleBeforeUnload = () => {
+      persistMissionBestEffort();
+      void releaseCurrentLock();
+    };
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       persistMissionBestEffort();
+      void releaseCurrentLock();
     };
-  }, [persistMissionBestEffort]);
+  }, [persistMissionBestEffort, releaseCurrentLock]);
+
+  useEffect(() => {
+    if (!isElectronRuntime) return;
+    const lifecycleApi = getElectronLifecycleApi();
+    if (!lifecycleApi) return;
+
+    const unsubscribe = lifecycleApi.onPrepareClose((payload) => {
+      const token = typeof payload?.token === 'string' ? payload.token : '';
+      if (!token) {
+        lifecycleApi.resolvePrepareClose({ token: '', ok: false, error: 'missing prepare-close token' });
+        return;
+      }
+
+      const runPrepareClose = async () => {
+        try {
+          await persistMissionSnapshot(latestSnapshotRef.current, { closeActiveTrack: true });
+        } catch {
+          // Keep close flow resilient; lock release still attempted.
+        }
+
+        try {
+          await releaseCurrentLock();
+        } catch {
+          // Main process still applies timeout fallback.
+        }
+      };
+
+      const inFlight = prepareCloseInFlightRef.current ?? runPrepareClose();
+      prepareCloseInFlightRef.current = inFlight;
+
+      void inFlight
+        .then(() => {
+          lifecycleApi.resolvePrepareClose({ token, ok: true });
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          lifecycleApi.resolvePrepareClose({ token, ok: false, error: message });
+        })
+        .finally(() => {
+          if (prepareCloseInFlightRef.current === inFlight) {
+            prepareCloseInFlightRef.current = null;
+          }
+        });
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isElectronRuntime, persistMissionSnapshot, releaseCurrentLock]);
 
   const handleToolChange = (tool: Tool) => {
     setActiveTool(tool);
@@ -1796,10 +1927,43 @@ const MapWorkspace = () => {
   const handleCreateMission = async (name: string, path: string) => {
     try {
       await releaseCurrentLock();
-      const bundle = await repository.createMission(
-        { rootPath: path, name, ui: toMissionUiFromDefaults(appSettingsRef.current.defaults) },
-        { acquireLock: true },
-      );
+
+      const ensureDraftReadyForConversion = async () => {
+        const draftMissionPath = `${DRAFT_ROOT_PATH}/mission.json`;
+        const draftExists = await platform.fileStore.exists(draftMissionPath);
+        if (!draftExists) {
+          await loadDraft('resume');
+        }
+        await persistMissionSnapshot(latestSnapshotRef.current, { closeActiveTrack: true });
+      };
+
+      let bundle: MissionBundle;
+      if (isDraft) {
+        await ensureDraftReadyForConversion();
+        try {
+          bundle = await repository.convertDraftToMission({
+            draftRootPath: DRAFT_ROOT_PATH,
+            missionRootPath: path,
+            name,
+          });
+        } catch (error) {
+          if (!isMissionFileMissingError(error)) {
+            throw error;
+          }
+          await ensureDraftReadyForConversion();
+          bundle = await repository.convertDraftToMission({
+            draftRootPath: DRAFT_ROOT_PATH,
+            missionRootPath: path,
+            name,
+          });
+        }
+      } else {
+        bundle = await repository.createMission(
+          { rootPath: path, name, ui: toMissionUiFromDefaults(appSettingsRef.current.defaults) },
+          { acquireLock: true },
+        );
+      }
+
       lockOwnerRootRef.current = bundle.rootPath;
       updateFromBundle(bundle, false);
       setShowCreateMission(false);
@@ -1813,7 +1977,7 @@ const MapWorkspace = () => {
   const handleOpenMission = async (path: string) => {
     try {
       await releaseCurrentLock();
-      const bundle = await repository.openMission(path, { acquireLock: true });
+      const bundle = await repository.openMission(path, { acquireLock: true, recoverLock: true });
       lockOwnerRootRef.current = bundle.rootPath;
       updateFromBundle(bundle, false);
       setShowOpenMission(false);

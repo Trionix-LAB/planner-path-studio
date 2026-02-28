@@ -23,6 +23,7 @@ type RecentMissionCandidate = {
 };
 
 const MISSION_FILE_SUFFIX = '/mission.json';
+const MISSION_BACKUP_FILE_SUFFIX = '/mission.json.bak';
 
 const normalizePath = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$/g, '');
 
@@ -40,6 +41,14 @@ const missionNameFromRootPath = (rootPath: string): string => {
   return parts[parts.length - 1] ?? normalized;
 };
 
+const missionBackupPathFromMissionFilePath = (path: string): string => {
+  const normalized = normalizePath(path);
+  if (normalized.endsWith(MISSION_FILE_SUFFIX)) {
+    return `${normalized}.bak`;
+  }
+  return `${normalized}${MISSION_BACKUP_FILE_SUFFIX}`;
+};
+
 const parseDateValue = (value: unknown): number => {
   if (typeof value !== 'string') return 0;
   const parsed = Date.parse(value);
@@ -54,8 +63,7 @@ const formatDate = (value: number): string => {
   }).format(new Date(value));
 };
 
-const readMissionFileData = async (platform: Platform, missionPath: string): Promise<MissionFileData | null> => {
-  const content = await platform.fileStore.readText(missionPath);
+const parseMissionFileData = (content: string | null): MissionFileData | null => {
   if (!content) return null;
   try {
     const parsed = JSON.parse(content) as MissionFileData;
@@ -66,9 +74,20 @@ const readMissionFileData = async (platform: Platform, missionPath: string): Pro
   }
 };
 
-const buildCandidate = async (platform: Platform, missionPath: string): Promise<RecentMissionCandidate> => {
+const readMissionFileData = async (platform: Platform, missionPath: string): Promise<MissionFileData | null> => {
+  const content = await platform.fileStore.readText(missionPath);
+  const parsed = parseMissionFileData(content);
+  if (parsed) return parsed;
+
+  const backupPath = missionBackupPathFromMissionFilePath(missionPath);
+  const backupContent = await platform.fileStore.readText(backupPath);
+  return parseMissionFileData(backupContent);
+};
+
+const buildCandidate = async (platform: Platform, missionPath: string): Promise<RecentMissionCandidate | null> => {
   const rootPath = missionRootFromMissionFilePath(missionPath);
   const missionData = await readMissionFileData(platform, missionPath);
+  if (!missionData) return null;
   const missionUpdatedAt = parseDateValue(missionData?.updated_at);
   const missionName = typeof missionData?.name === 'string' && missionData.name.trim()
     ? missionData.name.trim()
@@ -107,7 +126,12 @@ export const loadRecentMissions = async (
     return [];
   }
 
-  const candidates = await Promise.all(missionFiles.map((missionPath) => buildCandidate(platform, missionPath)));
+  const candidates = (await Promise.all(missionFiles.map((missionPath) => buildCandidate(platform, missionPath))))
+    .filter((candidate): candidate is RecentMissionCandidate => candidate !== null);
+
+  if (candidates.length === 0) {
+    return [];
+  }
 
   return candidates
     .sort((left, right) => right.sortValue - left.sortValue)

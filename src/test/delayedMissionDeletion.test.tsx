@@ -43,6 +43,8 @@ const createPlatform = (
     exists: async () => true,
     readText: async () => null,
     writeText: async () => {},
+    appendText: async () => {},
+    flush: async () => {},
     remove: removeMock,
     list: async (prefix) => filesByPrefix[prefix] ?? [],
     stat: async () => null,

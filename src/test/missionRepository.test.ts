@@ -9,8 +9,19 @@ const createMemoryStore = (): FileStoreBridge => {
     writeText: async (path, content) => {
       db.set(path, content);
     },
+    appendText: async (path, content) => {
+      const current = db.get(path) ?? '';
+      db.set(path, `${current}${content}`);
+    },
+    flush: async () => {},
     remove: async (path) => {
       db.delete(path);
+      const prefix = `${path.replace(/\/+$/g, '')}/`;
+      for (const key of Array.from(db.keys())) {
+        if (key.startsWith(prefix)) {
+          db.delete(key);
+        }
+      }
     },
     list: async (prefix) => Array.from(db.keys()).filter((key) => key.startsWith(prefix)),
     stat: async () => null,
@@ -31,8 +42,19 @@ const createMemoryStoreWithReadLog = (): { store: FileStoreBridge; readLog: stri
       writeText: async (path, content) => {
         db.set(path, content);
       },
+      appendText: async (path, content) => {
+        const current = db.get(path) ?? '';
+        db.set(path, `${current}${content}`);
+      },
+      flush: async () => {},
       remove: async (path) => {
         db.delete(path);
+        const prefix = `${path.replace(/\/+$/g, '')}/`;
+        for (const key of Array.from(db.keys())) {
+          if (key.startsWith(prefix)) {
+            db.delete(key);
+          }
+        }
       },
       list: async (prefix) => Array.from(db.keys()).filter((key) => key.startsWith(prefix)),
       stat: async () => null,
@@ -207,6 +229,201 @@ describe('mission repository', () => {
     expect(await repository.hasLock(rootPath)).toBe(true);
     await repository.releaseLock(rootPath);
     expect(await repository.hasLock(rootPath)).toBe(false);
+  });
+
+  it('recovers stale mission lock when recoverLock option is enabled', async () => {
+    const store = createMemoryStore();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/RecoverLock';
+
+    await repository.createMission(
+      {
+        rootPath,
+        name: 'Recover lock mission',
+        now: new Date('2026-02-03T10:00:00.000Z'),
+      },
+      { acquireLock: false },
+    );
+    await store.writeText(`${rootPath}/mission.lock`, '{"owner":"stale"}');
+
+    await expect(repository.openMission(rootPath, { acquireLock: true })).rejects.toThrow('Mission is locked');
+
+    const opened = await repository.openMission(rootPath, { acquireLock: true, recoverLock: true });
+    expect(opened.rootPath).toBe(rootPath);
+    expect(await repository.hasLock(rootPath)).toBe(true);
+  });
+
+  it('opens mission from backup when primary mission file is missing', async () => {
+    const store = createMemoryStore();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/BackupRecovery';
+
+    const created = await repository.createMission(
+      {
+        rootPath,
+        name: 'Backup recovery mission',
+        now: new Date('2026-02-03T10:00:00.000Z'),
+      },
+      { acquireLock: false },
+    );
+    created.mission.name = 'Recovered from backup';
+    await repository.saveMission(created);
+
+    expect(await store.exists(`${rootPath}/mission.json.bak`)).toBe(true);
+    await store.remove(`${rootPath}/mission.json`);
+
+    const opened = await repository.openMission(rootPath, { acquireLock: false });
+    expect(opened.mission.name).toBe('Recovered from backup');
+    expect(await store.exists(`${rootPath}/mission.json`)).toBe(true);
+  });
+
+  it('opens mission from backup when primary mission file is empty', async () => {
+    const store = createMemoryStore();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/BackupRecoveryEmpty';
+
+    await repository.createMission(
+      {
+        rootPath,
+        name: 'Backup recovery mission',
+        now: new Date('2026-02-03T10:00:00.000Z'),
+      },
+      { acquireLock: false },
+    );
+
+    await store.writeText(`${rootPath}/mission.json`, '');
+
+    const opened = await repository.openMission(rootPath, { acquireLock: false });
+    expect(opened.mission.name).toBe('Backup recovery mission');
+    expect(await store.exists(`${rootPath}/mission.json`)).toBe(true);
+  });
+
+  it('recovers mission from WAL snapshot when mission files are missing', async () => {
+    const store = createMemoryStore();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/WalRecoveryMissing';
+
+    const created = await repository.createMission(
+      {
+        rootPath,
+        name: 'Checkpoint mission',
+        now: new Date('2026-02-03T10:00:00.000Z'),
+      },
+      { acquireLock: false },
+    );
+
+    created.mission.name = 'Recovered from WAL';
+    await repository.stageMission(created);
+
+    await store.remove(`${rootPath}/mission.json`);
+    await store.remove(`${rootPath}/mission.json.bak`);
+    await store.remove(`${rootPath}/routes/routes.geojson`);
+    await store.remove(`${rootPath}/markers/markers.geojson`);
+
+    const opened = await repository.openMission(rootPath, { acquireLock: false });
+    expect(opened.mission.name).toBe('Recovered from WAL');
+    expect(await store.exists(`${rootPath}/mission.json`)).toBe(true);
+    expect(await store.exists(`${rootPath}/mission.json.bak`)).toBe(true);
+    expect(await store.exists(`${rootPath}/routes/routes.geojson`)).toBe(true);
+    expect(await store.exists(`${rootPath}/markers/markers.geojson`)).toBe(true);
+  });
+
+  it('prefers newer WAL snapshot over older checkpoint metadata', async () => {
+    const store = createMemoryStore();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/WalRecoveryNewer';
+
+    const created = await repository.createMission(
+      {
+        rootPath,
+        name: 'Initial checkpoint',
+        now: new Date('2026-02-03T10:00:00.000Z'),
+      },
+      { acquireLock: false },
+    );
+
+    created.mission.name = 'Pending WAL update';
+    await repository.stageMission(created);
+
+    const opened = await repository.openMission(rootPath, { acquireLock: false });
+    expect(opened.mission.name).toBe('Pending WAL update');
+
+    const missionContent = await store.readText(`${rootPath}/mission.json`);
+    expect(missionContent).toContain('Pending WAL update');
+  });
+
+  it('converts draft mission into a regular mission and clears draft root', async () => {
+    const store = createMemoryStore();
+    const repository = createMissionRepository(store);
+    const draftRootPath = 'draft/current';
+    const missionRootPath = 'C:/Missions/Converted';
+
+    const draft = await repository.createMission(
+      {
+        rootPath: draftRootPath,
+        name: 'Черновик',
+        now: new Date('2026-02-03T10:00:00.000Z'),
+      },
+      { acquireLock: false },
+    );
+
+    draft.mission.tracks.push({
+      id: 'track-1',
+      agent_id: null,
+      file: 'tracks/track-0001.csv',
+      started_at: '2026-02-03T10:01:00.000Z',
+      ended_at: null,
+      note: null,
+    });
+    draft.trackPointsByTrackId['track-1'] = [
+      {
+        timestamp: '2026-02-03T10:01:01.000Z',
+        lat: 59.93863,
+        lon: 30.31413,
+        segment_id: 1,
+      },
+    ];
+
+    draft.routes.features.push({
+      type: 'Feature',
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [30.31413, 59.93863],
+          [30.3142, 59.9387],
+        ],
+      },
+      properties: {
+        id: 'route-1',
+        kind: 'route',
+        name: 'Route 1',
+        note: null,
+        created_at: '2026-02-03T10:01:00.000Z',
+        updated_at: '2026-02-03T10:01:00.000Z',
+      },
+    });
+
+    await repository.saveMission(draft);
+
+    const converted = await repository.convertDraftToMission({
+      draftRootPath,
+      missionRootPath,
+      name: 'Converted mission',
+      now: new Date('2026-02-03T10:05:00.000Z'),
+    });
+
+    expect(converted.rootPath).toBe(missionRootPath);
+    expect(converted.mission.name).toBe('Converted mission');
+    expect(converted.mission.tracks).toHaveLength(1);
+    expect(converted.trackPointsByTrackId['track-1']).toHaveLength(1);
+    expect(converted.routes.features).toHaveLength(1);
+    expect(await store.exists(`${draftRootPath}/mission.json`)).toBe(false);
+
+    const reopened = await repository.openMission(missionRootPath, { acquireLock: false });
+    expect(reopened.mission.name).toBe('Converted mission');
+    expect(reopened.mission.tracks).toHaveLength(1);
+    expect(reopened.trackPointsByTrackId['track-1']).toHaveLength(1);
+    expect(reopened.routes.features).toHaveLength(1);
   });
 
   it('does not write mission files when lock already exists on create', async () => {
