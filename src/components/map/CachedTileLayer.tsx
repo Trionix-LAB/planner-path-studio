@@ -3,6 +3,7 @@ import L from 'leaflet';
 import { useMap } from 'react-leaflet';
 import { getTileCache } from '@/features/map/offlineTiles/tileCache';
 import { resolveTileUrl } from '@/features/map/offlineTiles/tileUrl';
+import { resolveTileCandidate } from '@/features/map/offlineTiles/tileLoadStrategy';
 
 const PLACEHOLDER_TILE =
   'data:image/svg+xml;utf8,' +
@@ -127,6 +128,17 @@ const CachedTileLayer = ({
 
   useEffect(() => {
     const cache = getTileCache();
+    let isOnline = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+    const handleOnline = () => {
+      isOnline = true;
+    };
+    const handleOffline = () => {
+      isOnline = false;
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     if (typeof maxCacheBytes === 'number') {
       cache.setMaxBytes(maxCacheBytes);
     }
@@ -238,14 +250,6 @@ const CachedTileLayer = ({
           };
 
           try {
-            const cachedCandidate = await loadFromCacheHierarchy();
-            if (cachedCandidate) {
-              await applySourceBlob(cachedCandidate.blob, cachedCandidate.request, () => {
-                void cache.remove(cachedCandidate.key);
-              });
-              return;
-            }
-
             const request = resolveSourceRequestAtZoom(coords, startSourceZoom);
             const normalized = normalizeTileCoords(request.z, request.x, request.y);
             if (!normalized) {
@@ -255,7 +259,7 @@ const CachedTileLayer = ({
 
             const key = cache.makeKey(providerKey, normalized.z, normalized.x, normalized.y);
             const url = resolveTileUrl(urlTemplate, normalized, subdomains);
-            try {
+            const loadFromNetwork = async () => {
               const response = await fetch(url);
               if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -272,14 +276,29 @@ const CachedTileLayer = ({
                 y: normalized.y,
                 blob,
               });
-              await applySourceBlob(blob, request, () => {
-                void cache.remove(key);
+              return { blob, request, key };
+            };
+
+            const resolved = await resolveTileCandidate({
+              isOnline,
+              loadFromCacheHierarchy,
+              loadFromNetwork,
+            });
+            if (resolved) {
+              await applySourceBlob(resolved.candidate.blob, resolved.candidate.request, () => {
+                void cache.remove(resolved.candidate.key);
               });
-            } catch {
-              // Fallback to direct <img src=url> so online tiles still render
-              // even if fetch/blob path fails in runtime.
-              applyUrlToTile(url);
+              return;
             }
+
+            if (isOnline) {
+              // Runtime fallback for environments where fetch/blob path is blocked,
+              // but direct image loading still works.
+              applyUrlToTile(url);
+              return;
+            }
+
+            tile.src = PLACEHOLDER_TILE;
           } catch {
             tile.src = PLACEHOLDER_TILE;
           }
@@ -294,6 +313,8 @@ const CachedTileLayer = ({
 
     layer.addTo(map);
     return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       layer.removeFrom(map);
     };
   }, [map, maxCacheBytes, maxNativeZoom, opacity, providerKey, subdomains, tileSize, urlTemplate, zIndex]);
