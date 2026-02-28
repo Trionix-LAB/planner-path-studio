@@ -10,7 +10,7 @@ import {
 } from '@/features/devices';
 
 describe('equipment settings', () => {
-  it('migrates legacy schema_version=1 settings to profiles', () => {
+  it('migrates legacy schema_version=1 settings to profiles with device instances', () => {
     const schemas = loadDeviceSchemas();
     const normalized = normalizeEquipmentSettings(
       {
@@ -28,15 +28,21 @@ describe('equipment settings', () => {
       schemas,
     );
 
-    expect(normalized.schema_version).toBe(2);
+    expect(normalized.schema_version).toBe(3);
     expect(normalized.profiles.length).toBeGreaterThan(0);
     expect(normalized.selected_profile_id).toBeTruthy();
-    expect(normalized.selected_device_id).toBe('gnss-udp');
-    expect(normalized.devices.zima2r.ipAddress).toBe('10.0.0.3');
-    expect(normalized.devices['gnss-udp'].ipAddress).toBe('10.0.0.10');
+
+    const selectedInstance = normalized.device_instances[normalized.selected_device_instance_id];
+    expect(selectedInstance?.schema_id).toBe('gnss-udp');
+
+    const zimaInstance = Object.values(normalized.device_instances).find((instance) => instance.schema_id === 'zima2r');
+    const gnssInstance = Object.values(normalized.device_instances).find((instance) => instance.schema_id === 'gnss-udp');
+
+    expect(zimaInstance?.config.ipAddress).toBe('10.0.0.3');
+    expect(gnssInstance?.config.ipAddress).toBe('10.0.0.10');
   });
 
-  it('normalizes profile-based settings and keeps selected profile/device valid', () => {
+  it('migrates profile-based schema_version=2 settings and keeps selected profile/device valid', () => {
     const schemas = loadDeviceSchemas();
     const normalized = normalizeEquipmentSettings(
       {
@@ -59,9 +65,24 @@ describe('equipment settings', () => {
     );
 
     expect(normalized.selected_profile_id).toBe('custom');
-    expect(normalized.selected_device_id).toBe('zima2r');
-    expect(normalized.devices.zima2r.ipAddress).toBe('10.0.0.4');
-    expect(normalized.devices['gnss-udp'].dataPort).toBe('30001');
+
+    const selectedProfile = normalized.profiles.find((profile) => profile.id === normalized.selected_profile_id);
+    expect(selectedProfile?.device_instance_ids.length).toBe(2);
+
+    const selectedInstance = normalized.device_instances[normalized.selected_device_instance_id];
+    expect(selectedInstance?.schema_id).toBe('zima2r');
+
+    const zimaInstanceId = selectedProfile?.device_instance_ids.find(
+      (instanceId) => normalized.device_instances[instanceId]?.schema_id === 'zima2r',
+    );
+    const gnssInstanceId = selectedProfile?.device_instance_ids.find(
+      (instanceId) => normalized.device_instances[instanceId]?.schema_id === 'gnss-udp',
+    );
+
+    expect(zimaInstanceId).toBeTruthy();
+    expect(gnssInstanceId).toBeTruthy();
+    expect(normalized.device_instances[zimaInstanceId!].config.ipAddress).toBe('10.0.0.4');
+    expect(normalized.device_instances[gnssInstanceId!].config.dataPort).toBe('30001');
   });
 
   it('validates zima2r ip and ports', () => {
@@ -163,32 +184,70 @@ describe('equipment settings', () => {
     expect(issues[0].summary).toContain('Введите корректный IPv4 адрес');
   });
 
-  it('builds runtime for active profile with zima and gnss', () => {
+  it('builds runtime for active profile with primary zima and gnss instances', () => {
     const schemas = loadDeviceSchemas();
     const base = createDefaultEquipmentSettings(schemas);
+    const profile = base.profiles.find((item) => item.id === 'profile-zima-gnss');
+    expect(profile).toBeTruthy();
+
+    const zimaInstanceId = profile?.device_instance_ids.find(
+      (instanceId) => base.device_instances[instanceId]?.schema_id === 'zima2r',
+    );
+    const gnssInstanceId = profile?.device_instance_ids.find(
+      (instanceId) => base.device_instances[instanceId]?.schema_id === 'gnss-udp',
+    );
+    expect(zimaInstanceId).toBeTruthy();
+    expect(gnssInstanceId).toBeTruthy();
+
+    const extraGnssInstanceId = 'profile-zima-gnss-gnss-2';
+
     const runtime = buildEquipmentRuntime(
       {
         ...base,
         selected_profile_id: 'profile-zima-gnss',
-        selected_device_id: 'zima2r',
-        devices: {
-          ...base.devices,
-          zima2r: {
-            ...base.devices.zima2r,
-            ipAddress: '192.168.0.55',
-            commandPort: '28131',
-            dataPort: '28132',
-            gnssBaud: '9600',
-            useExternalGnss: true,
-            useCommandPort: true,
-            latitude: '59.9375',
-            longitude: '30.3086',
-            azimuth: '120',
+        selected_device_instance_id: zimaInstanceId!,
+        profiles: base.profiles.map((item) =>
+          item.id === 'profile-zima-gnss'
+            ? { ...item, device_instance_ids: [...item.device_instance_ids, extraGnssInstanceId] }
+            : item,
+        ),
+        device_instances: {
+          ...base.device_instances,
+          [zimaInstanceId!]: {
+            ...base.device_instances[zimaInstanceId!],
+            is_primary: true,
+            config: {
+              ...base.device_instances[zimaInstanceId!].config,
+              ipAddress: '192.168.0.55',
+              commandPort: '28131',
+              dataPort: '28132',
+              gnssBaud: '9600',
+              useExternalGnss: true,
+              useCommandPort: true,
+              latitude: '59.9375',
+              longitude: '30.3086',
+              azimuth: '120',
+            },
           },
-          'gnss-udp': {
-            ...base.devices['gnss-udp'],
-            ipAddress: '192.168.0.99',
-            dataPort: '29000',
+          [gnssInstanceId!]: {
+            ...base.device_instances[gnssInstanceId!],
+            is_primary: false,
+            config: {
+              ...base.device_instances[gnssInstanceId!].config,
+              ipAddress: '192.168.0.1',
+              dataPort: '28000',
+            },
+          },
+          [extraGnssInstanceId]: {
+            id: extraGnssInstanceId,
+            schema_id: 'gnss-udp',
+            name: 'GNSS резерв',
+            is_primary: true,
+            config: {
+              ...base.device_instances[gnssInstanceId!].config,
+              ipAddress: '192.168.0.99',
+              dataPort: '29000',
+            },
           },
         },
       },
@@ -196,6 +255,7 @@ describe('equipment settings', () => {
     );
 
     expect(runtime.active_profile?.id).toBe('profile-zima-gnss');
+    expect(runtime.active_profile?.device_ids).toEqual(['zima2r', 'gnss-udp']);
     expect(runtime.zima).toEqual({
       interface: 'udp',
       ipAddress: '192.168.0.55',
@@ -207,12 +267,16 @@ describe('equipment settings', () => {
       latitude: 59.9375,
       longitude: 30.3086,
       azimuth: 120,
+      instance_id: zimaInstanceId!,
+      instance_name: 'Zima2R',
     });
     expect(runtime.gnss_udp).toEqual({
       interface: 'udp',
       protocol: 'nmea0183',
       ipAddress: '192.168.0.99',
       dataPort: 29000,
+      instance_id: extraGnssInstanceId,
+      instance_name: 'GNSS резерв',
     });
   });
 });

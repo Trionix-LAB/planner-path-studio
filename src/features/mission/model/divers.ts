@@ -24,11 +24,8 @@ const normalizeText = (value: unknown, fallback: string): string => {
   return trimmed.length > 0 ? trimmed : fallback;
 };
 
-const isNavigationSourceId = (value: unknown): value is NavigationSourceId =>
-  value === 'zima2r' || value === 'gnss-udp' || value === 'simulation';
-
 const normalizeNavigationSource = (value: unknown, fallback: NavigationSourceId): NavigationSourceId =>
-  isNavigationSourceId(value) ? value : fallback;
+  normalizeText(value, fallback);
 
 const normalizeBeaconId = (value: unknown, fallback: string): string => {
   const normalized = normalizeText(value, fallback);

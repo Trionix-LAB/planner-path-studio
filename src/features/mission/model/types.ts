@@ -3,7 +3,7 @@ export const MISSION_SCHEMA_VERSION = 1;
 export type IsoUtcString = string;
 
 export type SegmentLengthsMode = 'off' | 'on-select' | 'always';
-export type NavigationSourceId = 'zima2r' | 'gnss-udp' | 'simulation';
+export type NavigationSourceId = string;
 
 export type DiverUiConfig = {
   uid: string;

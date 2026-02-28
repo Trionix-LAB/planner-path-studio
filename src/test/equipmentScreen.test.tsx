@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { createDefaultEquipmentSettings, loadDeviceSchemas } from '@/features/devices';
@@ -28,15 +28,31 @@ vi.mock('@/hooks/use-toast', () => ({
 const buildStoredSettingsWithInvalidZimaIp = () => {
   const schemas = loadDeviceSchemas();
   const base = createDefaultEquipmentSettings(schemas);
+
+  const profile = base.profiles.find((item) => item.id === 'profile-zima-gnss');
+  const zimaInstanceId = profile?.device_instance_ids.find(
+    (instanceId) => base.device_instances[instanceId]?.schema_id === 'zima2r',
+  );
+  const gnssInstanceId = profile?.device_instance_ids.find(
+    (instanceId) => base.device_instances[instanceId]?.schema_id === 'gnss-udp',
+  );
+
+  if (!profile || !zimaInstanceId || !gnssInstanceId) {
+    throw new Error('Required default profile instances were not found');
+  }
+
   return {
     ...base,
-    selected_profile_id: 'profile-zima-gnss',
-    selected_device_id: 'gnss-udp',
-    devices: {
-      ...base.devices,
-      zima2r: {
-        ...base.devices.zima2r,
-        ipAddress: '999.2.3.4',
+    selected_profile_id: profile.id,
+    selected_device_instance_id: gnssInstanceId,
+    device_instances: {
+      ...base.device_instances,
+      [zimaInstanceId]: {
+        ...base.device_instances[zimaInstanceId],
+        config: {
+          ...base.device_instances[zimaInstanceId].config,
+          ipAddress: '999.2.3.4',
+        },
       },
     },
   };
@@ -84,5 +100,53 @@ describe('EquipmentScreen validation UX', () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue('999.2.3.4')).toHaveFocus();
     });
+  });
+
+  it('adds multiple instances of same schema and persists them on save', async () => {
+    const base = createDefaultEquipmentSettings(loadDeviceSchemas());
+    mocks.readJson.mockResolvedValue(base);
+    mocks.writeJson.mockResolvedValue(undefined);
+
+    render(
+      <MemoryRouter initialEntries={['/equipment']}>
+        <Routes>
+          <Route path="/equipment" element={<EquipmentScreen />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole('heading', { name: 'Zima2R' });
+
+    const addSection = screen.getByText('Добавить устройство').parentElement;
+    expect(addSection).toBeTruthy();
+
+    const addGnssButton = within(addSection as HTMLElement).getByRole('button', { name: /GNSS-UDP/i });
+    fireEvent.click(addGnssButton);
+    fireEvent.click(addGnssButton);
+
+    const duplicateGnssLabels = await screen.findAllByText('GNSS-UDP 2');
+    expect(duplicateGnssLabels.length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    await waitFor(() => {
+      expect(mocks.writeJson).toHaveBeenCalled();
+    });
+
+    const settingsWriteCall = mocks.writeJson.mock.calls.find(
+      (call: unknown[]) => call[0] === 'planner.equipmentSettings.v1',
+    );
+    expect(settingsWriteCall).toBeTruthy();
+
+    const savedSettings = settingsWriteCall?.[1] as ReturnType<typeof createDefaultEquipmentSettings>;
+    const selectedProfile = savedSettings.profiles.find((profile) => profile.id === savedSettings.selected_profile_id);
+    expect(selectedProfile).toBeTruthy();
+
+    const gnssInstancesInProfile =
+      selectedProfile?.device_instance_ids.filter(
+        (instanceId) => savedSettings.device_instances[instanceId]?.schema_id === 'gnss-udp',
+      ) ?? [];
+
+    expect(gnssInstancesInProfile.length).toBe(2);
   });
 });

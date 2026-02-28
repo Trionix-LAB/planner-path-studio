@@ -203,6 +203,14 @@ type DiverTelemetryState = {
   received_at: number;
 };
 
+type ProviderSourceId = 'zima2r' | 'gnss-udp' | 'simulation';
+
+type EquipmentNavigationSourceOption = {
+  id: NavigationSourceId;
+  label: string;
+  schemaId: string | null;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -255,8 +263,11 @@ const normalizeGnssTelemetryConfig = (raw: unknown): ElectronGnssTelemetryConfig
   };
 };
 
-const isNavigationSourceId = (value: unknown): value is NavigationSourceId =>
-  value === 'zima2r' || value === 'gnss-udp' || value === 'simulation';
+const normalizeNavigationSourceId = (value: unknown): NavigationSourceId | null => {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const normalized = String(value).trim();
+  return normalized.length > 0 ? normalized : null;
+};
 
 const normalizeBeaconBindingKey = (value: unknown): string | null => {
   if (typeof value !== 'string' && typeof value !== 'number') return null;
@@ -296,19 +307,28 @@ const MapWorkspace = () => {
     const normalized = normalizeEquipmentSettings(equipmentRaw, deviceSchemas);
     const selectedProfile =
       normalized.profiles.find((profile) => profile.id === normalized.selected_profile_id) ?? normalized.profiles[0] ?? null;
-    const deviceIds = selectedProfile?.device_ids ?? [];
-    setSelectedEquipmentProfileName(selectedProfile?.name ?? 'Не выбрано');
-    setSelectedEquipmentDeviceIds(deviceIds);
-    setEquipmentEnabledByDevice((prev) => {
-      const next: Record<string, boolean> = {};
-      for (const [deviceId, enabled] of Object.entries(prev)) {
-        next[deviceId] = deviceIds.includes(deviceId) ? enabled : false;
+    const instanceOptions: EquipmentNavigationSourceOption[] = [];
+    if (selectedProfile) {
+      for (const instanceId of selectedProfile.device_instance_ids) {
+        const instance = normalized.device_instances[instanceId];
+        if (!instance) continue;
+        const schema = deviceSchemas.find((item) => item.id === instance.schema_id);
+        const schemaLabel = schema?.title ?? instance.schema_id;
+        const instanceLabel = instance.name?.trim() || schemaLabel;
+        instanceOptions.push({
+          id: instance.id,
+          label: instanceLabel,
+          schemaId: instance.schema_id,
+        });
       }
-      for (const deviceId of deviceIds) {
-        if (next[deviceId] === undefined) {
-          // Devices from a freshly loaded profile are considered active by default.
-          next[deviceId] = true;
-        }
+    }
+    setSelectedEquipmentProfileName(selectedProfile?.name ?? 'Не выбрано');
+    setSelectedEquipmentNavigationOptions(instanceOptions);
+    setEquipmentEnabledBySource((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const option of instanceOptions) {
+        // New devices are disabled by default until user explicitly enables them.
+        next[option.id] = prev[option.id] ?? false;
       }
       return next;
     });
@@ -371,12 +391,11 @@ const MapWorkspace = () => {
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [pinnedAgentId, setPinnedAgentId] = useState<string | null>(null);
   const [simulationEnabled, setSimulationEnabled] = useState(!isElectronRuntime);
-  const [equipmentEnabledByDevice, setEquipmentEnabledByDevice] = useState<Record<string, boolean>>({
-    zima2r: false,
-    'gnss-udp': false,
-  });
+  const [equipmentEnabledBySource, setEquipmentEnabledBySource] = useState<Record<string, boolean>>({});
   const [selectedEquipmentProfileName, setSelectedEquipmentProfileName] = useState<string>('Не выбрано');
-  const [selectedEquipmentDeviceIds, setSelectedEquipmentDeviceIds] = useState<string[]>([]);
+  const [selectedEquipmentNavigationOptions, setSelectedEquipmentNavigationOptions] = useState<
+    EquipmentNavigationSourceOption[]
+  >([]);
   const [simulateConnectionError, setSimulateConnectionError] = useState(false);
   const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
   const [hasPrimaryTelemetry, setHasPrimaryTelemetry] = useState(false);
@@ -449,12 +468,12 @@ const MapWorkspace = () => {
   const lastFixAtRef = useRef<number>(Date.now());
   const connectionStateRef = useRef<TelemetryConnectionState>('timeout');
   const primaryNavigationSourceRef = useRef<NavigationSourceId>('simulation');
-  const lastFixAtBySourceRef = useRef<Record<NavigationSourceId, number>>({
+  const lastFixAtBySourceRef = useRef<Record<ProviderSourceId, number>>({
     zima2r: Date.now(),
     'gnss-udp': Date.now(),
     simulation: Date.now(),
   });
-  const hadFixBySourceRef = useRef<Record<NavigationSourceId, boolean>>({
+  const hadFixBySourceRef = useRef<Record<ProviderSourceId, boolean>>({
     zima2r: false,
     'gnss-udp': false,
     simulation: false,
@@ -571,21 +590,61 @@ const MapWorkspace = () => {
     return Boolean(outdatedZoneIds[selectedObject.id]);
   }, [outdatedZoneIds, selectedObject]);
 
+  const navigationSourceOptions = useMemo<EquipmentNavigationSourceOption[]>(
+    () =>
+      isElectronRuntime
+        ? selectedEquipmentNavigationOptions
+        : [{ id: 'simulation', label: 'Simulation', schemaId: 'simulation' }],
+    [isElectronRuntime, selectedEquipmentNavigationOptions],
+  );
+
+  const navigationSourceSchemaById = useMemo(
+    () => new Map(navigationSourceOptions.map((option) => [option.id, option.schemaId] as const)),
+    [navigationSourceOptions],
+  );
+
   const availableNavigationSources = useMemo<NavigationSourceId[]>(() => {
     if (!isElectronRuntime) return ['simulation'];
-    const next: NavigationSourceId[] = [];
-    if (selectedEquipmentDeviceIds.includes('zima2r')) next.push('zima2r');
-    if (selectedEquipmentDeviceIds.includes('gnss-udp')) next.push('gnss-udp');
-    return next.length > 0 ? next : ['zima2r'];
-  }, [isElectronRuntime, selectedEquipmentDeviceIds]);
+    return navigationSourceOptions.map((option) => option.id);
+  }, [isElectronRuntime, navigationSourceOptions]);
+
+  const resolveProviderSource = useCallback(
+    (sourceId: NavigationSourceId | null): ProviderSourceId | null => {
+      if (!sourceId) return null;
+      if (sourceId === 'simulation') return 'simulation';
+      const schemaId =
+        navigationSourceSchemaById.get(sourceId) ??
+        (sourceId === 'zima2r' || sourceId === 'gnss-udp' ? sourceId : null);
+      if (schemaId === 'zima2r' || schemaId === 'gnss-udp') return schemaId;
+      return null;
+    },
+    [navigationSourceSchemaById],
+  );
+
+  const resolveSourceForCurrentProfile = useCallback(
+    (sourceId: NavigationSourceId | null): NavigationSourceId | null => {
+      if (!sourceId) return null;
+      if (availableNavigationSources.includes(sourceId)) return sourceId;
+
+      if (sourceId === 'zima2r' || sourceId === 'gnss-udp') {
+        const instanceSource = navigationSourceOptions.find((option) => option.schemaId === sourceId)?.id;
+        return instanceSource ?? null;
+      }
+      return null;
+    },
+    [availableNavigationSources, navigationSourceOptions],
+  );
 
   const isSourceEnabled = useCallback(
     (sourceId: NavigationSourceId | null) => {
-      if (!sourceId) return false;
-      if (sourceId === 'simulation') return simulationEnabled;
-      return Boolean(equipmentEnabledByDevice[sourceId]);
+      const resolvedSource = resolveSourceForCurrentProfile(sourceId);
+      if (!resolvedSource) return false;
+      const providerSource = resolveProviderSource(resolvedSource);
+      if (!providerSource) return false;
+      if (providerSource === 'simulation') return simulationEnabled;
+      return Boolean(equipmentEnabledBySource[resolvedSource]);
     },
-    [equipmentEnabledByDevice, simulationEnabled],
+    [equipmentEnabledBySource, resolveProviderSource, resolveSourceForCurrentProfile, simulationEnabled],
   );
 
   const enabledNavigationSources = useMemo<NavigationSourceId[]>(
@@ -594,14 +653,14 @@ const MapWorkspace = () => {
   );
 
   const primaryNavigationSource = useMemo<NavigationSourceId>(() => {
-    const preferred = missionDivers[0]?.navigation_source;
-    if (isNavigationSourceId(preferred) && enabledNavigationSources.includes(preferred)) {
+    const preferred = normalizeNavigationSourceId(missionDivers[0]?.navigation_source);
+    if (preferred && enabledNavigationSources.includes(preferred)) {
       return preferred;
     }
     if (enabledNavigationSources.length > 0) {
       return enabledNavigationSources[0];
     }
-    if (isNavigationSourceId(preferred) && availableNavigationSources.includes(preferred)) {
+    if (preferred && availableNavigationSources.includes(preferred)) {
       return preferred;
     }
     return availableNavigationSources[0] ?? 'simulation';
@@ -628,23 +687,8 @@ const MapWorkspace = () => {
 
   const isRecordingControlsEnabled = useMemo(() => {
     if (!isElectronRuntime) return simulationEnabled;
-    return selectedEquipmentDeviceIds.some((deviceId) => Boolean(equipmentEnabledByDevice[deviceId]));
-  }, [equipmentEnabledByDevice, isElectronRuntime, selectedEquipmentDeviceIds, simulationEnabled]);
-
-  const navigationSourceOptions = useMemo(
-    () =>
-      availableNavigationSources.map((sourceId) => {
-        if (sourceId === 'simulation') {
-          return { id: sourceId, label: 'Simulation' };
-        }
-        const schema = deviceSchemas.find((item) => item.id === sourceId);
-        return {
-          id: sourceId,
-          label: schema?.title ?? sourceId,
-        };
-      }),
-    [availableNavigationSources, deviceSchemas],
-  );
+    return navigationSourceOptions.some((option) => Boolean(equipmentEnabledBySource[option.id]));
+  }, [equipmentEnabledBySource, isElectronRuntime, navigationSourceOptions, simulationEnabled]);
 
 
   const settingsValue = useMemo<AppUiDefaults>(
@@ -746,28 +790,26 @@ const MapWorkspace = () => {
       let changed = false;
       const fallbackSource = availableNavigationSources[0] ?? 'simulation';
       const next = prev.map((diver) => {
-        const current = diver.navigation_source;
-        if (isNavigationSourceId(current) && availableNavigationSources.includes(current)) {
+        const current = normalizeNavigationSourceId(diver.navigation_source);
+        const resolvedCurrent = resolveSourceForCurrentProfile(current);
+        if (resolvedCurrent && resolvedCurrent === diver.navigation_source) {
           return diver;
         }
         changed = true;
         return {
           ...diver,
-          navigation_source: fallbackSource,
+          navigation_source: resolvedCurrent ?? fallbackSource,
         };
       });
       return changed ? next : prev;
     });
-  }, [availableNavigationSources]);
+  }, [availableNavigationSources, resolveSourceForCurrentProfile]);
 
   useEffect(() => {
     setBaseStationNavigationSource((prev) => {
-      if (prev && availableNavigationSources.includes(prev)) {
-        return prev;
-      }
-      return null;
+      return resolveSourceForCurrentProfile(prev);
     });
-  }, [availableNavigationSources]);
+  }, [resolveSourceForCurrentProfile]);
 
   const releaseCurrentLock = useCallback(async () => {
     if (!lockOwnerRootRef.current) return;
@@ -926,13 +968,10 @@ const MapWorkspace = () => {
       diver: true,
     });
     const baseStationUi = bundle.mission.ui?.base_station;
-    const nextBaseStationSource =
-      baseStationUi?.navigation_source ??
-      baseStationUi?.source_id ??
-      null;
-    setBaseStationNavigationSource(
-      nextBaseStationSource && isNavigationSourceId(nextBaseStationSource) ? nextBaseStationSource : null,
+    const nextBaseStationSource = normalizeNavigationSourceId(
+      baseStationUi?.navigation_source ?? baseStationUi?.source_id ?? null,
     );
+    setBaseStationNavigationSource(nextBaseStationSource);
     const baseLat = typeof baseStationUi?.lat === 'number' ? baseStationUi.lat : null;
     const baseLon = typeof baseStationUi?.lon === 'number' ? baseStationUi.lon : null;
     const baseHeadingRaw = baseStationUi?.heading_deg;
@@ -948,7 +987,7 @@ const MapWorkspace = () => {
         heading: baseHeading,
         depth: 0,
         received_at: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
-        sourceId: nextBaseStationSource && isNavigationSourceId(nextBaseStationSource) ? nextBaseStationSource : null,
+        sourceId: nextBaseStationSource,
       });
     } else {
       setBaseStationTelemetry(null);
@@ -1172,14 +1211,16 @@ const MapWorkspace = () => {
 
     divers.forEach((diver, index) => {
       const source = diver.navigation_source;
-      if (!isNavigationSourceId(source) || !isSourceEnabled(source)) {
+      if (!isSourceEnabled(source)) {
         return;
       }
+      const providerSource = resolveProviderSource(source);
+      if (!providerSource) return;
       let telemetry: DiverTelemetryState | null = null;
 
-      if (source === 'gnss-udp') {
+      if (providerSource === 'gnss-udp') {
         telemetry = gnssFixRef.current;
-      } else if (source === 'simulation') {
+      } else if (providerSource === 'simulation') {
         telemetry = simulationFixRef.current;
       } else {
         const beaconKey = normalizeBeaconBindingKey(diver.beacon_id ?? diver.id);
@@ -1208,12 +1249,13 @@ const MapWorkspace = () => {
     });
 
     const primarySource = primaryNavigationSourceRef.current;
+    const primaryProviderSource = resolveProviderSource(primarySource);
     const primaryFix =
-      primarySource === 'zima2r'
+      primaryProviderSource === 'zima2r'
         ? zimaAzmLocFixRef.current
-        : primarySource === 'gnss-udp'
+        : primaryProviderSource === 'gnss-udp'
           ? gnssFixRef.current
-          : primarySource === 'simulation'
+          : primaryProviderSource === 'simulation'
             ? simulationFixRef.current
             : null;
 
@@ -1258,14 +1300,15 @@ const MapWorkspace = () => {
         }),
       );
     });
-  }, [isSourceEnabled]);
+  }, [isSourceEnabled, resolveProviderSource]);
 
   const resolveTelemetryBySource = useCallback((sourceId: NavigationSourceId | null): DiverTelemetryState | null => {
-    if (sourceId === 'zima2r') return zimaAzmLocFixRef.current;
-    if (sourceId === 'gnss-udp') return gnssFixRef.current;
-    if (sourceId === 'simulation') return simulationFixRef.current;
+    const providerSource = resolveProviderSource(sourceId);
+    if (providerSource === 'zima2r') return zimaAzmLocFixRef.current;
+    if (providerSource === 'gnss-udp') return gnssFixRef.current;
+    if (providerSource === 'simulation') return simulationFixRef.current;
     return null;
-  }, []);
+  }, [resolveProviderSource]);
 
   const syncBaseStationTelemetry = useCallback(() => {
     if (!baseStationNavigationSource || !isSourceEnabled(baseStationNavigationSource)) {
@@ -1306,7 +1349,7 @@ const MapWorkspace = () => {
   }, [baseStationNavigationSource, isSourceEnabled, resolveTelemetryBySource]);
 
   const handleTelemetryFix = useCallback(
-    (sourceId: NavigationSourceId, fix: TelemetryFix) => {
+    (sourceId: ProviderSourceId, fix: TelemetryFix) => {
       lastFixAtBySourceRef.current[sourceId] = fix.received_at;
       hadFixBySourceRef.current[sourceId] = true;
 
@@ -1340,7 +1383,7 @@ const MapWorkspace = () => {
         simulationFixRef.current = telemetryState;
       }
 
-      if (primaryNavigationSourceRef.current === sourceId) {
+      if (resolveProviderSource(primaryNavigationSourceRef.current) === sourceId) {
         lastFixAtRef.current = fix.received_at;
         setConnectionLostSeconds(0);
         setHasPrimaryTelemetryHistory(true);
@@ -1349,7 +1392,7 @@ const MapWorkspace = () => {
       syncDiverTelemetry();
       syncBaseStationTelemetry();
     },
-    [syncBaseStationTelemetry, syncDiverTelemetry],
+    [resolveProviderSource, syncBaseStationTelemetry, syncDiverTelemetry],
   );
 
   useEffect(() => {
@@ -1361,28 +1404,31 @@ const MapWorkspace = () => {
   }, [baseStationNavigationSource, syncBaseStationTelemetry]);
 
   const handleDeviceConnectionState = useCallback(
-    (sourceId: NavigationSourceId, nextState: TelemetryConnectionState) => {
+    (sourceId: ProviderSourceId, nextState: TelemetryConnectionState) => {
       if (sourceId === 'zima2r' || sourceId === 'gnss-udp') {
         setDeviceConnectionStatus((prev) => ({ ...prev, [sourceId]: nextState }));
       } else {
         setSimulationConnectionStatus(nextState);
       }
-      if (primaryNavigationSourceRef.current === sourceId) {
+      if (resolveProviderSource(primaryNavigationSourceRef.current) === sourceId) {
         applyPrimaryConnectionState(nextState);
       }
     },
-    [applyPrimaryConnectionState],
+    [applyPrimaryConnectionState, resolveProviderSource],
   );
 
   useEffect(() => {
     primaryNavigationSourceRef.current = primaryNavigationSource;
-    lastFixAtRef.current = lastFixAtBySourceRef.current[primaryNavigationSource] ?? Date.now();
-    setHasPrimaryTelemetryHistory(Boolean(hadFixBySourceRef.current[primaryNavigationSource]));
+    const primaryProviderSource = resolveProviderSource(primaryNavigationSource);
+    lastFixAtRef.current = primaryProviderSource ? (lastFixAtBySourceRef.current[primaryProviderSource] ?? Date.now()) : Date.now();
+    setHasPrimaryTelemetryHistory(Boolean(primaryProviderSource && hadFixBySourceRef.current[primaryProviderSource]));
 
     const nextStatus =
-      primaryNavigationSource === 'zima2r' || primaryNavigationSource === 'gnss-udp'
-        ? deviceConnectionStatus[primaryNavigationSource]
-        : simulationConnectionStatus;
+      primaryProviderSource === 'zima2r' || primaryProviderSource === 'gnss-udp'
+        ? deviceConnectionStatus[primaryProviderSource]
+        : primaryProviderSource === 'simulation'
+          ? simulationConnectionStatus
+          : 'timeout';
     applyPrimaryConnectionState(nextStatus ?? 'ok');
     syncDiverTelemetry();
     syncBaseStationTelemetry();
@@ -1390,6 +1436,7 @@ const MapWorkspace = () => {
     applyPrimaryConnectionState,
     deviceConnectionStatus,
     primaryNavigationSource,
+    resolveProviderSource,
     simulationConnectionStatus,
     syncBaseStationTelemetry,
     syncDiverTelemetry,
@@ -1397,12 +1444,15 @@ const MapWorkspace = () => {
 
   useEffect(() => {
     if (isPrimarySourceEnabled) return;
-    hadFixBySourceRef.current[primaryNavigationSource] = false;
+    const primaryProviderSource = resolveProviderSource(primaryNavigationSource);
+    if (primaryProviderSource) {
+      hadFixBySourceRef.current[primaryProviderSource] = false;
+    }
     setHasPrimaryTelemetry(false);
     setHasPrimaryTelemetryHistory(false);
     syncDiverTelemetry();
     syncBaseStationTelemetry();
-  }, [isPrimarySourceEnabled, primaryNavigationSource, syncBaseStationTelemetry, syncDiverTelemetry]);
+  }, [isPrimarySourceEnabled, primaryNavigationSource, resolveProviderSource, syncBaseStationTelemetry, syncDiverTelemetry]);
 
   useEffect(() => {
     if (isElectronRuntime) {
@@ -1448,19 +1498,22 @@ const MapWorkspace = () => {
 
   useEffect(() => {
     if (isElectronRuntime) {
-      const zimaEnabled = selectedEquipmentDeviceIds.includes('zima2r') && (equipmentEnabledByDevice.zima2r ?? false);
-      const gnssEnabled =
-        selectedEquipmentDeviceIds.includes('gnss-udp') && Boolean(equipmentEnabledByDevice['gnss-udp']);
+      const zimaEnabled = navigationSourceOptions.some(
+        (option) => option.schemaId === 'zima2r' && Boolean(equipmentEnabledBySource[option.id]),
+      );
+      const gnssEnabled = navigationSourceOptions.some(
+        (option) => option.schemaId === 'gnss-udp' && Boolean(equipmentEnabledBySource[option.id]),
+      );
       zimaTelemetryProvider.setEnabled(zimaEnabled);
       gnssTelemetryProvider.setEnabled(gnssEnabled);
       return;
     }
     simulationTelemetryProvider.setEnabled(simulationEnabled);
   }, [
-    equipmentEnabledByDevice,
+    equipmentEnabledBySource,
     gnssTelemetryProvider,
     isElectronRuntime,
-    selectedEquipmentDeviceIds,
+    navigationSourceOptions,
     simulationEnabled,
     simulationTelemetryProvider,
     zimaTelemetryProvider,
@@ -1754,10 +1807,10 @@ const MapWorkspace = () => {
     }
   };
 
-  const handleToggleEquipmentConnection = (deviceId: string, enabled: boolean) => {
-    setEquipmentEnabledByDevice((prev) => ({ ...prev, [deviceId]: enabled }));
-    const schema = deviceSchemas.find((item) => item.id === deviceId);
-    const title = schema?.title ?? deviceId;
+  const handleToggleEquipmentConnection = (sourceId: string, enabled: boolean) => {
+    setEquipmentEnabledBySource((prev) => ({ ...prev, [sourceId]: enabled }));
+    const sourceOption = navigationSourceOptions.find((option) => option.id === sourceId);
+    const title = sourceOption?.label ?? sourceId;
     toast({ title: `${title}: ${enabled ? 'включено' : 'выключено'}` });
   };
 
@@ -2285,7 +2338,7 @@ const MapWorkspace = () => {
         onOpenChange={setShowSettings}
         value={settingsValue}
         missionDivers={missionDivers}
-        isZimaAssignedInProfile={selectedEquipmentDeviceIds.includes('zima2r')}
+        isZimaAssignedInProfile={navigationSourceOptions.some((option) => option.schemaId === 'zima2r')}
         baseStationNavigationSource={baseStationNavigationSource}
         onApply={handleSettingsApply}
         onApplyDivers={handleDiversApply}
@@ -2295,16 +2348,16 @@ const MapWorkspace = () => {
         navigationSourceOptions={navigationSourceOptions}
         equipmentItems={
           isElectronRuntime
-            ? selectedEquipmentDeviceIds.map((deviceId) => {
-                const schema = deviceSchemas.find((item) => item.id === deviceId);
-                const enabled = Boolean(equipmentEnabledByDevice[deviceId]);
+            ? navigationSourceOptions.map((sourceOption) => {
+                const sourceSchemaId = sourceOption.schemaId;
+                const enabled = Boolean(equipmentEnabledBySource[sourceOption.id]);
                 const deviceState =
-                  deviceId === 'zima2r' || deviceId === 'gnss-udp'
-                    ? deviceConnectionStatus[deviceId]
+                  sourceSchemaId === 'zima2r' || sourceSchemaId === 'gnss-udp'
+                    ? deviceConnectionStatus[sourceSchemaId]
                     : 'ok';
                 const lostSeconds =
-                  deviceId === 'zima2r' || deviceId === 'gnss-udp'
-                    ? deviceConnectionLostSeconds[deviceId]
+                  sourceSchemaId === 'zima2r' || sourceSchemaId === 'gnss-udp'
+                    ? deviceConnectionLostSeconds[sourceSchemaId]
                     : 0;
                 const statusText = enabled
                   ? deviceState === 'ok'
@@ -2314,8 +2367,8 @@ const MapWorkspace = () => {
                       : 'Ошибка'
                   : 'Выключено';
                 return {
-                  id: deviceId,
-                  name: schema?.title ?? deviceId,
+                  id: sourceOption.id,
+                  name: sourceOption.label,
                   enabled,
                   statusText,
                   canToggle: true,

@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, Cpu, Plus, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Cpu, Plus, Save, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import DeviceSchemaForm from '@/components/devices/DeviceSchemaForm';
 import {
@@ -15,7 +14,8 @@ import {
   validateDeviceConfig,
   writeEquipmentSettings,
   type DeviceConfig,
-  type EquipmentSettingsV2,
+  type DeviceInstance,
+  type EquipmentSettingsV3,
 } from '@/features/devices';
 import { toast } from '@/hooks/use-toast';
 import { platform } from '@/platform';
@@ -27,12 +27,19 @@ const makeProfileId = (): string => {
   return `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 };
 
+const makeDeviceInstanceId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `device-${crypto.randomUUID()}`;
+  }
+  return `device-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+};
+
 const EquipmentScreen = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const schemas = useMemo(() => loadDeviceSchemas(), []);
 
-  const [settings, setSettings] = useState<EquipmentSettingsV2>(() => createDefaultEquipmentSettings(schemas));
+  const [settings, setSettings] = useState<EquipmentSettingsV3>(() => createDefaultEquipmentSettings(schemas));
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -52,20 +59,34 @@ const EquipmentScreen = () => {
     [settings.profiles, settings.selected_profile_id],
   );
 
-  const selectedSchema = useMemo(() => {
-    if (!selectedProfile) return schemas[0] ?? null;
-    if (selectedProfile.device_ids.includes(settings.selected_device_id)) {
-      return schemas.find((schema) => schema.id === settings.selected_device_id) ?? null;
+  const selectedDeviceInstance = useMemo(() => {
+    if (!selectedProfile) return null;
+
+    const selectedInstanceId = settings.selected_device_instance_id;
+    if (selectedInstanceId && selectedProfile.device_instance_ids.includes(selectedInstanceId)) {
+      return settings.device_instances[selectedInstanceId] ?? null;
     }
-    const fallbackId = selectedProfile.device_ids[0];
-    if (!fallbackId) return null;
-    return schemas.find((schema) => schema.id === fallbackId) ?? null;
-  }, [schemas, selectedProfile, settings.selected_device_id]);
+
+    const fallbackInstanceId = selectedProfile.device_instance_ids[0];
+    return fallbackInstanceId ? settings.device_instances[fallbackInstanceId] ?? null : null;
+  }, [selectedProfile, settings.device_instances, settings.selected_device_instance_id]);
+
+  const selectedSchema = useMemo(() => {
+    if (!selectedDeviceInstance) return schemas[0] ?? null;
+    return schemas.find((schema) => schema.id === selectedDeviceInstance.schema_id) ?? null;
+  }, [schemas, selectedDeviceInstance]);
 
   const selectedConfig = useMemo<DeviceConfig>(() => {
-    if (!selectedSchema) return {};
-    return settings.devices[selectedSchema.id] ?? createDefaultDeviceConfig(selectedSchema);
-  }, [selectedSchema, settings.devices]);
+    if (!selectedSchema || !selectedDeviceInstance) return {};
+    return selectedDeviceInstance.config ?? createDefaultDeviceConfig(selectedSchema);
+  }, [selectedSchema, selectedDeviceInstance]);
+
+  const selectedProfileInstances = useMemo<DeviceInstance[]>(() => {
+    if (!selectedProfile) return [];
+    return selectedProfile.device_instance_ids
+      .map((instanceId) => settings.device_instances[instanceId])
+      .filter((instance): instance is DeviceInstance => Boolean(instance));
+  }, [selectedProfile, settings.device_instances]);
 
   useEffect(() => {
     const load = async () => {
@@ -93,20 +114,21 @@ const EquipmentScreen = () => {
   const selectProfile = (profileId: string) => {
     setSettings((prev) => {
       const profile = prev.profiles.find((item) => item.id === profileId);
-      const nextDeviceId = profile?.device_ids.includes(prev.selected_device_id)
-        ? prev.selected_device_id
-        : (profile?.device_ids[0] ?? prev.selected_device_id);
+      const nextInstanceId = profile?.device_instance_ids.includes(prev.selected_device_instance_id)
+        ? prev.selected_device_instance_id
+        : (profile?.device_instance_ids[0] ?? prev.selected_device_instance_id);
+
       return {
         ...prev,
         selected_profile_id: profileId,
-        selected_device_id: nextDeviceId,
+        selected_device_instance_id: nextInstanceId,
       };
     });
     clearValidationFeedback();
   };
 
-  const selectDevice = (deviceId: string) => {
-    setSettings((prev) => ({ ...prev, selected_device_id: deviceId }));
+  const selectDeviceInstance = (instanceId: string) => {
+    setSettings((prev) => ({ ...prev, selected_device_instance_id: instanceId }));
     clearValidationFeedback();
   };
 
@@ -120,67 +142,139 @@ const EquipmentScreen = () => {
     }));
   };
 
-  const toggleDeviceInProfile = (deviceId: string, checked: boolean) => {
-    if (
-      !checked &&
-      selectedProfile &&
-      selectedProfile.device_ids.includes(deviceId) &&
-      selectedProfile.device_ids.length <= 1
-    ) {
-      toast({ title: 'Нужен минимум один тип оборудования в профиле' });
-      return;
-    }
+  const updateSelectedDeviceInstanceName = (name: string) => {
+    if (!selectedDeviceInstance) return;
+    const trimmed = name.trimStart();
+
+    setSettings((prev) => ({
+      ...prev,
+      device_instances: {
+        ...prev.device_instances,
+        [selectedDeviceInstance.id]: {
+          ...prev.device_instances[selectedDeviceInstance.id],
+          name: trimmed,
+        },
+      },
+    }));
+  };
+
+  const addDeviceInstance = (schemaId: string) => {
+    const schema = schemas.find((item) => item.id === schemaId);
+    if (!schema || !selectedProfile) return;
 
     setSettings((prev) => {
-      const profiles = prev.profiles.map((profile) => {
-        if (profile.id !== prev.selected_profile_id) return profile;
+      const profile = prev.profiles.find((item) => item.id === prev.selected_profile_id);
+      if (!profile) return prev;
 
-        const hasDevice = profile.device_ids.includes(deviceId);
-        if (checked && !hasDevice) {
-          return { ...profile, device_ids: [...profile.device_ids, deviceId] };
-        }
-        if (!checked && hasDevice) {
-          return { ...profile, device_ids: profile.device_ids.filter((id) => id !== deviceId) };
-        }
-        return profile;
-      });
+      const sameSchemaCount = profile.device_instance_ids.filter((instanceId) => {
+        const instance = prev.device_instances[instanceId];
+        return instance?.schema_id === schemaId;
+      }).length;
 
-      const activeProfile = profiles.find((profile) => profile.id === prev.selected_profile_id) ?? null;
-      const nextSelectedDeviceId =
-        activeProfile?.device_ids.includes(prev.selected_device_id)
-          ? prev.selected_device_id
-          : (activeProfile?.device_ids[0] ?? prev.selected_device_id);
+      const instanceId = makeDeviceInstanceId();
+      const instanceName = sameSchemaCount > 0 ? `${schema.title} ${sameSchemaCount + 1}` : schema.title;
 
       return {
         ...prev,
-        profiles,
-        selected_device_id: nextSelectedDeviceId,
+        selected_device_instance_id: instanceId,
+        profiles: prev.profiles.map((item) =>
+          item.id === prev.selected_profile_id
+            ? { ...item, device_instance_ids: [...item.device_instance_ids, instanceId] }
+            : item,
+        ),
+        device_instances: {
+          ...prev.device_instances,
+          [instanceId]: {
+            id: instanceId,
+            schema_id: schema.id,
+            name: instanceName,
+            config: createDefaultDeviceConfig(schema),
+          },
+        },
       };
     });
+
+    clearValidationFeedback();
+  };
+
+  const removeDeviceInstance = (instanceId: string) => {
+    if (!selectedProfile) return;
+    if (selectedProfile.device_instance_ids.length <= 1) {
+      toast({ title: 'В профиле должно остаться хотя бы одно устройство' });
+      return;
+    }
+
+    const instance = settings.device_instances[instanceId];
+    if (!instance) return;
+
+    if (!window.confirm(`Удалить устройство "${instance.name ?? instance.schema_id}"?`)) return;
+
+    setSettings((prev) => {
+      const profile = prev.profiles.find((item) => item.id === prev.selected_profile_id);
+      if (!profile) return prev;
+
+      const nextProfileInstanceIds = profile.device_instance_ids.filter((id) => id !== instanceId);
+      const nextSelectedInstanceId =
+        prev.selected_device_instance_id === instanceId
+          ? (nextProfileInstanceIds[0] ?? prev.selected_device_instance_id)
+          : prev.selected_device_instance_id;
+
+      const nextInstances: Record<string, DeviceInstance> = {};
+      for (const [id, value] of Object.entries(prev.device_instances)) {
+        if (id === instanceId) continue;
+        nextInstances[id] = value;
+      }
+
+      return {
+        ...prev,
+        selected_device_instance_id: nextSelectedInstanceId,
+        profiles: prev.profiles.map((item) =>
+          item.id === prev.selected_profile_id
+            ? { ...item, device_instance_ids: nextProfileInstanceIds }
+            : item,
+        ),
+        device_instances: nextInstances,
+      };
+    });
+
     clearValidationFeedback();
   };
 
   const addProfile = () => {
-    const fallbackDeviceId = schemas[0]?.id;
-    if (!fallbackDeviceId) {
+    const fallbackSchema = schemas[0];
+    if (!fallbackSchema) {
       toast({ title: 'Нет доступных схем оборудования' });
       return;
     }
 
     setSettings((prev) => {
       const profileNumber = prev.profiles.length + 1;
+      const nextProfileId = makeProfileId();
+      const instanceId = makeDeviceInstanceId();
+
       const nextProfile = {
-        id: makeProfileId(),
+        id: nextProfileId,
         name: `Профиль ${profileNumber}`,
-        device_ids: [fallbackDeviceId],
+        device_instance_ids: [instanceId],
       };
+
       return {
         ...prev,
-        profiles: [...prev.profiles, nextProfile],
         selected_profile_id: nextProfile.id,
-        selected_device_id: fallbackDeviceId,
+        selected_device_instance_id: instanceId,
+        profiles: [...prev.profiles, nextProfile],
+        device_instances: {
+          ...prev.device_instances,
+          [instanceId]: {
+            id: instanceId,
+            schema_id: fallbackSchema.id,
+            name: fallbackSchema.title,
+            config: createDefaultDeviceConfig(fallbackSchema),
+          },
+        },
       };
     });
+
     clearValidationFeedback();
   };
 
@@ -192,27 +286,54 @@ const EquipmentScreen = () => {
     if (!window.confirm('Удалить профиль оборудования?')) return;
 
     setSettings((prev) => {
+      const removedProfile = prev.profiles.find((profile) => profile.id === profileId);
       const profiles = prev.profiles.filter((profile) => profile.id !== profileId);
       const nextProfile = profiles.find((profile) => profile.id === prev.selected_profile_id) ?? profiles[0] ?? null;
+
+      const usedInstanceIds = new Set(profiles.flatMap((profile) => profile.device_instance_ids));
+      const nextDeviceInstances: Record<string, DeviceInstance> = {};
+      for (const [instanceId, instance] of Object.entries(prev.device_instances)) {
+        if (!usedInstanceIds.has(instanceId)) continue;
+        nextDeviceInstances[instanceId] = instance;
+      }
+
+      const nextSelectedInstanceId =
+        nextProfile?.device_instance_ids.includes(prev.selected_device_instance_id)
+          ? prev.selected_device_instance_id
+          : (nextProfile?.device_instance_ids[0] ?? '');
+
+      if (removedProfile) {
+        for (const instanceId of removedProfile.device_instance_ids) {
+          if (usedInstanceIds.has(instanceId)) continue;
+          delete nextDeviceInstances[instanceId];
+        }
+      }
+
       return {
         ...prev,
         profiles,
+        device_instances: nextDeviceInstances,
         selected_profile_id: nextProfile?.id ?? '',
-        selected_device_id: nextProfile?.device_ids[0] ?? schemas[0]?.id ?? '',
+        selected_device_instance_id: nextSelectedInstanceId,
       };
     });
+
     clearValidationFeedback();
   };
 
   const updateDeviceField = (key: string, value: string | number | boolean) => {
-    if (!selectedSchema) return;
+    if (!selectedSchema || !selectedDeviceInstance) return;
+
     setSettings((prev) => ({
       ...prev,
-      devices: {
-        ...prev.devices,
-        [selectedSchema.id]: {
-          ...(prev.devices[selectedSchema.id] ?? createDefaultDeviceConfig(selectedSchema)),
-          [key]: value,
+      device_instances: {
+        ...prev.device_instances,
+        [selectedDeviceInstance.id]: {
+          ...prev.device_instances[selectedDeviceInstance.id],
+          config: {
+            ...(prev.device_instances[selectedDeviceInstance.id]?.config ?? createDefaultDeviceConfig(selectedSchema)),
+            [key]: value,
+          },
         },
       },
     }));
@@ -223,25 +344,31 @@ const EquipmentScreen = () => {
       setValidationSummary(describeDeviceConfigErrors(selectedSchema, rest).map((issue) => issue.summary));
       return rest;
     });
+
     setFocusFieldKey(null);
   };
 
   const resetSelected = () => {
-    if (!selectedSchema) return;
+    if (!selectedSchema || !selectedDeviceInstance) return;
+
     setSettings((prev) => ({
       ...prev,
-      devices: {
-        ...prev.devices,
-        [selectedSchema.id]: createDefaultDeviceConfig(selectedSchema),
+      device_instances: {
+        ...prev.device_instances,
+        [selectedDeviceInstance.id]: {
+          ...prev.device_instances[selectedDeviceInstance.id],
+          config: createDefaultDeviceConfig(selectedSchema),
+        },
       },
     }));
+
     clearValidationFeedback();
   };
 
   const handleSave = async () => {
     const nextSettings = normalizeEquipmentSettings(settings, schemas);
     const profile = nextSettings.profiles.find((item) => item.id === nextSettings.selected_profile_id) ?? null;
-    if (!profile || profile.device_ids.length === 0) {
+    if (!profile || profile.device_instance_ids.length === 0) {
       toast({ title: 'В профиле должно быть хотя бы одно оборудование' });
       return;
     }
@@ -249,24 +376,34 @@ const EquipmentScreen = () => {
     setValidationSummary([]);
     setFocusFieldKey(null);
 
-    for (const deviceId of profile.device_ids) {
-      const schema = schemas.find((item) => item.id === deviceId);
+    for (const instanceId of profile.device_instance_ids) {
+      const instance = nextSettings.device_instances[instanceId];
+      if (!instance) continue;
+      const schema = schemas.find((item) => item.id === instance.schema_id);
       if (!schema) continue;
-      const errors = validateDeviceConfig(schema, nextSettings.devices[deviceId] ?? {});
+
+      const errors = validateDeviceConfig(schema, instance.config ?? {});
       if (Object.keys(errors).length > 0) {
         const issues = describeDeviceConfigErrors(schema, errors);
         const firstIssue = issues[0];
+        const instanceName = instance.name?.trim() || schema.title;
 
-        setSettings((prev) => ({ ...prev, selected_device_id: deviceId }));
+        setSettings((prev) => ({ ...prev, selected_device_instance_id: instanceId }));
         setFieldErrors(errors);
-        setValidationSummary(issues.map((issue) => issue.summary));
+        setValidationSummary(
+          issues.map((issue) => `${instanceName}: ${issue.fieldLabel} — ${issue.message}`),
+        );
+
         if (firstIssue) {
           setFocusFieldKey(firstIssue.fieldKey);
           setFocusRequestVersion((prev) => prev + 1);
         }
+
         toast({
           title: 'Проверьте значения',
-          description: firstIssue?.summary ?? `Есть ошибки валидации в настройках "${schema.title}".`,
+          description: firstIssue
+            ? `${instanceName}: ${firstIssue.fieldLabel} — ${firstIssue.message}`
+            : `Есть ошибки валидации в настройках "${instanceName}".`,
         });
         return;
       }
@@ -324,7 +461,7 @@ const EquipmentScreen = () => {
                       }`}
                     >
                       <div className="text-sm font-medium">{profile.name || 'Без названия'}</div>
-                      <div className="text-xs opacity-80">{profile.device_ids.length} устройств(а)</div>
+                      <div className="text-xs opacity-80">{profile.device_instance_ids.length} устройств(а)</div>
                     </button>
                     <Button
                       type="button"
@@ -359,56 +496,83 @@ const EquipmentScreen = () => {
                       onChange={(event) => updateSelectedProfileName(event.target.value)}
                     />
                   </div>
+
                   <div className="space-y-2">
-                    <div className="text-sm font-medium">Оборудование в профиле</div>
-                    <div className="space-y-2 rounded-md border border-border p-3">
-                      {schemas.map((schema) => {
-                        const checked = selectedProfile.device_ids.includes(schema.id);
-                        return (
-                          <label key={schema.id} className="flex items-center justify-between gap-3">
-                            <span className="text-sm">{schema.title}</span>
-                            <Checkbox
-                              checked={checked}
-                              disabled={isLoading || isSaving}
-                              onCheckedChange={(next) => toggleDeviceInProfile(schema.id, Boolean(next))}
-                            />
-                          </label>
-                        );
-                      })}
+                    <div className="text-sm font-medium">Добавить устройство</div>
+                    <div className="flex flex-wrap gap-2 rounded-md border border-border p-3">
+                      {schemas.map((schema) => (
+                        <Button
+                          key={schema.id}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => addDeviceInstance(schema.id)}
+                          disabled={isLoading || isSaving}
+                          className="gap-1.5"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          {schema.title}
+                        </Button>
+                      ))}
                     </div>
                   </div>
                 </div>
 
-                {selectedProfile.device_ids.length > 0 ? (
+                {selectedProfileInstances.length > 0 ? (
                   <>
                     <div className="mt-6">
-                      <div className="mb-2 text-sm font-medium">Настройка устройства</div>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedProfile.device_ids.map((deviceId) => {
-                          const schema = schemas.find((item) => item.id === deviceId);
-                          if (!schema) return null;
-                          const isActive = selectedSchema?.id === schema.id;
+                      <div className="mb-2 text-sm font-medium">Устройства в профиле</div>
+                      <div className="space-y-2">
+                        {selectedProfileInstances.map((instance) => {
+                          const schema = schemas.find((item) => item.id === instance.schema_id);
+                          const isActive = selectedDeviceInstance?.id === instance.id;
+
                           return (
-                            <Button
-                              key={schema.id}
-                              type="button"
-                              variant={isActive ? 'default' : 'outline'}
-                              size="sm"
-                              onClick={() => selectDevice(schema.id)}
-                              className="gap-2"
+                            <div
+                              key={instance.id}
+                              className={`flex items-center gap-2 rounded-md border p-2 ${
+                                isActive ? 'border-primary/60 bg-primary/5' : 'border-border'
+                              }`}
                             >
-                              {isActive ? <Check className="h-3.5 w-3.5" /> : <Cpu className="h-3.5 w-3.5" />}
-                              {schema.title}
-                            </Button>
+                              <button
+                                type="button"
+                                onClick={() => selectDeviceInstance(instance.id)}
+                                className="flex-1 text-left"
+                              >
+                                <div className="text-sm font-medium">{instance.name?.trim() || schema?.title || instance.schema_id}</div>
+                                <div className="text-xs text-muted-foreground">{schema?.title ?? instance.schema_id}</div>
+                              </button>
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeDeviceInstance(instance.id)}
+                                disabled={selectedProfileInstances.length <= 1}
+                                title="Удалить устройство"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           );
                         })}
                       </div>
                     </div>
 
-                    {selectedSchema ? (
+                    {selectedSchema && selectedDeviceInstance ? (
                       <>
-                        <div className="mt-5 mb-4">
-                          <h2 className="text-base font-semibold">{selectedSchema.title}</h2>
+                        <div className="mt-5 mb-4 space-y-3">
+                          <h2 className="text-base font-semibold">{selectedDeviceInstance.name?.trim() || selectedSchema.title}</h2>
+                          <div className="grid gap-3 md:grid-cols-1 md:items-end">
+                            <div className="space-y-1.5">
+                              <label className="text-sm font-medium">Имя устройства</label>
+                              <Input
+                                value={selectedDeviceInstance.name ?? ''}
+                                disabled={isLoading || isSaving}
+                                onChange={(event) => updateSelectedDeviceInstanceName(event.target.value)}
+                              />
+                            </div>
+                          </div>
                         </div>
 
                         {validationSummary.length > 0 ? (
