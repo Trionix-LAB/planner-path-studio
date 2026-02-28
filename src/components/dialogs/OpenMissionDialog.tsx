@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FolderOpen, AlertTriangle, Clock, ChevronRight } from 'lucide-react';
 import { platform } from "@/platform";
 import { useRecentMissions } from '@/hooks/useRecentMissions';
+import { MISSIONS_DIR_SETTINGS_KEY } from '@/features/mission/model/constants';
 import { ALL_MISSIONS_LIMIT } from '@/features/mission/model/recentMissions';
 import { useMissionListView, type MissionSortMode } from '@/hooks/useMissionListView';
 
@@ -31,20 +32,50 @@ const SORT_OPTIONS: ReadonlyArray<{ value: MissionSortMode; label: string }> = [
 const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogProps) => {
   const [folder, setFolder] = useState(platform.paths.defaultMissionsDir());
   const [error, setError] = useState<string | null>(null);
-  const { missions: recentMissions } = useRecentMissions({ limit: ALL_MISSIONS_LIMIT });
+  const folderEditedRef = useRef(false);
+  const { missions: recentMissions } = useRecentMissions({ limit: ALL_MISSIONS_LIMIT, missionsDir: folder.trim() });
   const { pagedMissions, page, setPage, totalPages, sortMode, setSortMode } = useMissionListView(recentMissions);
 
+  const persistMissionsDir = async (nextFolder: string) => {
+    const normalized = nextFolder.trim();
+    if (!normalized) return;
+    await platform.settings.writeJson(MISSIONS_DIR_SETTINGS_KEY, normalized);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    let isActive = true;
+    folderEditedRef.current = false;
+    void (async () => {
+      const stored = await platform.settings.readJson<unknown>(MISSIONS_DIR_SETTINGS_KEY);
+      if (!isActive) return;
+      if (folderEditedRef.current) return;
+      if (typeof stored === 'string' && stored.trim().length > 0) {
+        setFolder(stored.trim());
+      }
+    })();
+    return () => {
+      isActive = false;
+    };
+  }, [open]);
+
   const handleConfirm = () => {
-    if (folder.trim()) {
-      onConfirm(folder);
-      setFolder('');
+    const normalized = folder.trim();
+    if (normalized) {
+      void persistMissionsDir(normalized);
+      onConfirm(normalized);
       setError(null);
     }
   };
 
   const handleRecentClick = (path: string) => {
+    const normalizedPath = path.replace(/\\/g, '/').replace(/\/+$/g, '');
+    const separatorIndex = normalizedPath.lastIndexOf('/');
+    const parentFolder = separatorIndex > 0 ? normalizedPath.slice(0, separatorIndex) : normalizedPath;
+    folderEditedRef.current = true;
+    void persistMissionsDir(parentFolder);
+    setFolder(parentFolder);
     onConfirm(path);
-    setFolder('');
     setError(null);
   };
 
@@ -54,7 +85,11 @@ const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogP
       defaultPath: folder,
     });
     if (picked) {
-      setFolder(picked);
+      const normalized = picked.trim();
+      if (!normalized) return;
+      folderEditedRef.current = true;
+      setFolder(normalized);
+      await persistMissionsDir(normalized);
       setError(null);
     }
   };
@@ -73,6 +108,7 @@ const OpenMissionDialog = ({ open, onOpenChange, onConfirm }: OpenMissionDialogP
               <Input
                 value={folder}
                 onChange={(e) => {
+                  folderEditedRef.current = true;
                   setFolder(e.target.value);
                   setError(null);
                 }}

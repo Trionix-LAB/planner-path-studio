@@ -89,4 +89,40 @@ describe('loadDraftSession', () => {
     });
     expect(missing).toEqual(asBundle('created'));
   });
+
+  it('resume mode recreates draft when open fails with missing mission file', async () => {
+    const createDraft = vi.fn().mockResolvedValue(asBundle('created'));
+    const openDraft = vi.fn().mockRejectedValue(new Error('Mission file not found: draft/current/mission.json'));
+
+    const result = await loadDraftSession('resume', {
+      draftExists: vi.fn().mockResolvedValue(true),
+      clearDraft: vi.fn().mockResolvedValue(undefined),
+      createDraft,
+      openDraft,
+      onRecoverMissing: vi.fn(),
+    });
+
+    expect(result).toEqual(asBundle('created'));
+    expect(openDraft).toHaveBeenCalledTimes(1);
+    expect(createDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('recover mode recreates draft when open fails with missing mission file', async () => {
+    const createDraft = vi.fn().mockResolvedValue(asBundle('created'));
+    const openDraft = vi.fn().mockRejectedValue(new Error('Mission file not found: draft/current/mission.json'));
+    const onRecoverMissing = vi.fn();
+
+    const result = await loadDraftSession('recover', {
+      draftExists: vi.fn().mockResolvedValue(true),
+      clearDraft: vi.fn().mockResolvedValue(undefined),
+      createDraft,
+      openDraft,
+      onRecoverMissing,
+    });
+
+    expect(result).toEqual(asBundle('created'));
+    expect(openDraft).toHaveBeenCalledTimes(1);
+    expect(createDraft).toHaveBeenCalledTimes(1);
+    expect(onRecoverMissing).toHaveBeenCalledTimes(1);
+  });
 });

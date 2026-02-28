@@ -44,6 +44,8 @@ const createPlatform = ({ isElectron, files = {}, mtimes = {} }: TestPlatformOpt
     exists: async (path) => Object.prototype.hasOwnProperty.call(files, path),
     readText: async (path) => files[path] ?? null,
     writeText: async () => {},
+    appendText: async () => {},
+    flush: async () => {},
     remove: async () => {},
     list: async (prefix) => Object.keys(files).filter((key) => key.startsWith(prefix)),
     stat: async (path) => {
@@ -129,5 +131,36 @@ describe('loadRecentMissions (R-014 — Recent missions)', () => {
     expect(recent).toHaveLength(1);
     expect(recent[0].name).toBe('Archive Mission');
     expect(recent[0].rootPath).toBe('D:/Archive/M1');
+  });
+
+  it('falls back to mission.json.bak when mission.json is invalid', async () => {
+    const files = {
+      'C:/Missions/A/mission.json': '{invalid',
+      'C:/Missions/A/mission.json.bak': JSON.stringify({
+        name: 'Mission A (backup)',
+        updated_at: '2026-01-04T10:00:00.000Z',
+      }),
+      'C:/Missions/B/mission.json': JSON.stringify({ name: 'Mission B', updated_at: '2026-01-03T10:00:00.000Z' }),
+    };
+
+    const platform = createPlatform({ isElectron: false, files });
+    const recent = await loadRecentMissions(platform, { limit: Number.POSITIVE_INFINITY });
+
+    expect(recent).toHaveLength(2);
+    expect(recent.map((mission) => mission.name)).toEqual(['Mission A (backup)', 'Mission B']);
+  });
+
+  it('skips mission when both primary and backup metadata are invalid', async () => {
+    const files = {
+      'C:/Missions/A/mission.json': '{invalid',
+      'C:/Missions/B/mission.json': JSON.stringify({ name: 'Mission B', updated_at: '2026-01-03T10:00:00.000Z' }),
+    };
+
+    const platform = createPlatform({ isElectron: false, files });
+    const recent = await loadRecentMissions(platform, { limit: Number.POSITIVE_INFINITY });
+
+    expect(recent).toHaveLength(1);
+    expect(recent[0].name).toBe('Mission B');
+    expect(recent[0].rootPath).toBe('C:/Missions/B');
   });
 });

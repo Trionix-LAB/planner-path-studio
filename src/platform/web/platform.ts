@@ -4,7 +4,17 @@ import { resolveMapConfig } from "@/platform/mapConfig";
 
 const readRememberedPath = (key: string): string | null => {
   try {
-    return window.localStorage.getItem(key);
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'string' && parsed.trim().length > 0) {
+        return parsed.trim();
+      }
+    } catch {
+      // backward compatible with plain-string values
+    }
+    return raw.trim().length > 0 ? raw.trim() : null;
   } catch {
     return null;
   }
@@ -12,7 +22,7 @@ const readRememberedPath = (key: string): string | null => {
 
 const rememberPath = (key: string, value: string) => {
   try {
-    window.localStorage.setItem(key, value);
+    window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
     // ignore
   }
@@ -126,6 +136,14 @@ export const webPlatform: Platform = {
     },
     writeText: async (path, content) => {
       window.localStorage.setItem(toStorageKey(path), content);
+    },
+    appendText: async (path, content) => {
+      const key = toStorageKey(path);
+      const current = window.localStorage.getItem(key) ?? '';
+      window.localStorage.setItem(key, `${current}${content}`);
+    },
+    flush: async () => {
+      // localStorage writes are synchronous in web fallback.
     },
     remove: async (path) => {
       const exactKey = toStorageKey(path);

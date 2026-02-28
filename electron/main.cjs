@@ -9,6 +9,8 @@ const CHANNELS = {
     exists: 'planner:fileStore:exists',
     readText: 'planner:fileStore:readText',
     writeText: 'planner:fileStore:writeText',
+    appendText: 'planner:fileStore:appendText',
+    flush: 'planner:fileStore:flush',
     remove: 'planner:fileStore:remove',
     list: 'planner:fileStore:list',
     stat: 'planner:fileStore:stat',
@@ -17,6 +19,10 @@ const CHANNELS = {
     readJson: 'planner:settings:readJson',
     writeJson: 'planner:settings:writeJson',
     remove: 'planner:settings:remove',
+  },
+  lifecycle: {
+    prepareClose: 'planner:lifecycle:prepareClose',
+    prepareCloseResult: 'planner:lifecycle:prepareCloseResult',
   },
   zima: {
     start: 'planner:zima:start',
@@ -52,6 +58,63 @@ const CHANNELS = {
   },
 };
 const FILE_STORE_ROOT_DIR = 'planner.fs';
+const PREPARE_CLOSE_TIMEOUT_MS = 8000;
+const pendingPrepareClose = new Map();
+const closingWindowIds = new Set();
+
+const registerPrepareCloseResult = (ipcMainRef) => {
+  ipcMainRef.on(CHANNELS.lifecycle.prepareCloseResult, (event, payload) => {
+    const token = typeof payload?.token === 'string' ? payload.token : '';
+    if (!token) return;
+
+    const pending = pendingPrepareClose.get(token);
+    if (!pending) return;
+    if (pending.windowId !== event.sender.id) return;
+
+    clearTimeout(pending.timeoutId);
+    pendingPrepareClose.delete(token);
+    pending.resolve({
+      ok: Boolean(payload?.ok),
+      error: typeof payload?.error === 'string' ? payload.error : '',
+    });
+  });
+};
+
+const requestRendererPrepareClose = (windowRef, timeoutMs = PREPARE_CLOSE_TIMEOUT_MS) => {
+  if (!windowRef || windowRef.isDestroyed() || windowRef.webContents.isDestroyed()) {
+    return Promise.resolve({ ok: true, error: '' });
+  }
+
+  const token = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return new Promise((resolve) => {
+    const timeoutId = setTimeout(() => {
+      pendingPrepareClose.delete(token);
+      resolve({
+        ok: false,
+        error: `prepare-close timeout (${timeoutMs}ms)`,
+      });
+    }, timeoutMs);
+
+    pendingPrepareClose.set(token, {
+      resolve,
+      timeoutId,
+      windowId: windowRef.webContents.id,
+    });
+    windowRef.webContents.send(CHANNELS.lifecycle.prepareClose, { token });
+  });
+};
+
+const shouldWaitRendererPrepareClose = (windowRef) => {
+  if (!windowRef || windowRef.isDestroyed() || windowRef.webContents.isDestroyed()) {
+    return false;
+  }
+
+  const url = String(windowRef.webContents.getURL() ?? '');
+  if (!url) return false;
+  if (/#\/(map|create-mission|open-mission)(\?|$)/.test(url)) return true;
+  if (/\/(map|create-mission|open-mission)(\?|$)/.test(url)) return true;
+  return false;
+};
 
 const DEFAULT_ZIMA_CONFIG = {
   ipAddress: '127.0.0.1',
@@ -125,6 +188,41 @@ const ensureParentDir = async (filePath) => {
   await fs.mkdir(dir, { recursive: true });
 };
 
+const writeTextAtomic = async (filePath, content) => {
+  await ensureParentDir(filePath);
+  const tempSuffix = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tempPath = `${filePath}.tmp-${tempSuffix}`;
+  await fs.writeFile(tempPath, String(content ?? ''), 'utf8');
+  try {
+    await fs.rename(tempPath, filePath);
+  } catch (error) {
+    try {
+      await fs.rm(tempPath, { force: true });
+    } catch {
+      // ignore cleanup failure
+    }
+    throw error;
+  }
+};
+
+const flushFile = async (filePath) => {
+  let handle = null;
+  try {
+    handle = await fs.open(filePath, 'a');
+    await handle.sync();
+  } catch {
+    // ignore flush failures in fallback path
+  } finally {
+    if (handle) {
+      try {
+        await handle.close();
+      } catch {
+        // ignore close failures
+      }
+    }
+  }
+};
+
 const readSettingsFile = async (settingsPath) => {
   try {
     const raw = await fs.readFile(settingsPath, 'utf8');
@@ -137,8 +235,7 @@ const readSettingsFile = async (settingsPath) => {
 };
 
 const writeSettingsFile = async (settingsPath, data) => {
-  await ensureParentDir(settingsPath);
-  await fs.writeFile(settingsPath, JSON.stringify(data, null, 2), 'utf8');
+  await writeTextAtomic(settingsPath, JSON.stringify(data, null, 2));
 };
 
 const clampPort = (value, fallback) => {
@@ -850,6 +947,31 @@ const createMainWindow = async () => {
   }
   win.setMenuBarVisibility(false);
 
+  win.on('close', (event) => {
+    if (closingWindowIds.has(win.id)) {
+      return;
+    }
+
+    if (!shouldWaitRendererPrepareClose(win)) {
+      closingWindowIds.add(win.id);
+      return;
+    }
+
+    event.preventDefault();
+    void (async () => {
+      const result = await requestRendererPrepareClose(win);
+      if (!result.ok && result.error) {
+        console.warn(`[planner] graceful close fallback: ${result.error}`);
+      }
+      closingWindowIds.add(win.id);
+      win.close();
+    })();
+  });
+
+  win.on('closed', () => {
+    closingWindowIds.delete(win.id);
+  });
+
   return win;
 };
 
@@ -859,6 +981,7 @@ const registerIpcHandlers = () => {
   const zimaBridge = createZimaUdpBridge();
   const gnssBridge = createGnssUdpBridge();
   const gnssComBridge = createGnssComBridge();
+  registerPrepareCloseResult(ipcMain);
 
   ipcMain.handle(CHANNELS.pickDirectory, async (_event, options) => {
     const title = options?.title;
@@ -895,8 +1018,18 @@ const registerIpcHandlers = () => {
 
   ipcMain.handle(CHANNELS.fileStore.writeText, async (_event, inputPath, content) => {
     const resolvedPath = resolveFileStorePath(inputPath, userDataPath);
+    await writeTextAtomic(resolvedPath.absolutePath, content);
+  });
+
+  ipcMain.handle(CHANNELS.fileStore.appendText, async (_event, inputPath, content) => {
+    const resolvedPath = resolveFileStorePath(inputPath, userDataPath);
     await ensureParentDir(resolvedPath.absolutePath);
-    await fs.writeFile(resolvedPath.absolutePath, String(content ?? ''), 'utf8');
+    await fs.appendFile(resolvedPath.absolutePath, String(content ?? ''), 'utf8');
+  });
+
+  ipcMain.handle(CHANNELS.fileStore.flush, async (_event, inputPath) => {
+    const resolvedPath = resolveFileStorePath(inputPath, userDataPath);
+    await flushFile(resolvedPath.absolutePath);
   });
 
   ipcMain.handle(CHANNELS.fileStore.remove, async (_event, inputPath) => {

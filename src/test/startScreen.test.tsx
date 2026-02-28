@@ -60,6 +60,8 @@ vi.mock('@/platform', () => ({
       exists: mocks.exists,
       readText: vi.fn(),
       writeText: vi.fn(),
+      appendText: vi.fn(),
+      flush: vi.fn(),
       remove: vi.fn(),
       list: vi.fn(),
       stat: vi.fn(),

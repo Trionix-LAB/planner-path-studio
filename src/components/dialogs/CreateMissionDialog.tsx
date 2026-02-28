@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -12,23 +12,59 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { FolderOpen } from 'lucide-react';
 import { platform } from "@/platform";
+import { MISSIONS_DIR_SETTINGS_KEY } from '@/features/mission/model/constants';
 
 interface CreateMissionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (name: string, path: string) => void;
+  onConfirm: (name: string, path: string) => Promise<void> | void;
 }
 
 const CreateMissionDialog = ({ open, onOpenChange, onConfirm }: CreateMissionDialogProps) => {
   const [name, setName] = useState('');
   const [folder, setFolder] = useState(platform.paths.defaultMissionsDir());
   const [createSubfolder, setCreateSubfolder] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const folderEditedRef = useRef(false);
 
-  const handleConfirm = () => {
-    if (name.trim()) {
-      const finalPath = createSubfolder ? `${folder}/${name}` : folder;
-      onConfirm(name, finalPath);
-      setName('');
+  const persistMissionsDir = async (nextFolder: string) => {
+    const normalized = nextFolder.trim();
+    if (!normalized) return;
+    await platform.settings.writeJson(MISSIONS_DIR_SETTINGS_KEY, normalized);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    let isActive = true;
+    folderEditedRef.current = false;
+    setIsSubmitting(false);
+    void (async () => {
+      const stored = await platform.settings.readJson<unknown>(MISSIONS_DIR_SETTINGS_KEY);
+      if (!isActive) return;
+      if (folderEditedRef.current) return;
+      if (typeof stored === 'string' && stored.trim().length > 0) {
+        setFolder(stored.trim());
+      }
+    })();
+    return () => {
+      isActive = false;
+    };
+  }, [open]);
+
+  const handleConfirm = async () => {
+    if (isSubmitting) return;
+    const normalizedName = name.trim();
+    const normalizedFolder = folder.trim();
+    if (normalizedName && normalizedFolder) {
+      setIsSubmitting(true);
+      try {
+        await persistMissionsDir(normalizedFolder);
+        const finalPath = createSubfolder ? `${normalizedFolder}/${normalizedName}` : normalizedFolder;
+        await Promise.resolve(onConfirm(normalizedName, finalPath));
+        setName('');
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -37,7 +73,12 @@ const CreateMissionDialog = ({ open, onOpenChange, onConfirm }: CreateMissionDia
       title: "Папка хранения миссий",
       defaultPath: folder,
     });
-    if (picked) setFolder(picked);
+    if (!picked) return;
+    const normalized = picked.trim();
+    if (!normalized) return;
+    folderEditedRef.current = true;
+    setFolder(normalized);
+    await persistMissionsDir(normalized);
   };
 
   return (
@@ -54,6 +95,7 @@ const CreateMissionDialog = ({ open, onOpenChange, onConfirm }: CreateMissionDia
               id="mission-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              disabled={isSubmitting}
               placeholder="Введите имя миссии"
             />
           </div>
@@ -61,8 +103,16 @@ const CreateMissionDialog = ({ open, onOpenChange, onConfirm }: CreateMissionDia
           <div className="space-y-2">
             <Label>Папка хранения</Label>
             <div className="flex gap-2">
-              <Input value={folder} onChange={(e) => setFolder(e.target.value)} className="font-mono text-sm" />
-              <Button type="button" variant="outline" size="icon" onClick={handlePickFolder}>
+              <Input
+                value={folder}
+                onChange={(e) => {
+                  folderEditedRef.current = true;
+                  setFolder(e.target.value);
+                }}
+                className="font-mono text-sm"
+                disabled={isSubmitting}
+              />
+              <Button type="button" variant="outline" size="icon" onClick={handlePickFolder} disabled={isSubmitting}>
                 <FolderOpen className="w-4 h-4" />
               </Button>
             </div>
@@ -72,6 +122,7 @@ const CreateMissionDialog = ({ open, onOpenChange, onConfirm }: CreateMissionDia
             <Checkbox
               checked={createSubfolder}
               onCheckedChange={(checked) => setCreateSubfolder(checked as boolean)}
+              disabled={isSubmitting}
             />
             <span className="text-sm">Создать подпапку с именем миссии</span>
           </label>
@@ -87,10 +138,10 @@ const CreateMissionDialog = ({ open, onOpenChange, onConfirm }: CreateMissionDia
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             Отмена
           </Button>
-          <Button onClick={handleConfirm} disabled={!name.trim()}>
+          <Button onClick={() => void handleConfirm()} disabled={!name.trim() || isSubmitting}>
             Создать
           </Button>
         </DialogFooter>
