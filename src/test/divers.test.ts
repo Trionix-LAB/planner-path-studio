@@ -78,4 +78,21 @@ describe('divers model (R-017 — beacon id)', () => {
     expect(diverWithCustomSize.marker_size_px).toBe(27);
     expect(diverAboveMax.marker_size_px).toBe(256);
   });
+
+  it('keeps instance-based navigation source id', () => {
+    const [diver] = normalizeDivers([
+      {
+        uid: 'u-3',
+        id: 'agent-3',
+        beacon_id: '3',
+        title: 'Agent 3',
+        marker_color: '#0ea5e9',
+        marker_size_px: 32,
+        track_color: '#a855f7',
+        navigation_source: 'device-zima-001',
+      },
+    ]);
+
+    expect(diver.navigation_source).toBe('device-zima-001');
+  });
 });

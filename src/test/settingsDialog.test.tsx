@@ -38,8 +38,8 @@ const renderDialog = async ({
       onReset={vi.fn()}
       onResetDivers={vi.fn()}
       navigationSourceOptions={[
-        { id: 'zima2r', label: 'Zima2R' },
-        { id: 'gnss-udp', label: 'GNSS-UDP' },
+        { id: 'instance-zima-1', label: 'Zima2R #1', schemaId: 'zima2r' },
+        { id: 'instance-gnss-1', label: 'GNSS-UDP #1', schemaId: 'gnss-udp' },
       ]}
     />,
   );
@@ -91,6 +91,15 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
     expect(getBeaconIdInput()).toBeEnabled();
   });
 
+  it('enables beacon id input for zima instance source id', async () => {
+    await renderDialog({
+      isZimaAssignedInProfile: true,
+      diver: buildDiver('instance-zima-1'),
+    });
+
+    expect(getBeaconIdInput()).toBeEnabled();
+  });
+
   it('disables beacon id input for non-zima source even with assigned zima profile', async () => {
     await renderDialog({
       isZimaAssignedInProfile: true,
@@ -116,8 +125,8 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
         onReset={vi.fn()}
         onResetDivers={vi.fn()}
         navigationSourceOptions={[
-          { id: 'zima2r', label: 'Zima2R' },
-          { id: 'gnss-udp', label: 'GNSS-UDP' },
+          { id: 'instance-zima-1', label: 'Zima2R #1', schemaId: 'zima2r' },
+          { id: 'instance-gnss-1', label: 'GNSS-UDP #1', schemaId: 'gnss-udp' },
         ]}
       />,
     );
@@ -161,8 +170,8 @@ describe('SettingsDialog theme toggle (T-90)', () => {
       onReset: vi.fn(),
       onResetDivers: vi.fn(),
       navigationSourceOptions: [
-        { id: 'zima2r' as const, label: 'Zima2R' },
-        { id: 'gnss-udp' as const, label: 'GNSS-UDP' },
+        { id: 'instance-zima-1', label: 'Zima2R #1', schemaId: 'zima2r' },
+        { id: 'instance-gnss-1', label: 'GNSS-UDP #1', schemaId: 'gnss-udp' },
       ],
     };
 

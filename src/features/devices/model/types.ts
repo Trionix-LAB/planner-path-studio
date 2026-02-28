@@ -1,4 +1,4 @@
-export const EQUIPMENT_SETTINGS_SCHEMA_VERSION = 2 as const;
+export const EQUIPMENT_SETTINGS_SCHEMA_VERSION = 3 as const;
 export const EQUIPMENT_SETTINGS_STORAGE_KEY = 'planner.equipmentSettings.v1';
 export const EQUIPMENT_RUNTIME_STORAGE_KEY = 'planner.equipmentRuntime.v1';
 export const DEVICE_CHANGED_EVENT = 'device:changed';
@@ -38,26 +38,35 @@ export type DeviceSchema = {
 
 export type DeviceConfig = Record<string, string | number | boolean>;
 
+export type DeviceInstance = {
+  id: string;
+  schema_id: string;
+  name?: string;
+  config: DeviceConfig;
+  is_primary?: boolean;
+};
+
 export type EquipmentProfile = {
   id: string;
   name: string;
-  device_ids: string[];
+  device_instance_ids: string[];
 };
 
-export type EquipmentSettingsV2 = {
+export type EquipmentSettingsV3 = {
   schema_version: typeof EQUIPMENT_SETTINGS_SCHEMA_VERSION;
   selected_profile_id: string;
-  selected_device_id: string;
+  selected_device_instance_id: string;
   profiles: EquipmentProfile[];
-  devices: Record<string, DeviceConfig>;
+  device_instances: Record<string, DeviceInstance>;
 };
 
-export type EquipmentRuntimeV2 = {
-  schema_version: 2;
+export type EquipmentRuntimeV3 = {
+  schema_version: 3;
   active_profile: {
     id: string;
     name: string;
     device_ids: string[];
+    device_instance_ids: string[];
   } | null;
   zima?: {
     interface: 'udp';
@@ -70,18 +79,22 @@ export type EquipmentRuntimeV2 = {
     latitude: number | null;
     longitude: number | null;
     azimuth: number | null;
+    instance_id: string;
+    instance_name: string | null;
   };
   gnss_udp?: {
     interface: 'udp';
     protocol: 'nmea0183';
     ipAddress: string;
     dataPort: number;
+    instance_id: string;
+    instance_name: string | null;
   };
 };
 
 export type DeviceChangedPayload = {
-  settings: EquipmentSettingsV2;
-  runtime: EquipmentRuntimeV2;
+  settings: EquipmentSettingsV3;
+  runtime: EquipmentRuntimeV3;
 };
 
 export type DeviceValidationIssue = {
@@ -92,4 +105,6 @@ export type DeviceValidationIssue = {
   fieldLabel: string;
   message: string;
   summary: string;
+  instanceId?: string;
+  instanceName?: string;
 };

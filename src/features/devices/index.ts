@@ -25,9 +25,10 @@ export {
   type DeviceConfig,
   type DeviceFieldSchema,
   type DeviceInputForm,
+  type DeviceInstance,
   type DeviceSchema,
   type DeviceValidationIssue,
   type EquipmentProfile,
-  type EquipmentRuntimeV2,
-  type EquipmentSettingsV2,
+  type EquipmentRuntimeV3,
+  type EquipmentSettingsV3,
 } from './model/types';

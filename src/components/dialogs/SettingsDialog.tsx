@@ -57,6 +57,7 @@ interface SettingsDialogProps {
   navigationSourceOptions?: Array<{
     id: NavigationSourceId;
     label: string;
+    schemaId?: string | null;
   }>;
   onToggleEquipment?: (id: string, enabled: boolean) => Promise<void> | void;
   onOpenEquipment?: () => Promise<void> | void;
@@ -94,6 +95,13 @@ const SettingsDialog = ({
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [themeDraft, setThemeDraft] = useState<AppTheme>(() => readStoredAppTheme());
+  const navigationSourceSchemaById = useMemo(
+    () =>
+      new Map(
+        navigationSourceOptions.map((option) => [option.id, option.schemaId ?? option.id]),
+      ),
+    [navigationSourceOptions],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -145,7 +153,7 @@ const SettingsDialog = ({
         marker_color: '#0ea5e9',
         marker_size_px: DIVER_MARKER_SIZE_DEFAULT_PX,
         track_color: '#a855f7',
-        navigation_source: navigationSourceOptions[0]?.id ?? 'zima2r',
+        navigation_source: navigationSourceOptions[0]?.id ?? 'simulation',
       },
     ]);
   };
@@ -706,8 +714,13 @@ const SettingsDialog = ({
 
                 <div className="space-y-3">
                   {diversDraft.map((diver, index) => {
+                    const selectedSourceSchemaId =
+                      navigationSourceSchemaById.get(diver.navigation_source) ??
+                      (diver.navigation_source === 'zima2r' || diver.navigation_source === 'gnss-udp'
+                        ? diver.navigation_source
+                        : null);
                     const isBeaconIdEnabled =
-                      isZimaAssignedInProfile && diver.navigation_source === 'zima2r';
+                      isZimaAssignedInProfile && selectedSourceSchemaId === 'zima2r';
                     return (
                       <div key={diver.uid} className="border border-border rounded-md p-3 space-y-3">
                         <div className="flex items-center justify-between">
@@ -773,7 +786,7 @@ const SettingsDialog = ({
                           {!isBeaconIdEnabled && (
                             <div className="text-xs text-muted-foreground">
                               ID маяка доступен только при назначенном оборудовании Zima2R и выбранном
-                              источнике zima2r.
+                              источнике Zima2R.
                             </div>
                           )}
                         </div>
