@@ -39,6 +39,17 @@ const CHANNELS = {
       error: 'planner:gnss:error',
     },
   },
+  gnssCom: {
+    start: 'planner:gnssCom:start',
+    stop: 'planner:gnssCom:stop',
+    status: 'planner:gnssCom:status',
+    listPorts: 'planner:gnssCom:listPorts',
+    events: {
+      data: 'planner:gnssCom:data',
+      status: 'planner:gnssCom:statusChanged',
+      error: 'planner:gnssCom:error',
+    },
+  },
 };
 const FILE_STORE_ROOT_DIR = 'planner.fs';
 
@@ -53,6 +64,15 @@ const DEFAULT_GNSS_CONFIG = {
   ipAddress: '127.0.0.1',
   dataPort: 28128,
 };
+
+const DEFAULT_GNSS_COM_CONFIG = {
+  autoDetectPort: true,
+  comPort: '',
+  baudRate: 115200,
+  scanTimeoutMs: 1500,
+};
+
+const GNSS_COM_SIM_REGISTRY_PATH = '/tmp/planner-gnss-com-sim.json';
 
 const normalizeInputPath = (value) => {
   if (typeof value !== 'string') throw new Error('Invalid path');
@@ -143,6 +163,17 @@ const normalizeBoolean = (value, fallback) => {
   return fallback;
 };
 
+const normalizeText = (value, fallback = '') => {
+  if (typeof value !== 'string') return fallback;
+  return value.trim();
+};
+
+const normalizePositiveInt = (value, fallback, max = Number.MAX_SAFE_INTEGER) => {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > max) return fallback;
+  return n;
+};
+
 const normalizeZimaConfig = (input) => {
   const source = input && typeof input === 'object' ? input : {};
   return {
@@ -159,6 +190,177 @@ const normalizeGnssConfig = (input) => {
     ipAddress: normalizeHost(source.ipAddress, DEFAULT_GNSS_CONFIG.ipAddress),
     dataPort: clampPort(source.dataPort, DEFAULT_GNSS_CONFIG.dataPort),
   };
+};
+
+const normalizeGnssComConfig = (input) => {
+  const source = input && typeof input === 'object' ? input : {};
+  return {
+    autoDetectPort: normalizeBoolean(source.autoDetectPort, DEFAULT_GNSS_COM_CONFIG.autoDetectPort),
+    comPort: normalizeText(source.comPort, DEFAULT_GNSS_COM_CONFIG.comPort),
+    baudRate: normalizePositiveInt(source.baudRate, DEFAULT_GNSS_COM_CONFIG.baudRate, 4_000_000),
+    scanTimeoutMs: normalizePositiveInt(source.scanTimeoutMs, DEFAULT_GNSS_COM_CONFIG.scanTimeoutMs, 10_000),
+  };
+};
+
+const normalizeComPortNumber = (value) => {
+  const text = normalizeText(value, '');
+  if (!/^\d+$/.test(text)) return null;
+  const portNumber = Number(text);
+  if (!Number.isInteger(portNumber) || portNumber < 1) return null;
+  return portNumber;
+};
+
+const extractComPortNumberFromPath = (portPath) => {
+  const normalizedPath = normalizeText(portPath, '');
+  if (!normalizedPath) return null;
+
+  const winMatch = /com\s*(\d+)$/i.exec(normalizedPath);
+  if (winMatch?.[1]) {
+    return normalizeComPortNumber(winMatch[1]);
+  }
+
+  const trailingDigitsMatch = /(\d+)\s*$/.exec(normalizedPath);
+  if (trailingDigitsMatch?.[1]) {
+    return normalizeComPortNumber(trailingDigitsMatch[1]);
+  }
+
+  return null;
+};
+
+let serialPortCtorCached = undefined;
+
+const getSerialPortCtor = () => {
+  if (serialPortCtorCached !== undefined) {
+    return serialPortCtorCached;
+  }
+  try {
+    const moduleValue = require('serialport');
+    if (moduleValue && typeof moduleValue === 'object') {
+      if (typeof moduleValue.SerialPort === 'function') {
+        serialPortCtorCached = moduleValue.SerialPort;
+        return serialPortCtorCached;
+      }
+      if (typeof moduleValue.default === 'function') {
+        serialPortCtorCached = moduleValue.default;
+        return serialPortCtorCached;
+      }
+    }
+    if (typeof moduleValue === 'function') {
+      serialPortCtorCached = moduleValue;
+      return serialPortCtorCached;
+    }
+  } catch {
+    // serialport is optional at runtime; bridge will emit clear error when absent.
+  }
+  serialPortCtorCached = null;
+  return null;
+};
+
+const listSerialPorts = async () => {
+  const SerialPortCtor = getSerialPortCtor();
+  const hardwarePorts = (() => {
+    if (!SerialPortCtor || typeof SerialPortCtor.list !== 'function') {
+      return Promise.resolve([]);
+    }
+    return SerialPortCtor.list()
+      .then((ports) => {
+        if (!Array.isArray(ports)) return [];
+        return ports
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object') return null;
+            const pathValue = normalizeText(entry.path, '');
+            if (!pathValue) return null;
+            return {
+              path: pathValue,
+              manufacturer: normalizeText(entry.manufacturer, ''),
+              serialNumber: normalizeText(entry.serialNumber, ''),
+              pnpId: normalizeText(entry.pnpId, ''),
+              vendorId: normalizeText(entry.vendorId, ''),
+              productId: normalizeText(entry.productId, ''),
+            };
+          })
+          .filter((entry) => entry !== null);
+      })
+      .catch(() => []);
+  })();
+
+  const simulatorRegistryPorts = (async () => {
+    try {
+      const raw = await fs.readFile(GNSS_COM_SIM_REGISTRY_PATH, 'utf8');
+      const parsed = JSON.parse(raw);
+      const appPortPath = normalizeText(parsed?.appPortPath, '');
+      if (!appPortPath) return [];
+      return [
+        {
+          path: appPortPath,
+          manufacturer: 'Planner GNSS-COM Simulator',
+          serialNumber: '',
+          pnpId: '',
+          vendorId: '',
+          productId: '',
+        },
+      ];
+    } catch {
+      return [];
+    }
+  })();
+
+  const simulatorTmpPorts = (async () => {
+    try {
+      const entries = await fs.readdir('/tmp', { withFileTypes: true });
+      const candidates = entries
+        .map((entry) => entry.name)
+        .filter((name) => name.startsWith('gnss-com') && !name.endsWith('.sim'))
+        .map((name) => `/tmp/${name}`);
+      if (candidates.length === 0) return [];
+
+      const valid = (
+        await Promise.all(
+          candidates.map(async (candidate) => {
+            try {
+              await fs.access(candidate);
+              return candidate;
+            } catch {
+              return '';
+            }
+          }),
+        )
+      ).filter((candidate) => candidate.length > 0);
+
+      return valid.map((candidate) => ({
+        path: candidate,
+        manufacturer: 'Planner GNSS-COM Simulator',
+        serialNumber: '',
+        pnpId: '',
+        vendorId: '',
+        productId: '',
+      }));
+    } catch {
+      return [];
+    }
+  })();
+
+  const [hardware, registry, tmpPorts] = await Promise.all([
+    hardwarePorts,
+    simulatorRegistryPorts,
+    simulatorTmpPorts,
+  ]);
+
+  const merged = [...registry, ...tmpPorts, ...hardware];
+  const seenPaths = new Set();
+  return merged.filter((entry) => {
+    const pathValue = normalizeText(entry?.path, '');
+    if (!pathValue || seenPaths.has(pathValue)) return false;
+    seenPaths.add(pathValue);
+    return true;
+  });
+};
+
+const looksLikeNmeaLine = (line) => {
+  if (typeof line !== 'string') return false;
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('$')) return false;
+  return /^\$[A-Z0-9]{5},/.test(trimmed);
 };
 
 const emitToRenderer = (channel, payload) => {
@@ -360,6 +562,266 @@ const createGnssUdpBridge = () => {
   };
 };
 
+const openSerialPort = async (portPath, baudRate) => {
+  const SerialPortCtor = getSerialPortCtor();
+  if (!SerialPortCtor) {
+    throw new Error('Модуль serialport не установлен');
+  }
+
+  const port = new SerialPortCtor({
+    path: portPath,
+    baudRate,
+    autoOpen: false,
+  });
+
+  await new Promise((resolve, reject) => {
+    port.open((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+
+  return port;
+};
+
+const closeSerialPort = async (port) => {
+  if (!port) return;
+  await new Promise((resolve) => {
+    try {
+      if (!port.isOpen) {
+        resolve();
+        return;
+      }
+      port.close(() => resolve());
+    } catch {
+      resolve();
+    }
+  });
+};
+
+const createGnssComBridge = () => {
+  let serialPort = null;
+  let status = 'stopped';
+  let config = { ...DEFAULT_GNSS_COM_CONFIG };
+  let activePortPath = '';
+
+  const emitStatus = (nextStatus) => {
+    if (status === nextStatus) return;
+    status = nextStatus;
+    emitToRenderer(CHANNELS.gnssCom.events.status, {
+      status,
+      config: { ...config, comPort: activePortPath || config.comPort },
+    });
+  };
+
+  const emitError = (message) => {
+    emitToRenderer(CHANNELS.gnssCom.events.error, {
+      message,
+      status,
+      config: { ...config, comPort: activePortPath || config.comPort },
+    });
+  };
+
+  const stop = async () => {
+    const current = serialPort;
+    serialPort = null;
+    activePortPath = '';
+    await closeSerialPort(current);
+    emitStatus('stopped');
+    return { status, config };
+  };
+
+  const hasNmeaOnPort = async (portPath, baudRate, timeoutMs) => {
+    let probePort = null;
+    let probeBuffer = '';
+    try {
+      probePort = await openSerialPort(portPath, baudRate);
+      return await new Promise((resolve) => {
+        let finished = false;
+        const finish = async (result) => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(timerId);
+          probePort.removeListener('data', onData);
+          probePort.removeListener('error', onError);
+          await closeSerialPort(probePort);
+          resolve(result);
+        };
+        const onData = (chunk) => {
+          const message = Buffer.from(chunk).toString('ascii');
+          if (!message) return;
+          probeBuffer += message;
+          const { lines, rest } = (() => {
+            const parts = probeBuffer.split(/\r?\n/);
+            const ready = parts.slice(0, -1).map((line) => line.trim()).filter((line) => line.length > 0);
+            const remain = parts[parts.length - 1] ?? '';
+            return { lines: ready, rest: remain };
+          })();
+          probeBuffer = rest.slice(-2048);
+
+          for (const line of lines) {
+            if (looksLikeNmeaLine(line)) {
+              void finish(true);
+              return;
+            }
+          }
+
+          const tail = probeBuffer.trim();
+          if (tail.length > 6 && looksLikeNmeaLine(tail)) {
+            void finish(true);
+          }
+        };
+        const onError = () => {
+          void finish(false);
+        };
+        const timerId = setTimeout(() => {
+          void finish(false);
+        }, timeoutMs);
+        probePort.on('data', onData);
+        probePort.on('error', onError);
+      });
+    } catch {
+      await closeSerialPort(probePort);
+      return false;
+    }
+  };
+
+  const resolvePortPath = async (nextConfig) => {
+    const manualPortRaw = normalizeText(nextConfig.comPort, '');
+    const manualPortNumber = normalizeComPortNumber(manualPortRaw);
+    const ports = await listSerialPorts();
+
+    const resolveManualPathByNumber = (portNumber) => {
+      const exactWinPath = `COM${portNumber}`;
+      const exactWinMatch = ports.find((entry) => normalizeText(entry.path, '').toUpperCase() === exactWinPath);
+      if (exactWinMatch) {
+        return normalizeText(exactWinMatch.path, '');
+      }
+
+      const byTrailingNumber = ports.find(
+        (entry) => extractComPortNumberFromPath(entry.path) === portNumber,
+      );
+      if (byTrailingNumber) {
+        return normalizeText(byTrailingNumber.path, '');
+      }
+
+      // On Windows allow direct COM path even if SerialPort.list() temporarily returned empty.
+      if (process.platform === 'win32') {
+        return exactWinPath;
+      }
+      return '';
+    };
+
+    if (!nextConfig.autoDetectPort) {
+      if (!manualPortRaw) {
+        throw new Error('Не выбран COM-порт');
+      }
+      if (manualPortNumber === null) {
+        return manualPortRaw;
+      }
+      const resolvedByNumber = resolveManualPathByNumber(manualPortNumber);
+      if (!resolvedByNumber) {
+        throw new Error(`COM-порт ${manualPortNumber} не найден среди доступных`);
+      }
+      return resolvedByNumber;
+    }
+
+    const candidates = [];
+    const seenPaths = new Set();
+    if (manualPortNumber !== null) {
+      const preferredPath = resolveManualPathByNumber(manualPortNumber);
+      if (preferredPath) {
+        candidates.push({ path: preferredPath });
+        seenPaths.add(preferredPath);
+      }
+    } else if (manualPortRaw.length > 0) {
+      candidates.push({ path: manualPortRaw });
+      seenPaths.add(manualPortRaw);
+    }
+    for (const entry of ports) {
+      const pathValue = normalizeText(entry.path, '');
+      if (!pathValue || seenPaths.has(pathValue)) continue;
+      seenPaths.add(pathValue);
+      candidates.push({ path: pathValue });
+    }
+
+    if (candidates.length === 0) {
+      throw new Error('Нет доступных COM-портов для автоопределения');
+    }
+
+    for (const entry of candidates) {
+      const pathValue = normalizeText(entry.path, '');
+      if (!pathValue) continue;
+      const hasNmea = await hasNmeaOnPort(pathValue, nextConfig.baudRate, nextConfig.scanTimeoutMs);
+      if (hasNmea) {
+        return pathValue;
+      }
+    }
+    throw new Error('Не найден COM-порт с потоком NMEA');
+  };
+
+  const start = async (input) => {
+    config = normalizeGnssComConfig(input);
+    await stop();
+
+    let openedPort = null;
+    try {
+      const resolvedPortPath = await resolvePortPath(config);
+      openedPort = await openSerialPort(resolvedPortPath, config.baudRate);
+      serialPort = openedPort;
+      activePortPath = resolvedPortPath;
+
+      openedPort.on('data', (chunk) => {
+        const message = Buffer.from(chunk).toString('ascii');
+        if (!message) return;
+        emitToRenderer(CHANNELS.gnssCom.events.data, {
+          message,
+          receivedAt: Date.now(),
+          portPath: activePortPath,
+        });
+      });
+
+      openedPort.on('error', (error) => {
+        emitStatus('error');
+        emitError(error instanceof Error ? error.message : String(error));
+      });
+
+      openedPort.on('close', () => {
+        if (serialPort === openedPort) {
+          serialPort = null;
+          activePortPath = '';
+          if (status === 'running') {
+            emitStatus('stopped');
+          }
+        }
+      });
+
+      emitStatus('running');
+      return { status, config: { ...config, comPort: resolvedPortPath } };
+    } catch (error) {
+      await closeSerialPort(openedPort);
+      serialPort = null;
+      activePortPath = '';
+      emitStatus('error');
+      const message = error instanceof Error ? error.message : String(error);
+      emitError(message);
+      throw error;
+    }
+  };
+
+  const getStatus = () => ({ status, config: { ...config, comPort: activePortPath || config.comPort } });
+
+  return {
+    start,
+    stop,
+    getStatus,
+    listPorts: listSerialPorts,
+  };
+};
+
 const createMainWindow = async () => {
   const win = new BrowserWindow({
     width: 1280,
@@ -396,6 +858,7 @@ const registerIpcHandlers = () => {
   const settingsPath = path.join(userDataPath, 'settings.json');
   const zimaBridge = createZimaUdpBridge();
   const gnssBridge = createGnssUdpBridge();
+  const gnssComBridge = createGnssComBridge();
 
   ipcMain.handle(CHANNELS.pickDirectory, async (_event, options) => {
     const title = options?.title;
@@ -536,6 +999,30 @@ const registerIpcHandlers = () => {
 
   ipcMain.handle(CHANNELS.gnss.status, async () => {
     return gnssBridge.getStatus();
+  });
+
+  ipcMain.handle(CHANNELS.gnssCom.start, async (_event, input) => {
+    return gnssComBridge.start(input);
+  });
+
+  ipcMain.handle(CHANNELS.gnssCom.stop, async () => {
+    return gnssComBridge.stop();
+  });
+
+  ipcMain.handle(CHANNELS.gnssCom.status, async () => {
+    return gnssComBridge.getStatus();
+  });
+
+  ipcMain.handle(CHANNELS.gnssCom.listPorts, async () => {
+    return gnssComBridge.listPorts();
+  });
+
+  app.on('before-quit', () => {
+    void Promise.allSettled([
+      zimaBridge.stop(),
+      gnssBridge.stop(),
+      gnssComBridge.stop(),
+    ]);
   });
 };
 

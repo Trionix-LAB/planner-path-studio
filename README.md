@@ -171,9 +171,37 @@ npm run gnss:sim -- --mode playback --replay ./path/to/scenario.yaml --to 127.0.
 
 📖 **Documentation:** [docs/features/gnss-udp-simulator.md](docs/features/gnss-udp-simulator.md)
 
+### GNSS-COM Simulator (NMEA 0183 over Serial)
+
+Simulates GNSS compass over serial port (COM/TTY) for `gnss-com` integration testing.
+
+**Linux/macOS (auto virtual pair via `socat`):**
+```sh
+npm run gnss-com:sim
+```
+
+After start, simulator prints:
+- `appPortPath` — set this exact value in Equipment -> `GNSS-COM` -> `COM-порт`
+- `simulatorPortPath` — internal side used by simulator
+
+**Windows (manual virtual COM pair):**
+1. Install a virtual COM pair driver, e.g. `com0com`.
+2. Create a pair (example: `COM11 <-> COM12`).
+3. Start simulator on one side:
+```sh
+npm run gnss-com:sim -- --virtual false --port COM12 --baud 115200 --rate 2
+```
+4. In app set `GNSS-COM -> COM-порт` to `COM11`.
+
+**Requirements:**
+- Linux/macOS auto mode: `socat` must be installed and available in `PATH`.
+- Windows: virtual COM pair tool (`com0com` or equivalent) and an existing paired COM ports.
+
+📖 **Documentation:** [docs/features/gnss-com-simulator.md](docs/features/gnss-com-simulator.md)
+
 ### CI Integration
 
-Both simulators can be used in CI pipelines:
+All simulators can be used in CI pipelines:
 - Deterministic playback scenarios for reproducible tests
 - Automated integration testing without hardware
 - Protocol compliance validation

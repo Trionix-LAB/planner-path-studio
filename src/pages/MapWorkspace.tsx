@@ -28,6 +28,7 @@ import {
   loadDraftSession,
   computeRealtimeVisibilityState,
   countZoneLanes,
+  createElectronGnssComTelemetryProvider,
   createElectronGnssTelemetryProvider,
   createElectronZimaTelemetryProvider,
   createDefaultDivers,
@@ -193,6 +194,13 @@ type ElectronGnssTelemetryConfig = {
   dataPort: number;
 };
 
+type ElectronGnssComTelemetryConfig = {
+  autoDetectPort: boolean;
+  comPort: string;
+  baudRate: number;
+  navigationSourceId: string;
+};
+
 type DiverTelemetryState = {
   lat: number;
   lon: number;
@@ -203,7 +211,8 @@ type DiverTelemetryState = {
   received_at: number;
 };
 
-type ProviderSourceId = 'zima2r' | 'gnss-udp' | 'simulation';
+type ProviderSourceId = 'zima2r' | 'gnss-udp' | 'gnss-com' | 'simulation';
+type DeviceProviderSourceId = Exclude<ProviderSourceId, 'simulation'>;
 
 type EquipmentNavigationSourceOption = {
   id: NavigationSourceId;
@@ -217,6 +226,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const normalizePort = (value: unknown, fallback: number): number => {
   const n = Number(value);
   if (!Number.isInteger(n) || n < 1 || n > 65535) return fallback;
+  return n;
+};
+
+const normalizePositiveInt = (value: unknown, fallback: number, max: number): number => {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > max) return fallback;
   return n;
 };
 
@@ -260,6 +275,19 @@ const normalizeGnssTelemetryConfig = (raw: unknown): ElectronGnssTelemetryConfig
   return {
     ipAddress: ipAddressRaw || '127.0.0.1',
     dataPort: normalizePort(raw.dataPort, 28128),
+  };
+};
+
+const normalizeGnssComTelemetryConfig = (raw: unknown): ElectronGnssComTelemetryConfig | null => {
+  if (!isRecord(raw)) return null;
+
+  const comPort = typeof raw.comPort === 'string' ? raw.comPort.trim() : '';
+  const instanceIdRaw = typeof raw.instance_id === 'string' ? raw.instance_id.trim() : '';
+  return {
+    autoDetectPort: normalizeBoolean(raw.autoDetectPort, true),
+    comPort,
+    baudRate: normalizePositiveInt(raw.baudRate, 115200, 4_000_000),
+    navigationSourceId: instanceIdRaw || 'gnss-com',
   };
 };
 
@@ -362,6 +390,20 @@ const MapWorkspace = () => {
     const runtime = buildEquipmentRuntime(normalizedSettings, deviceSchemas);
     return normalizeGnssTelemetryConfig(runtime.gnss_udp);
   }, [deviceSchemas]);
+  const readElectronGnssComConfig = useCallback(async (): Promise<ElectronGnssComTelemetryConfig | null> => {
+    const runtimeRaw = await platform.settings.readJson<unknown>(EQUIPMENT_RUNTIME_STORAGE_KEY);
+    if (isRecord(runtimeRaw)) {
+      const runtimeConfig = normalizeGnssComTelemetryConfig(runtimeRaw.gnss_com);
+      if (runtimeConfig) {
+        return runtimeConfig;
+      }
+    }
+
+    const settingsRaw = await platform.settings.readJson<unknown>(EQUIPMENT_SETTINGS_STORAGE_KEY);
+    const normalizedSettings = normalizeEquipmentSettings(settingsRaw, deviceSchemas);
+    const runtime = buildEquipmentRuntime(normalizedSettings, deviceSchemas);
+    return normalizeGnssComTelemetryConfig(runtime.gnss_com);
+  }, [deviceSchemas]);
 
   const zimaTelemetryProvider = useMemo(
     () =>
@@ -378,6 +420,14 @@ const MapWorkspace = () => {
         readConfig: readElectronGnssConfig,
       }),
     [readElectronGnssConfig],
+  );
+  const gnssComTelemetryProvider = useMemo(
+    () =>
+      createElectronGnssComTelemetryProvider({
+        timeoutMs: CONNECTION_TIMEOUT_MS,
+        readConfig: readElectronGnssComConfig,
+      }),
+    [readElectronGnssComConfig],
   );
   const simulationTelemetryProvider = useMemo(
     () => createSimulationTelemetryProvider({ timeoutMs: CONNECTION_TIMEOUT_MS }),
@@ -445,14 +495,16 @@ const MapWorkspace = () => {
   const [shouldAutoStartRecording, setShouldAutoStartRecording] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<TelemetryConnectionState>('timeout');
   const [connectionLostSeconds, setConnectionLostSeconds] = useState(1);
-  const [deviceConnectionStatus, setDeviceConnectionStatus] = useState<Record<'zima2r' | 'gnss-udp', TelemetryConnectionState>>({
+  const [deviceConnectionStatus, setDeviceConnectionStatus] = useState<Record<DeviceProviderSourceId, TelemetryConnectionState>>({
     zima2r: 'timeout',
     'gnss-udp': 'timeout',
+    'gnss-com': 'timeout',
   });
   const [simulationConnectionStatus, setSimulationConnectionStatus] = useState<TelemetryConnectionState>('timeout');
-  const [deviceConnectionLostSeconds, setDeviceConnectionLostSeconds] = useState<Record<'zima2r' | 'gnss-udp', number>>({
+  const [deviceConnectionLostSeconds, setDeviceConnectionLostSeconds] = useState<Record<DeviceProviderSourceId, number>>({
     zima2r: 1,
     'gnss-udp': 1,
+    'gnss-com': 1,
   });
   const [recordingState, setRecordingState] = useState<TrackRecorderState>(() =>
     createTrackRecorderState(null, {}, {}),
@@ -471,16 +523,19 @@ const MapWorkspace = () => {
   const lastFixAtBySourceRef = useRef<Record<ProviderSourceId, number>>({
     zima2r: Date.now(),
     'gnss-udp': Date.now(),
+    'gnss-com': Date.now(),
     simulation: Date.now(),
   });
   const hadFixBySourceRef = useRef<Record<ProviderSourceId, boolean>>({
     zima2r: false,
     'gnss-udp': false,
+    'gnss-com': false,
     simulation: false,
   });
   const zimaAzmLocFixRef = useRef<DiverTelemetryState | null>(null);
   const zimaRemFixByBeaconRef = useRef<Record<string, DiverTelemetryState>>({});
   const gnssFixRef = useRef<DiverTelemetryState | null>(null);
+  const gnssComFixRef = useRef<DiverTelemetryState | null>(null);
   const simulationFixRef = useRef<DiverTelemetryState | null>(null);
   const lastRecordedPrimaryFixAtRef = useRef<number>(0);
   const lastRecordedFixByAgentRef = useRef<Record<string, number>>({});
@@ -614,8 +669,8 @@ const MapWorkspace = () => {
       if (sourceId === 'simulation') return 'simulation';
       const schemaId =
         navigationSourceSchemaById.get(sourceId) ??
-        (sourceId === 'zima2r' || sourceId === 'gnss-udp' ? sourceId : null);
-      if (schemaId === 'zima2r' || schemaId === 'gnss-udp') return schemaId;
+        (sourceId === 'zima2r' || sourceId === 'gnss-udp' || sourceId === 'gnss-com' ? sourceId : null);
+      if (schemaId === 'zima2r' || schemaId === 'gnss-udp' || schemaId === 'gnss-com') return schemaId;
       return null;
     },
     [navigationSourceSchemaById],
@@ -626,7 +681,7 @@ const MapWorkspace = () => {
       if (!sourceId) return null;
       if (availableNavigationSources.includes(sourceId)) return sourceId;
 
-      if (sourceId === 'zima2r' || sourceId === 'gnss-udp') {
+      if (sourceId === 'zima2r' || sourceId === 'gnss-udp' || sourceId === 'gnss-com') {
         const instanceSource = navigationSourceOptions.find((option) => option.schemaId === sourceId)?.id;
         return instanceSource ?? null;
       }
@@ -948,10 +1003,11 @@ const MapWorkspace = () => {
     setHasPrimaryTelemetry(false);
     setHasPrimaryTelemetryHistory(false);
     setDiverTelemetryById({});
-    hadFixBySourceRef.current = { zima2r: false, 'gnss-udp': false, simulation: false };
+    hadFixBySourceRef.current = { zima2r: false, 'gnss-udp': false, 'gnss-com': false, simulation: false };
     zimaAzmLocFixRef.current = null;
     zimaRemFixByBeaconRef.current = {};
     gnssFixRef.current = null;
+    gnssComFixRef.current = null;
     simulationFixRef.current = null;
     lastRecordedPrimaryFixAtRef.current = 0;
     lastRecordedFixByAgentRef.current = {};
@@ -1220,6 +1276,8 @@ const MapWorkspace = () => {
 
       if (providerSource === 'gnss-udp') {
         telemetry = gnssFixRef.current;
+      } else if (providerSource === 'gnss-com') {
+        telemetry = gnssComFixRef.current;
       } else if (providerSource === 'simulation') {
         telemetry = simulationFixRef.current;
       } else {
@@ -1255,6 +1313,8 @@ const MapWorkspace = () => {
         ? zimaAzmLocFixRef.current
         : primaryProviderSource === 'gnss-udp'
           ? gnssFixRef.current
+          : primaryProviderSource === 'gnss-com'
+            ? gnssComFixRef.current
           : primaryProviderSource === 'simulation'
             ? simulationFixRef.current
             : null;
@@ -1306,6 +1366,7 @@ const MapWorkspace = () => {
     const providerSource = resolveProviderSource(sourceId);
     if (providerSource === 'zima2r') return zimaAzmLocFixRef.current;
     if (providerSource === 'gnss-udp') return gnssFixRef.current;
+    if (providerSource === 'gnss-com') return gnssComFixRef.current;
     if (providerSource === 'simulation') return simulationFixRef.current;
     return null;
   }, [resolveProviderSource]);
@@ -1379,6 +1440,8 @@ const MapWorkspace = () => {
         }
       } else if (sourceId === 'gnss-udp') {
         gnssFixRef.current = telemetryState;
+      } else if (sourceId === 'gnss-com') {
+        gnssComFixRef.current = telemetryState;
       } else {
         simulationFixRef.current = telemetryState;
       }
@@ -1405,7 +1468,7 @@ const MapWorkspace = () => {
 
   const handleDeviceConnectionState = useCallback(
     (sourceId: ProviderSourceId, nextState: TelemetryConnectionState) => {
-      if (sourceId === 'zima2r' || sourceId === 'gnss-udp') {
+      if (sourceId === 'zima2r' || sourceId === 'gnss-udp' || sourceId === 'gnss-com') {
         setDeviceConnectionStatus((prev) => ({ ...prev, [sourceId]: nextState }));
       } else {
         setSimulationConnectionStatus(nextState);
@@ -1424,7 +1487,9 @@ const MapWorkspace = () => {
     setHasPrimaryTelemetryHistory(Boolean(primaryProviderSource && hadFixBySourceRef.current[primaryProviderSource]));
 
     const nextStatus =
-      primaryProviderSource === 'zima2r' || primaryProviderSource === 'gnss-udp'
+      primaryProviderSource === 'zima2r' ||
+      primaryProviderSource === 'gnss-udp' ||
+      primaryProviderSource === 'gnss-com'
         ? deviceConnectionStatus[primaryProviderSource]
         : primaryProviderSource === 'simulation'
           ? simulationConnectionStatus
@@ -1464,16 +1529,24 @@ const MapWorkspace = () => {
       const unsubscribeGnssConnection = gnssTelemetryProvider.onConnectionState((state) =>
         handleDeviceConnectionState('gnss-udp', state),
       );
+      const unsubscribeGnssComFix = gnssComTelemetryProvider.onFix((fix) => handleTelemetryFix('gnss-com', fix));
+      const unsubscribeGnssComConnection = gnssComTelemetryProvider.onConnectionState((state) =>
+        handleDeviceConnectionState('gnss-com', state),
+      );
       zimaTelemetryProvider.start();
       gnssTelemetryProvider.start();
+      gnssComTelemetryProvider.start();
 
       return () => {
         unsubscribeZimaFix();
         unsubscribeZimaConnection();
         unsubscribeGnssFix();
         unsubscribeGnssConnection();
+        unsubscribeGnssComFix();
+        unsubscribeGnssComConnection();
         zimaTelemetryProvider.stop();
         gnssTelemetryProvider.stop();
+        gnssComTelemetryProvider.stop();
       };
     }
 
@@ -1488,6 +1561,7 @@ const MapWorkspace = () => {
       simulationTelemetryProvider.stop();
     };
   }, [
+    gnssComTelemetryProvider,
     gnssTelemetryProvider,
     handleDeviceConnectionState,
     handleTelemetryFix,
@@ -1504,13 +1578,18 @@ const MapWorkspace = () => {
       const gnssEnabled = navigationSourceOptions.some(
         (option) => option.schemaId === 'gnss-udp' && Boolean(equipmentEnabledBySource[option.id]),
       );
+      const gnssComEnabled = navigationSourceOptions.some(
+        (option) => option.schemaId === 'gnss-com' && Boolean(equipmentEnabledBySource[option.id]),
+      );
       zimaTelemetryProvider.setEnabled(zimaEnabled);
       gnssTelemetryProvider.setEnabled(gnssEnabled);
+      gnssComTelemetryProvider.setEnabled(gnssComEnabled);
       return;
     }
     simulationTelemetryProvider.setEnabled(simulationEnabled);
   }, [
     equipmentEnabledBySource,
+    gnssComTelemetryProvider,
     gnssTelemetryProvider,
     isElectronRuntime,
     navigationSourceOptions,
@@ -1557,6 +1636,10 @@ const MapWorkspace = () => {
           deviceConnectionStatus['gnss-udp'] === 'ok'
             ? 0
             : Math.max(1, Math.floor((Date.now() - lastFixAtBySourceRef.current['gnss-udp']) / 1000)),
+        'gnss-com':
+          deviceConnectionStatus['gnss-com'] === 'ok'
+            ? 0
+            : Math.max(1, Math.floor((Date.now() - lastFixAtBySourceRef.current['gnss-com']) / 1000)),
       });
     }, 1000);
     return () => {
@@ -2352,11 +2435,15 @@ const MapWorkspace = () => {
                 const sourceSchemaId = sourceOption.schemaId;
                 const enabled = Boolean(equipmentEnabledBySource[sourceOption.id]);
                 const deviceState =
-                  sourceSchemaId === 'zima2r' || sourceSchemaId === 'gnss-udp'
+                  sourceSchemaId === 'zima2r' ||
+                  sourceSchemaId === 'gnss-udp' ||
+                  sourceSchemaId === 'gnss-com'
                     ? deviceConnectionStatus[sourceSchemaId]
                     : 'ok';
                 const lostSeconds =
-                  sourceSchemaId === 'zima2r' || sourceSchemaId === 'gnss-udp'
+                  sourceSchemaId === 'zima2r' ||
+                  sourceSchemaId === 'gnss-udp' ||
+                  sourceSchemaId === 'gnss-com'
                     ? deviceConnectionLostSeconds[sourceSchemaId]
                     : 0;
                 const statusText = enabled

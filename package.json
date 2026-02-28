@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "zima:sim": "node tools/zima-sim.cjs",
     "gnss:sim": "node tools/gnss-sim.cjs",
+    "gnss-com:sim": "node tools/gnss-com-sim.cjs",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
     "audit": "npm audit"
   },
@@ -68,6 +69,7 @@
     "react-resizable-panels": "^2.1.9",
     "react-router-dom": "^6.30.3",
     "recharts": "^2.15.4",
+    "serialport": "^12.0.0",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",

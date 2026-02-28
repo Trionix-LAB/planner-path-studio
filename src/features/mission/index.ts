@@ -19,6 +19,7 @@ export {
 } from './model/zoneLanes';
 export type { OutdatedZoneIds } from './model/zoneLanes';
 export {
+  createElectronGnssComTelemetryProvider,
   createElectronGnssTelemetryProvider,
   createElectronZimaTelemetryProvider,
   createNoopTelemetryProvider,

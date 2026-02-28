@@ -64,6 +64,19 @@ type ElectronApi = {
     onStatus: (listener: (payload: { status?: string }) => void) => () => void;
     onError: (listener: (payload: { message?: string }) => void) => () => void;
   };
+  gnssCom?: {
+    start: (config: {
+      autoDetectPort: boolean;
+      comPort: string;
+      baudRate: number;
+    }) => Promise<unknown>;
+    stop: () => Promise<unknown>;
+    status: () => Promise<unknown>;
+    listPorts: () => Promise<Array<{ path?: string } | string>>;
+    onData: (listener: (payload: { message?: string; receivedAt?: number; portPath?: string }) => void) => () => void;
+    onStatus: (listener: (payload: { status?: string }) => void) => () => void;
+    onError: (listener: (payload: { message?: string }) => void) => () => void;
+  };
 };
 
 const getApi = (): ElectronApi | null => {
