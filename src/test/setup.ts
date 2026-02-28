@@ -34,3 +34,24 @@ if (!HTMLElement.prototype.releasePointerCapture) {
     value: () => {},
   });
 }
+
+if (!HTMLElement.prototype.scrollIntoView) {
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: () => {},
+  });
+}
+
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  class ResizeObserverMock implements ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    writable: true,
+    value: ResizeObserverMock,
+  });
+}

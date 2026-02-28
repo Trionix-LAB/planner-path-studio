@@ -699,6 +699,15 @@ export const validateDeviceConfig = (schema: DeviceSchema, config: DeviceConfig)
 
     const rawValue = config[field.key];
     const value = rawValue ?? field.defaultValue;
+
+    // GNSS-COM manual mode requires selecting any non-empty real port name/path.
+    if (schema.id === 'gnss-com' && field.key === 'comPort') {
+      if (String(value ?? '').trim().length === 0) {
+        errors[field.key] = 'Выберите COM-порт';
+      }
+      continue;
+    }
+
     const validationError = validateFieldValue(field, value);
     if (validationError) {
       errors[field.key] = validationError;
@@ -795,6 +804,27 @@ export const buildEquipmentRuntime = (
         dataPort: parseIntWithFallback(gnssConfig.dataPort, defaultDataPort),
         instance_id: gnssInstance.id,
         instance_name: gnssInstance.name ?? null,
+      };
+    }
+  }
+
+  const gnssComInstance = pickPrimaryInstanceForSchema(activeProfile, settings, 'gnss-com');
+  if (gnssComInstance) {
+    const gnssComSchema = schemas.find((schema) => schema.id === 'gnss-com');
+    if (gnssComSchema) {
+      const gnssComConfig = gnssComInstance.config ?? {};
+      const defaultAutoDetectPort = readSchemaBooleanDefault(gnssComSchema, 'autoDetectPort', true);
+      const defaultComPort = String(readSchemaFieldDefault(gnssComSchema, 'comPort', '')).trim();
+      const defaultBaudRate = parseIntWithFallback(readSchemaFieldDefault(gnssComSchema, 'baudRate', 115200), 115200);
+
+      runtime.gnss_com = {
+        interface: 'serial',
+        protocol: 'nmea0183',
+        autoDetectPort: parseBooleanWithFallback(gnssComConfig.autoDetectPort, defaultAutoDetectPort),
+        comPort: String(gnssComConfig.comPort ?? defaultComPort).trim(),
+        baudRate: parseIntWithFallback(gnssComConfig.baudRate, defaultBaudRate),
+        instance_id: gnssComInstance.id,
+        instance_name: gnssComInstance.name ?? null,
       };
     }
   }

@@ -1,4 +1,5 @@
 import {
+  createElectronGnssComTelemetryProvider,
   createElectronGnssTelemetryProvider,
   createElectronZimaTelemetryProvider,
   createNoopTelemetryProvider,
@@ -107,9 +108,11 @@ const flushMicrotasks = async (turns = 8) => {
   }
 };
 
-const setElectronApi = (api: { zima?: MockZimaApi; gnss?: MockGnssApi } | undefined) => {
-  const target = window as unknown as { electronAPI?: { zima?: MockZimaApi; gnss?: MockGnssApi } };
-  if (!api || (!api.zima && !api.gnss)) {
+const setElectronApi = (api: { zima?: MockZimaApi; gnss?: MockGnssApi; gnssCom?: MockGnssApi } | undefined) => {
+  const target = window as unknown as {
+    electronAPI?: { zima?: MockZimaApi; gnss?: MockGnssApi; gnssCom?: MockGnssApi };
+  };
+  if (!api || (!api.zima && !api.gnss && !api.gnssCom)) {
     delete target.electronAPI;
     return;
   }
@@ -441,6 +444,54 @@ describe('electron gnss telemetry provider', () => {
     expect(payload.entity_type).toBe('base_station');
     expect(payload.entity_id).toBe('base-station');
     expect(payload.navigation_source_id).toBe('gnss-udp');
+
+    provider.stop();
+    await flushMicrotasks();
+    expect(api.stop).toHaveBeenCalledTimes(1);
+    setElectronApi(undefined);
+  });
+});
+
+describe('electron gnss-com telemetry provider', () => {
+  it('starts bridge and emits fix from RMC line with selected source id', async () => {
+    const api = createMockGnssApi();
+    setElectronApi({ gnssCom: api });
+
+    const provider = createElectronGnssComTelemetryProvider({
+      readConfig: async () => ({
+        autoDetectPort: true,
+        comPort: '',
+        baudRate: 115200,
+        navigationSourceId: 'device-gnss-com-1',
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    expect(api.start).toHaveBeenCalledTimes(1);
+    expect(api.start).toHaveBeenCalledWith({
+      autoDetectPort: true,
+      comPort: '',
+      baudRate: 115200,
+    });
+
+    api.emitData({
+      message: '$GPRMC,123519,A,5956.2500,N,03018.5160,E,1.94,84.4,230394,,*1B\r\n',
+      receivedAt: 1739318403000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(1);
+    const payload = onFix.mock.calls[0]?.[0];
+    expect(payload.source).toBe('GNSS');
+    expect(payload.navigation_source_id).toBe('device-gnss-com-1');
+    expect(payload.received_at).toBe(1739318403000);
+    expect(payload.lat).toBeCloseTo(59.9375, 5);
+    expect(payload.lon).toBeCloseTo(30.3086, 5);
 
     provider.stop();
     await flushMicrotasks();

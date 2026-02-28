@@ -1,6 +1,7 @@
 import type { DeviceConfig, DeviceFieldOption, DeviceFieldSchema, DeviceInputForm, DeviceSchema } from './types';
 import zima2rSchemaSource from '@/features/devices/schemas/zima2r.ui.yaml?raw';
 import gnssUdpSchemaSource from '@/features/devices/schemas/gnss-udp.ui.yaml?raw';
+import gnssComSchemaSource from '@/features/devices/schemas/gnss-com.ui.yaml?raw';
 
 type DeviceSchemaSource = {
   id: string;
@@ -18,6 +19,11 @@ const SCHEMA_SOURCES: DeviceSchemaSource[] = [
     id: 'gnss-udp',
     fallbackTitle: 'GNSS-UDP',
     content: gnssUdpSchemaSource,
+  },
+  {
+    id: 'gnss-com',
+    fallbackTitle: 'GNSS-COM',
+    content: gnssComSchemaSource,
   },
 ];
 

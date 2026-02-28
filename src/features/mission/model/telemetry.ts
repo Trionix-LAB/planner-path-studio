@@ -72,6 +72,29 @@ type ElectronGnssTelemetryOptions = {
   readConfig: () => Promise<ElectronGnssConfig | null>;
 };
 
+type ElectronGnssComBridgeConfig = {
+  autoDetectPort: boolean;
+  comPort: string;
+  baudRate: number;
+};
+
+type ElectronGnssComConfig = ElectronGnssComBridgeConfig & {
+  navigationSourceId: string;
+};
+
+type ElectronGnssComApi = {
+  start: (config: ElectronGnssComBridgeConfig) => Promise<unknown>;
+  stop: () => Promise<unknown>;
+  onData: (listener: (payload: { message?: string; receivedAt?: number; portPath?: string }) => void) => () => void;
+  onStatus: (listener: (payload: { status?: string }) => void) => () => void;
+  onError: (listener: (payload: { message?: string }) => void) => () => void;
+};
+
+type ElectronGnssComTelemetryOptions = {
+  timeoutMs?: number;
+  readConfig: () => Promise<ElectronGnssComConfig | null>;
+};
+
 type SimulationTelemetryOptions = {
   intervalMs?: number;
   timeoutMs?: number;
@@ -701,6 +724,243 @@ export const createElectronGnssTelemetryProvider = (
       }
 
       await api.start(config);
+      connected = true;
+      startTimeoutWatchdog();
+    } catch {
+      connected = false;
+      emitConnectionState('error');
+    }
+  };
+
+  const stop = () => {
+    started = false;
+    disconnectBridge();
+    detachListeners();
+  };
+
+  const start = () => {
+    if (started) return;
+    started = true;
+
+    const api = getApi();
+    if (!api) {
+      emitConnectionState('error');
+      return;
+    }
+
+    unsubscribeData = api.onData((payload) => handleData(payload));
+    unsubscribeStatus = api.onStatus((payload) => {
+      if (!payload?.status) return;
+      if (payload.status === 'error') {
+        emitConnectionState('error');
+      }
+    });
+    unsubscribeError = api.onError(() => {
+      emitConnectionState('error');
+    });
+
+    void connectBridge();
+  };
+
+  return {
+    start,
+    stop,
+    setEnabled: (nextEnabled: boolean) => {
+      enabled = nextEnabled;
+      if (!enabled) {
+        disconnectBridge();
+        emitConnectionState('timeout');
+        return;
+      }
+      if (started) {
+        void connectBridge();
+      }
+    },
+    setSimulateConnectionError: (nextValue: boolean) => {
+      simulateConnectionError = nextValue;
+      if (simulateConnectionError) {
+        emitConnectionState('error');
+        return;
+      }
+      if (enabled) {
+        emitConnectionState('timeout');
+      }
+    },
+    onFix: (listener) => {
+      fixListeners.add(listener);
+      return () => {
+        fixListeners.delete(listener);
+      };
+    },
+    onConnectionState: (listener) => {
+      connectionListeners.add(listener);
+      return () => {
+        connectionListeners.delete(listener);
+      };
+    },
+  };
+};
+
+export const createElectronGnssComTelemetryProvider = (
+  options: ElectronGnssComTelemetryOptions,
+): TelemetryProvider => {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let enabled = false;
+  let simulateConnectionError = false;
+  let started = false;
+  let connected = false;
+  let connectionState: TelemetryConnectionState = 'timeout';
+  let lastFixAt = 0;
+  let lineBuffer = '';
+  let latestMotion = { speed: 0, course: 0 };
+  let latestHeading: number | null = null;
+  let activeNavigationSourceId = 'gnss-com';
+
+  let timeoutIntervalId: number | null = null;
+  let unsubscribeData: (() => void) | null = null;
+  let unsubscribeStatus: (() => void) | null = null;
+  let unsubscribeError: (() => void) | null = null;
+
+  const fixListeners = new Set<(fix: TelemetryFix) => void>();
+  const connectionListeners = new Set<(nextState: TelemetryConnectionState) => void>();
+
+  const emitConnectionState = (nextState: TelemetryConnectionState) => {
+    if (connectionState === nextState) return;
+    connectionState = nextState;
+    connectionListeners.forEach((listener) => listener(nextState));
+  };
+
+  const emitFix = (fix: TelemetryFix) => {
+    fixListeners.forEach((listener) => listener(fix));
+  };
+
+  const clearIntervals = () => {
+    if (timeoutIntervalId !== null) {
+      window.clearInterval(timeoutIntervalId);
+      timeoutIntervalId = null;
+    }
+  };
+
+  const getApi = (): ElectronGnssComApi | null => {
+    const api = (window as unknown as { electronAPI?: { gnssCom?: ElectronGnssComApi } }).electronAPI?.gnssCom;
+    return api ?? null;
+  };
+
+  const handleData = (payload: { message?: string; receivedAt?: number }) => {
+    if (!enabled || simulateConnectionError) return;
+    const message = payload.message ?? '';
+    if (!message) return;
+
+    const { lines, rest } = splitBufferedLines(lineBuffer, message);
+    lineBuffer = rest.slice(-MAX_BUFFERED_NMEA_BYTES);
+
+    for (const line of lines) {
+      const parsed = parseNmeaLine(line);
+      const receivedAt = payload.receivedAt ?? Date.now();
+
+      if (parsed.kind === 'HDT' && parsed.headingDeg !== null) {
+        latestHeading = parsed.headingDeg;
+        continue;
+      }
+
+      if (parsed.kind !== 'RMC' && parsed.kind !== 'GGA' && parsed.kind !== 'GNS') {
+        continue;
+      }
+
+      if (!parsed.hasFix || !isValidLatLon(parsed.lat, parsed.lon)) {
+        continue;
+      }
+
+      if (parsed.speedMps !== null) {
+        latestMotion.speed = Math.max(0, parsed.speedMps);
+      }
+      if (parsed.courseDeg !== null) {
+        latestMotion.course = parsed.courseDeg;
+      } else if (latestHeading !== null) {
+        latestMotion.course = latestHeading;
+      }
+
+      lastFixAt = receivedAt;
+      emitConnectionState('ok');
+      emitFix({
+        lat: parsed.lat,
+        lon: parsed.lon,
+        speed: latestMotion.speed,
+        course: latestMotion.course,
+        heading: latestHeading,
+        depth: 0,
+        received_at: receivedAt,
+        source: 'GNSS',
+        entity_type: 'base_station',
+        entity_id: 'base-station',
+        navigation_source_id: activeNavigationSourceId,
+      });
+    }
+  };
+
+  const startTimeoutWatchdog = () => {
+    clearIntervals();
+    timeoutIntervalId = window.setInterval(() => {
+      if (!enabled || simulateConnectionError) return;
+      if (lastFixAt === 0) return;
+      if (Date.now() - lastFixAt > timeoutMs) {
+        emitConnectionState('timeout');
+      }
+    }, 1000);
+  };
+
+  const disconnectBridge = () => {
+    const api = getApi();
+    connected = false;
+    lastFixAt = 0;
+    lineBuffer = '';
+    latestMotion = { speed: 0, course: 0 };
+    latestHeading = null;
+    activeNavigationSourceId = 'gnss-com';
+    clearIntervals();
+    if (api) {
+      void api.stop().catch(() => {
+        // ignore
+      });
+    }
+  };
+
+  const detachListeners = () => {
+    if (unsubscribeData) {
+      unsubscribeData();
+      unsubscribeData = null;
+    }
+    if (unsubscribeStatus) {
+      unsubscribeStatus();
+      unsubscribeStatus = null;
+    }
+    if (unsubscribeError) {
+      unsubscribeError();
+      unsubscribeError = null;
+    }
+  };
+
+  const connectBridge = async () => {
+    if (!started || !enabled || connected || simulateConnectionError) return;
+    const api = getApi();
+    if (!api) {
+      emitConnectionState('error');
+      return;
+    }
+
+    try {
+      const config = await options.readConfig();
+      if (!config) {
+        emitConnectionState('error');
+        return;
+      }
+
+      activeNavigationSourceId = config.navigationSourceId;
+      await api.start({
+        autoDetectPort: config.autoDetectPort,
+        comPort: config.comPort,
+        baudRate: config.baudRate,
+      });
       connected = true;
       startTimeoutWatchdog();
     } catch {

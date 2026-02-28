@@ -90,6 +90,15 @@ export type EquipmentRuntimeV3 = {
     instance_id: string;
     instance_name: string | null;
   };
+  gnss_com?: {
+    interface: 'serial';
+    protocol: 'nmea0183';
+    autoDetectPort: boolean;
+    comPort: string;
+    baudRate: number;
+    instance_id: string;
+    instance_name: string | null;
+  };
 };
 
 export type DeviceChangedPayload = {

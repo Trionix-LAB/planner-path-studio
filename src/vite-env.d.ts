@@ -10,7 +10,7 @@ declare global {
 				writeText: (path: string, content: string) => Promise<void>;
 				remove: (path: string) => Promise<void>;
 				list: (prefix: string) => Promise<string[]>;
-					stat: (path: string) => Promise<{ mtimeMs: number } | null>;
+				stat: (path: string) => Promise<{ mtimeMs: number } | null>;
 			};
 			settings: {
 				readJson: <T>(key: string) => Promise<T | null>;
@@ -32,6 +32,30 @@ declare global {
 				sendCommand: (command: string) => Promise<unknown>;
 				status: () => Promise<unknown>;
 				onData: (listener: (payload: { message?: string; receivedAt?: number }) => void) => () => void;
+				onStatus: (listener: (payload: { status?: string }) => void) => () => void;
+				onError: (listener: (payload: { message?: string }) => void) => () => void;
+			};
+			gnss?: {
+				start: (config: {
+					ipAddress: string;
+					dataPort: number;
+				}) => Promise<unknown>;
+				stop: () => Promise<unknown>;
+				status: () => Promise<unknown>;
+				onData: (listener: (payload: { message?: string; receivedAt?: number }) => void) => () => void;
+				onStatus: (listener: (payload: { status?: string }) => void) => () => void;
+				onError: (listener: (payload: { message?: string }) => void) => () => void;
+			};
+			gnssCom?: {
+				start: (config: {
+					autoDetectPort: boolean;
+					comPort: string;
+					baudRate: number;
+				}) => Promise<unknown>;
+				stop: () => Promise<unknown>;
+				status: () => Promise<unknown>;
+				listPorts: () => Promise<Array<{ path?: string } | string>>;
+				onData: (listener: (payload: { message?: string; receivedAt?: number; portPath?: string }) => void) => () => void;
 				onStatus: (listener: (payload: { status?: string }) => void) => () => void;
 				onError: (listener: (payload: { message?: string }) => void) => () => void;
 			};

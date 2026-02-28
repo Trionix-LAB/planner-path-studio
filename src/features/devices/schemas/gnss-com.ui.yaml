@@ -1,0 +1,22 @@
+GNSS-COM:
+  autoDetectPort:
+    label: Авто COM-порт
+    inputForm: boolean
+    inputMask: none
+    defaultValue: true
+  comPort:
+    label: COM-порт
+    inputForm: select
+    enabledBy: '!autoDetectPort'
+    defaultValue: ''
+    validation:
+      type: none
+  baudRate:
+    label: Скорость порта
+    inputForm: number
+    inputMask: none
+    defaultValue: 115200
+    validation:
+      type: number
+      min: 1
+      integer: true

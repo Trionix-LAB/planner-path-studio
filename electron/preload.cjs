@@ -36,6 +36,17 @@ const CHANNELS = {
       error: 'planner:gnss:error',
     },
   },
+  gnssCom: {
+    start: 'planner:gnssCom:start',
+    stop: 'planner:gnssCom:stop',
+    status: 'planner:gnssCom:status',
+    listPorts: 'planner:gnssCom:listPorts',
+    events: {
+      data: 'planner:gnssCom:data',
+      status: 'planner:gnssCom:statusChanged',
+      error: 'planner:gnssCom:error',
+    },
+  },
 };
 
 const subscribe = (channel, listener) => {
@@ -77,6 +88,15 @@ const api = {
     onData: (listener) => subscribe(CHANNELS.gnss.events.data, listener),
     onStatus: (listener) => subscribe(CHANNELS.gnss.events.status, listener),
     onError: (listener) => subscribe(CHANNELS.gnss.events.error, listener),
+  },
+  gnssCom: {
+    start: (config) => ipcRenderer.invoke(CHANNELS.gnssCom.start, config),
+    stop: () => ipcRenderer.invoke(CHANNELS.gnssCom.stop),
+    status: () => ipcRenderer.invoke(CHANNELS.gnssCom.status),
+    listPorts: () => ipcRenderer.invoke(CHANNELS.gnssCom.listPorts),
+    onData: (listener) => subscribe(CHANNELS.gnssCom.events.data, listener),
+    onStatus: (listener) => subscribe(CHANNELS.gnssCom.events.status, listener),
+    onError: (listener) => subscribe(CHANNELS.gnssCom.events.error, listener),
   },
 };
 

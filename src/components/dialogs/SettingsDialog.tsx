@@ -716,7 +716,9 @@ const SettingsDialog = ({
                   {diversDraft.map((diver, index) => {
                     const selectedSourceSchemaId =
                       navigationSourceSchemaById.get(diver.navigation_source) ??
-                      (diver.navigation_source === 'zima2r' || diver.navigation_source === 'gnss-udp'
+                      (diver.navigation_source === 'zima2r' ||
+                        diver.navigation_source === 'gnss-udp' ||
+                        diver.navigation_source === 'gnss-com'
                         ? diver.navigation_source
                         : null);
                     const isBeaconIdEnabled =

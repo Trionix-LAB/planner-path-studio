@@ -117,6 +117,65 @@ describe('equipment settings', () => {
     expect(Object.keys(errors)).toHaveLength(0);
   });
 
+  it('accepts defaults for all device schemas without validation errors', () => {
+    const schemas = loadDeviceSchemas();
+    expect(schemas.length).toBeGreaterThan(0);
+
+    for (const schema of schemas) {
+      const defaults = createDefaultDeviceConfig(schema);
+      const errors = validateDeviceConfig(schema, defaults);
+      expect(Object.keys(errors), `${schema.id} should validate defaults`).toHaveLength(0);
+    }
+  });
+
+  it('validates gnss-udp required fields', () => {
+    const gnssUdpSchema = loadDeviceSchemas().find((schema) => schema.id === 'gnss-udp');
+    expect(gnssUdpSchema).toBeTruthy();
+
+    const errors = validateDeviceConfig(gnssUdpSchema!, {
+      ipAddress: '300.1.2.3',
+      dataPort: '65536',
+    });
+
+    expect(errors.ipAddress).toContain('IPv4');
+    expect(errors.dataPort).toContain('целым числом');
+  });
+
+  it('validates gnss-com manual COM number and baud rate', () => {
+    const gnssComSchema = loadDeviceSchemas().find((schema) => schema.id === 'gnss-com');
+    expect(gnssComSchema).toBeTruthy();
+
+    const invalidManual = validateDeviceConfig(gnssComSchema!, {
+      autoDetectPort: false,
+      comPort: '',
+      baudRate: '0',
+    });
+    expect(invalidManual.comPort).toContain('Выберите');
+    expect(invalidManual.baudRate).toContain('Минимум');
+
+    const validManualPath = validateDeviceConfig(gnssComSchema!, {
+      autoDetectPort: false,
+      comPort: '/dev/ttyUSB0',
+      baudRate: '9600',
+    });
+    expect(validManualPath.comPort).toBeUndefined();
+
+    const validManualWindows = validateDeviceConfig(gnssComSchema!, {
+      autoDetectPort: false,
+      comPort: 'COM7',
+      baudRate: '38400',
+    });
+    expect(validManualWindows.comPort).toBeUndefined();
+    expect(validManualWindows.baudRate).toBeUndefined();
+
+    const autoModeSkipsComPortValidation = validateDeviceConfig(gnssComSchema!, {
+      autoDetectPort: true,
+      comPort: 'COM3',
+      baudRate: '38400',
+    });
+    expect(autoModeSkipsComPortValidation.comPort).toBeUndefined();
+  });
+
   it('skips validation for disabled dependent fields', () => {
     const zimaSchema = loadDeviceSchemas().find((schema) => schema.id === 'zima2r');
     expect(zimaSchema).toBeTruthy();
@@ -277,6 +336,52 @@ describe('equipment settings', () => {
       dataPort: 29000,
       instance_id: extraGnssInstanceId,
       instance_name: 'GNSS резерв',
+    });
+  });
+
+  it('builds runtime for gnss-com instance with auto port detection', () => {
+    const schemas = loadDeviceSchemas();
+    const base = createDefaultEquipmentSettings(schemas);
+    const profile = base.profiles.find((item) => item.id === 'profile-zima-gnss');
+    expect(profile).toBeTruthy();
+
+    const gnssComInstanceId = 'profile-zima-gnss-gnss-com-1';
+
+    const runtime = buildEquipmentRuntime(
+      {
+        ...base,
+        selected_profile_id: 'profile-zima-gnss',
+        profiles: base.profiles.map((item) =>
+          item.id === 'profile-zima-gnss'
+            ? { ...item, device_instance_ids: [...item.device_instance_ids, gnssComInstanceId] }
+            : item,
+        ),
+        device_instances: {
+          ...base.device_instances,
+          [gnssComInstanceId]: {
+            id: gnssComInstanceId,
+            schema_id: 'gnss-com',
+            name: 'GNSS COM',
+            is_primary: true,
+            config: {
+              autoDetectPort: true,
+              comPort: '',
+              baudRate: 38400,
+            },
+          },
+        },
+      },
+      schemas,
+    );
+
+    expect(runtime.gnss_com).toEqual({
+      interface: 'serial',
+      protocol: 'nmea0183',
+      autoDetectPort: true,
+      comPort: '',
+      baudRate: 38400,
+      instance_id: gnssComInstanceId,
+      instance_name: 'GNSS COM',
     });
   });
 });
