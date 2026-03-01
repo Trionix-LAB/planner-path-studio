@@ -1,6 +1,6 @@
 ---
 name: agent-capture
-description: "Create a new GitHub Issue in `status:backlog` and help formulate its Definition of Done (Acceptance) and Spec. Use when the user says `capture` (or asks to “создать задачу”)."
+description: "Create a new GitHub Issue in `status:backlog` and help formulate its Definition of Done (Acceptance) and Spec. Use when the user says `capture` (or asks to “создать задачу” or “изменить задачу”)."
 ---
 
 # Agent capture (capture_and_prepare)
