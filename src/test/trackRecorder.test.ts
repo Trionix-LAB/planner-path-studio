@@ -6,6 +6,7 @@ import {
 
 const AGENT_UID = 'test-agent-1';
 const AGENT_UID_2 = 'test-agent-2';
+const BASE_STATION_AGENT_ID = 'base-station';
 
 const createMission = (): MissionDocument => ({
   schema_version: 1,
@@ -26,13 +27,19 @@ describe('track recorder (R-015 — multi-agent track recording)', () => {
   it('starts, pauses, resumes and stops with track metadata updates', () => {
     let state = createTrackRecorderState(createMission(), {});
 
-    state = trackRecorderReduce(state, { type: 'start', agentId: AGENT_UID, timestamp: '2026-02-08T10:00:01.000Z' });
+    state = trackRecorderReduce(state, {
+      type: 'start',
+      agentId: AGENT_UID,
+      timestamp: '2026-02-08T10:00:01.000Z',
+      trackColor: '#ff0000',
+    });
     expect(state.trackStatusByAgentId[AGENT_UID]).toBe('recording');
     expect(state.trackStatus).toBe('recording');
     expect(state.mission?.tracks).toHaveLength(1);
     const firstTrackId = state.mission?.active_tracks[AGENT_UID];
     expect(firstTrackId).toBeTruthy();
     expect(state.mission?.tracks[0].agent_id).toBe(AGENT_UID);
+    expect(state.mission?.tracks[0].color).toBe('#ff0000');
 
     state = trackRecorderReduce(state, {
       type: 'fixReceived',
@@ -69,10 +76,16 @@ describe('track recorder (R-015 — multi-agent track recording)', () => {
     expect(state.mission?.active_tracks[AGENT_UID]).toBeUndefined();
     expect(state.mission?.tracks[0].ended_at).toBe('2026-02-08T10:00:04.000Z');
 
-    state = trackRecorderReduce(state, { type: 'resume', agentId: AGENT_UID, timestamp: '2026-02-08T10:00:05.000Z' });
+    state = trackRecorderReduce(state, {
+      type: 'resume',
+      agentId: AGENT_UID,
+      timestamp: '2026-02-08T10:00:05.000Z',
+      trackColor: '#00ff00',
+    });
     expect(state.trackStatusByAgentId[AGENT_UID]).toBe('recording');
     expect(state.mission?.tracks).toHaveLength(2);
     expect(state.mission?.active_tracks[AGENT_UID]).not.toBe(firstTrackId);
+    expect(state.mission?.tracks[1].color).toBe('#00ff00');
 
     state = trackRecorderReduce(state, { type: 'stop', agentId: AGENT_UID, timestamp: '2026-02-08T10:00:06.000Z' });
     expect(state.trackStatusByAgentId[AGENT_UID]).toBe('stopped');
@@ -180,5 +193,48 @@ describe('track recorder (R-015 — multi-agent track recording)', () => {
     state = trackRecorderReduce(state, { type: 'start', agentId: AGENT_UID, timestamp: '2026-02-08T10:00:01.000Z' });
     expect(state.mission?.tracks[0].file).toContain(AGENT_UID);
     expect(state.mission?.tracks[0].file).toMatch(/^tracks\//);
+  });
+
+  it('supports base station track flow via dedicated agent id', () => {
+    let state = createTrackRecorderState(createMission(), {});
+    state = trackRecorderReduce(state, {
+      type: 'start',
+      agentId: BASE_STATION_AGENT_ID,
+      timestamp: '2026-02-08T11:00:01.000Z',
+      trackColor: '#123456',
+    });
+
+    const activeTrackId = state.mission?.active_tracks[BASE_STATION_AGENT_ID];
+    expect(activeTrackId).toBeTruthy();
+    expect(state.mission?.tracks[0].agent_id).toBe(BASE_STATION_AGENT_ID);
+    expect(state.mission?.tracks[0].color).toBe('#123456');
+
+    state = trackRecorderReduce(state, {
+      type: 'fixReceived',
+      agentId: BASE_STATION_AGENT_ID,
+      fix: {
+        lat: 59.95,
+        lon: 30.31,
+        speed: 0,
+        course: 0,
+        depth: 0,
+        timestamp: '2026-02-08T11:00:02.000Z',
+      },
+    });
+    expect(state.trackPointsByTrackId[activeTrackId as string]).toHaveLength(1);
+
+    state = trackRecorderReduce(state, {
+      type: 'pause',
+      agentId: BASE_STATION_AGENT_ID,
+      timestamp: '2026-02-08T11:00:03.000Z',
+    });
+    expect(state.trackStatusByAgentId[BASE_STATION_AGENT_ID]).toBe('paused');
+
+    state = trackRecorderReduce(state, {
+      type: 'stop',
+      agentId: BASE_STATION_AGENT_ID,
+      timestamp: '2026-02-08T11:00:04.000Z',
+    });
+    expect(state.trackStatusByAgentId[BASE_STATION_AGENT_ID]).toBe('stopped');
   });
 });

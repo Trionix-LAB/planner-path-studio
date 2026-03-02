@@ -19,6 +19,7 @@ export type DiverUiConfig = {
 export type MissionTrackMeta = {
   id: string;
   agent_id: string | null;
+  color?: string;
   file: string;
   started_at: IsoUtcString;
   ended_at: IsoUtcString | null;
@@ -64,6 +65,7 @@ export type MissionUiState = {
   };
   base_station?: {
     navigation_source?: NavigationSourceId | null;
+    track_color?: string;
     lat?: number;
     lon?: number;
     heading_deg?: number | null;
