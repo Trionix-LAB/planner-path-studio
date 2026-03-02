@@ -85,6 +85,7 @@ import { assertBoundsWithinEpsg4326, isBoundsWithinEpsg4326 } from '@/features/m
 import { parseGeoTiffMetadata, parseTiffCoreMetadata } from '@/features/map/rasterOverlays/parseGeoTiff';
 import { convertUtmBoundsToEpsg4326, convertWebMercatorBoundsToEpsg4326 } from '@/features/map/rasterOverlays/projection';
 import { computeBoundsFromTfw, parseTfw } from '@/features/map/rasterOverlays/parseTfw';
+import { moveRasterOverlayByDelta } from '@/features/map/rasterOverlays/reorder';
 
 const DRAFT_ROOT_PATH = 'draft/current';
 const DRAFT_MISSION_NAME = 'Черновик';
@@ -958,6 +959,7 @@ const MapWorkspace = () => {
 
   const rasterDecodeErrorShownRef = useRef<Set<string>>(new Set());
   const rasterBoundsErrorShownRef = useRef<Set<string>>(new Set());
+  const rasterOverlayUrlCacheRef = useRef<Map<string, { key: string; url: string }>>(new Map());
   const centerNonceRef = useRef(0);
   const requestCenterOnObject = useCallback((id: string) => {
     setPinnedAgentId(null);
@@ -1057,16 +1059,51 @@ const MapWorkspace = () => {
 
   useEffect(() => {
     let active = true;
-    const objectUrls: string[] = [];
+
+    const syncStateFromCache = () => {
+      if (!active) return;
+      setRasterOverlayUrls(
+        Object.fromEntries(Array.from(rasterOverlayUrlCacheRef.current.entries(), ([id, value]) => [id, value.url])),
+      );
+    };
 
     const loadOverlayUrls = async () => {
       if (!missionRootPath || rasterOverlays.length === 0) {
+        for (const { url } of rasterOverlayUrlCacheRef.current.values()) {
+          URL.revokeObjectURL(url);
+        }
+        rasterOverlayUrlCacheRef.current.clear();
         setRasterOverlayUrls({});
         return;
       }
 
-      const entries = await Promise.all(
-        rasterOverlays.map(async (overlay) => {
+      const activeIds = new Set(rasterOverlays.map((overlay) => overlay.id));
+      for (const [overlayId, cached] of rasterOverlayUrlCacheRef.current.entries()) {
+        if (!activeIds.has(overlayId)) {
+          URL.revokeObjectURL(cached.url);
+          rasterOverlayUrlCacheRef.current.delete(overlayId);
+        }
+      }
+
+      const pending: RasterOverlayUi[] = [];
+      for (const overlay of rasterOverlays) {
+        const overlayKey = `${missionRootPath}/${overlay.file}`;
+        const cached = rasterOverlayUrlCacheRef.current.get(overlay.id);
+        if (cached && cached.key !== overlayKey) {
+          URL.revokeObjectURL(cached.url);
+          rasterOverlayUrlCacheRef.current.delete(overlay.id);
+        }
+        if (!overlay.visible) continue;
+        if (!rasterOverlayUrlCacheRef.current.has(overlay.id)) {
+          pending.push(overlay);
+        }
+      }
+
+      syncStateFromCache();
+      if (pending.length === 0) return;
+
+      await Promise.all(
+        pending.map(async (overlay) => {
           if (!isBoundsWithinEpsg4326(overlay.bounds)) {
             if (!rasterBoundsErrorShownRef.current.has(overlay.id)) {
               rasterBoundsErrorShownRef.current.add(overlay.id);
@@ -1076,18 +1113,28 @@ const MapWorkspace = () => {
                   'Координаты слоя выходят за диапазон EPSG:4326. Для MVP поддерживаются только данные в WGS84.',
               });
             }
-            return [overlay.id, ''] as const;
+            return;
           }
 
           const raw = await platform.fileStore.readText(`${missionRootPath}/${overlay.file}`);
-          if (!raw) return [overlay.id, ''] as const;
+          if (!raw) return;
           try {
             const pngBase64 = await platform.raster.convertTiffBase64ToPngBase64(raw);
-            const blob =
-              pngBase64
-                ? base64ToBlob(pngBase64, 'image/png')
-                : (await decodeTiffToPngBlobInRenderer(raw)) ?? base64ToBlob(raw, 'image/tiff');
-            const isRenderable = await canRenderBlob(blob);
+            if (pngBase64) {
+              const url = URL.createObjectURL(base64ToBlob(pngBase64, 'image/png'));
+              rasterOverlayUrlCacheRef.current.set(overlay.id, { key: `${missionRootPath}/${overlay.file}`, url });
+              return;
+            }
+
+            const decodedPngBlob = await decodeTiffToPngBlobInRenderer(raw);
+            if (decodedPngBlob) {
+              const url = URL.createObjectURL(decodedPngBlob);
+              rasterOverlayUrlCacheRef.current.set(overlay.id, { key: `${missionRootPath}/${overlay.file}`, url });
+              return;
+            }
+
+            const tiffBlob = base64ToBlob(raw, 'image/tiff');
+            const isRenderable = await canRenderBlob(tiffBlob);
             if (!isRenderable) {
               if (!rasterDecodeErrorShownRef.current.has(overlay.id)) {
                 rasterDecodeErrorShownRef.current.add(overlay.id);
@@ -1096,30 +1143,35 @@ const MapWorkspace = () => {
                   description: 'Формат/сжатие TIFF не поддерживается декодером отображения.',
                 });
               }
-              return [overlay.id, ''] as const;
+              return;
             }
-            const url = URL.createObjectURL(blob);
-            objectUrls.push(url);
-            return [overlay.id, url] as const;
+            const url = URL.createObjectURL(tiffBlob);
+            rasterOverlayUrlCacheRef.current.set(overlay.id, { key: `${missionRootPath}/${overlay.file}`, url });
           } catch {
-            return [overlay.id, ''] as const;
+            // keep overlay hidden on decode failure
           }
         }),
       );
 
-      if (!active) return;
-      setRasterOverlayUrls(Object.fromEntries(entries.filter((entry) => entry[1])));
+      syncStateFromCache();
     };
 
     void loadOverlayUrls();
 
     return () => {
       active = false;
-      for (const url of objectUrls) {
-        URL.revokeObjectURL(url);
-      }
     };
   }, [missionRootPath, rasterOverlays]);
+
+  useEffect(() => {
+    const cache = rasterOverlayUrlCacheRef.current;
+    return () => {
+      for (const { url } of cache.values()) {
+        URL.revokeObjectURL(url);
+      }
+      cache.clear();
+    };
+  }, []);
 
   const toggleTrackHidden = useCallback((trackId: string) => {
     setHiddenTrackIds((prev) => (prev.includes(trackId) ? prev.filter((id) => id !== trackId) : [...prev, trackId]));
@@ -1182,6 +1234,7 @@ const MapWorkspace = () => {
           const tifBuffer = await tifFile.arrayBuffer();
           let source: RasterOverlayUi['source'] = 'geotiff';
           let bounds: MapBounds;
+          let tfwTextForStorage: string | null = null;
 
           if (mode === 'tif+tfw') {
             const tifPath =
@@ -1196,6 +1249,7 @@ const MapWorkspace = () => {
             if (!tfwText) {
               throw new Error('Не найден одноименный TFW в той же папке, что и TIF.');
             }
+            tfwTextForStorage = tfwText;
             const coreMeta = parseTiffCoreMetadata(tifBuffer);
             const tfwUnits = options?.tfwUnits ?? 'degrees';
             if (tfwUnits === 'degrees' && coreMeta.epsg !== null && coreMeta.epsg !== 4326) {
@@ -1235,6 +1289,10 @@ const MapWorkspace = () => {
           const id = createOverlayId();
           const filePath = `${OVERLAYS_DIR}/${id}.tif.b64`;
           await platform.fileStore.writeText(`${missionRootPath}/${filePath}`, arrayBufferToBase64(tifBuffer));
+          const tfwFilePath = source === 'tif+tfw' ? `${OVERLAYS_DIR}/${id}.tfw` : undefined;
+          if (source === 'tif+tfw' && tfwFilePath && tfwTextForStorage !== null) {
+            await platform.fileStore.writeText(`${missionRootPath}/${tfwFilePath}`, tfwTextForStorage);
+          }
 
           setRasterOverlays((prev) => {
             const maxZ = prev.reduce((max, item) => Math.max(max, item.z_index), 0);
@@ -1244,6 +1302,7 @@ const MapWorkspace = () => {
                 id,
                 name: baseName,
                 file: filePath,
+                ...(tfwFilePath ? { tfw_file: tfwFilePath } : {}),
                 bounds,
                 opacity: 1,
                 visible: true,
@@ -1272,12 +1331,7 @@ const MapWorkspace = () => {
   }, []);
 
   const moveRasterOverlay = useCallback((id: string, delta: -1 | 1) => {
-    setRasterOverlays((prev) =>
-      prev
-        .map((overlay) => (overlay.id === id ? { ...overlay, z_index: overlay.z_index + delta } : overlay))
-        .sort((a, b) => a.z_index - b.z_index)
-        .map((overlay, index) => ({ ...overlay, z_index: index + 1 })),
-    );
+    setRasterOverlays((prev) => moveRasterOverlayByDelta(prev, id, delta));
   }, []);
 
   const deleteRasterOverlay = useCallback(
@@ -1289,6 +1343,11 @@ const MapWorkspace = () => {
         void platform.fileStore.remove(`${missionRootPath}/${target.file}`).catch(() => {
           // best effort cleanup
         });
+        if (typeof target.tfw_file === 'string' && target.tfw_file.trim().length > 0) {
+          void platform.fileStore.remove(`${missionRootPath}/${target.tfw_file}`).catch(() => {
+            // best effort cleanup
+          });
+        }
       }
     },
     [missionRootPath, rasterOverlays],
@@ -1548,6 +1607,7 @@ const MapWorkspace = () => {
               typeof item?.id === 'string' &&
               typeof item?.name === 'string' &&
               typeof item?.file === 'string' &&
+              (typeof item?.tfw_file === 'undefined' || typeof item?.tfw_file === 'string') &&
               typeof item?.bounds?.north === 'number' &&
               typeof item?.bounds?.south === 'number' &&
               typeof item?.bounds?.east === 'number' &&

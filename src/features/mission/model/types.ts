@@ -33,6 +33,7 @@ export type MissionUiState = {
     id: string;
     name: string;
     file: string;
+    tfw_file?: string;
     bounds: { north: number; south: number; east: number; west: number };
     opacity: number;
     visible: boolean;
