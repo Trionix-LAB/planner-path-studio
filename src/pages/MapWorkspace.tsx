@@ -85,8 +85,10 @@ const DRAFT_MISSION_NAME = 'Черновик';
 const CONNECTION_TIMEOUT_MS = 5000;
 const WAL_STAGE_DELAY_MS = 250;
 const AUTOSAVE_DELAY_MS = 900;
+const BASE_STATION_AGENT_ID = 'base-station';
 
 const DEFAULT_APP_SETTINGS = createDefaultAppSettings();
+const DEFAULT_BASE_STATION_TRACK_COLOR = DEFAULT_APP_SETTINGS.defaults.styles.track.color;
 
 type LayersState = {
   track: boolean;
@@ -118,6 +120,7 @@ type WorkspaceSnapshot = {
   layers: LayersState;
   divers: DiverUiConfig[];
   baseStationNavigationSource: NavigationSourceId | null;
+  baseStationTrackColor: string;
   baseStationTelemetry: BaseStationTelemetryState | null;
   mapView: MissionUiState['map_view'] | null;
   coordPrecision: number;
@@ -164,6 +167,7 @@ const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   layers: { ...defaults.layers },
   base_station: {
     navigation_source: null,
+    track_color: defaults.styles.track.color,
   },
   coordinates: { precision: defaults.coordinates.precision },
   measurements: {
@@ -470,6 +474,7 @@ const MapWorkspace = () => {
   const [diverTelemetryById, setDiverTelemetryById] = useState<Record<string, DiverTelemetryState>>({});
   const [missionDivers, setMissionDivers] = useState<DiverUiConfig[]>(() => createDefaultDivers(1));
   const [baseStationNavigationSource, setBaseStationNavigationSource] = useState<NavigationSourceId | null>(null);
+  const [baseStationTrackColor, setBaseStationTrackColor] = useState<string>(DEFAULT_BASE_STATION_TRACK_COLOR);
   const [baseStationTelemetry, setBaseStationTelemetry] = useState<BaseStationTelemetryState | null>(null);
   const [layers, setLayers] = useState<LayersState>(DEFAULT_LAYERS);
   const [objects, setObjects] = useState<MapObject[]>([]);
@@ -570,6 +575,7 @@ const MapWorkspace = () => {
     layers: DEFAULT_LAYERS,
     divers: createDefaultDivers(1),
     baseStationNavigationSource: null,
+    baseStationTrackColor: DEFAULT_BASE_STATION_TRACK_COLOR,
     baseStationTelemetry: null,
     mapView: null,
     coordPrecision: DEFAULT_APP_SETTINGS.defaults.coordinates.precision,
@@ -582,17 +588,14 @@ const MapWorkspace = () => {
   const trackSegments = useMemo(() => {
     const segments = buildTrackSegments(trackPointsByTrackId);
     const fallbackColor = styles.track.color;
-    const agentColorByUid = new Map(
-      missionDivers.map((diver) => [diver.uid, diver.track_color ?? fallbackColor] as const),
-    );
-    const trackAgentById = new Map(missionDocument?.tracks.map((track) => [track.id, track.agent_id]) ?? []);
+    const trackMetaById = new Map(missionDocument?.tracks.map((track) => [track.id, track]) ?? []);
 
     return segments.map((segment) => {
-      const agentId = trackAgentById.get(segment.trackId) ?? null;
-      const color = (agentId && agentColorByUid.get(agentId)) ?? fallbackColor;
+      const meta = trackMetaById.get(segment.trackId);
+      const color = meta?.color ?? fallbackColor;
       return { points: segment.points, color };
     });
-  }, [missionDocument?.tracks, missionDivers, styles.track.color, trackPointsByTrackId]);
+  }, [missionDocument?.tracks, styles.track.color, trackPointsByTrackId]);
   const activeTrackNumber = useMemo(() => {
     if (!missionDocument) return 0;
     if (!missionDocument.active_track_id) return missionDocument.tracks.length;
@@ -601,10 +604,22 @@ const MapWorkspace = () => {
   }, [missionDocument]);
 
   // Selected agent derived values
-  const selectedAgent = useMemo(
-    () => missionDivers.find((d) => d.uid === selectedAgentId) ?? null,
-    [missionDivers, selectedAgentId],
-  );
+  const selectedAgent = useMemo(() => {
+    if (!selectedAgentId) return null;
+    if (selectedAgentId === BASE_STATION_AGENT_ID) {
+      return {
+        uid: BASE_STATION_AGENT_ID,
+        id: BASE_STATION_AGENT_ID,
+        beacon_id: '-',
+        title: 'Базовая станция',
+        marker_color: '#64748b',
+        marker_size_px: 24,
+        track_color: baseStationTrackColor || styles.track.color,
+        navigation_source: baseStationNavigationSource ?? 'simulation',
+      };
+    }
+    return missionDivers.find((d) => d.uid === selectedAgentId) ?? null;
+  }, [baseStationNavigationSource, baseStationTrackColor, missionDivers, selectedAgentId, styles.track.color]);
   const selectedAgentTrackStatus = useMemo<'recording' | 'paused' | 'stopped'>(
     () => (selectedAgentId ? trackStatusByAgentId[selectedAgentId] ?? 'stopped' : 'stopped'),
     [selectedAgentId, trackStatusByAgentId],
@@ -624,6 +639,15 @@ const MapWorkspace = () => {
   // HUD data for selected agent
   const selectedAgentDiverData = useMemo(() => {
     if (!selectedAgentId) return diverData;
+    if (selectedAgentId === BASE_STATION_AGENT_ID && baseStationTelemetry) {
+      return {
+        lat: baseStationTelemetry.lat,
+        lon: baseStationTelemetry.lon,
+        speed: baseStationTelemetry.speed,
+        course: Math.round(baseStationTelemetry.course),
+        depth: baseStationTelemetry.depth,
+      };
+    }
     const telemetry = diverTelemetryById[selectedAgent?.id?.trim() ?? ''];
     if (telemetry) {
       return {
@@ -635,13 +659,14 @@ const MapWorkspace = () => {
       };
     }
     return diverData;
-  }, [diverData, diverTelemetryById, selectedAgent, selectedAgentId]);
+  }, [baseStationTelemetry, diverData, diverTelemetryById, selectedAgent, selectedAgentId]);
 
   const hasSelectedAgentTelemetry = useMemo(() => {
+    if (selectedAgentId === BASE_STATION_AGENT_ID) return baseStationTelemetry !== null;
     if (!selectedAgentId || !selectedAgent) return hasPrimaryTelemetry;
     const key = selectedAgent.id.trim();
     return key in diverTelemetryById;
-  }, [diverTelemetryById, hasPrimaryTelemetry, selectedAgent, selectedAgentId]);
+  }, [baseStationTelemetry, diverTelemetryById, hasPrimaryTelemetry, selectedAgent, selectedAgentId]);
 
   const isFollowing = Boolean(pinnedAgentId);
 
@@ -829,6 +854,7 @@ const MapWorkspace = () => {
       layers,
       divers: missionDivers,
       baseStationNavigationSource,
+      baseStationTrackColor,
       baseStationTelemetry,
       mapView,
       coordPrecision,
@@ -846,6 +872,7 @@ const MapWorkspace = () => {
     layers,
     missionDivers,
     baseStationNavigationSource,
+    baseStationTrackColor,
     baseStationTelemetry,
     mapView,
     coordPrecision,
@@ -858,6 +885,33 @@ const MapWorkspace = () => {
   useEffect(() => {
     missionDiversRef.current = missionDivers;
   }, [missionDivers]);
+
+  // Backfill historical colors for legacy tracks that do not have per-track color.
+  useEffect(() => {
+    setRecordingState((prev) => {
+      if (!prev.mission) return prev;
+      let changed = false;
+      const nextTracks = prev.mission.tracks.map((track) => {
+        if (typeof track.color === 'string' && track.color.trim().length > 0) {
+          return track;
+        }
+        const resolvedColor =
+          track.agent_id === BASE_STATION_AGENT_ID
+            ? baseStationTrackColor || styles.track.color
+            : missionDivers.find((diver) => diver.uid === track.agent_id)?.track_color ?? styles.track.color;
+        changed = true;
+        return { ...track, color: resolvedColor };
+      });
+      if (!changed) return prev;
+      return {
+        ...prev,
+        mission: {
+          ...prev.mission,
+          tracks: nextTracks,
+        },
+      };
+    });
+  }, [baseStationTrackColor, missionDivers, styles.track.color]);
 
   useEffect(() => {
     setMissionDivers((prev) => {
@@ -915,6 +969,7 @@ const MapWorkspace = () => {
       layersState: LayersState,
       diversState: DiverUiConfig[],
       baseStationSourceState: NavigationSourceId | null,
+      baseStationTrackColorState: string,
       baseStationTelemetryState: BaseStationTelemetryState | null,
       nextMapView: MissionUiState['map_view'] | null,
       nextCoordPrecision: number,
@@ -939,6 +994,7 @@ const MapWorkspace = () => {
           },
           base_station: {
             navigation_source: baseStationSourceState,
+            track_color: baseStationTrackColorState,
             ...(baseStationTelemetryState
               ? {
                   lat: baseStationTelemetryState.lat,
@@ -1006,6 +1062,7 @@ const MapWorkspace = () => {
         snapshot.layers,
         snapshot.divers,
         snapshot.baseStationNavigationSource,
+        snapshot.baseStationTrackColor,
         snapshot.baseStationTelemetry,
         snapshot.mapView,
         snapshot.coordPrecision,
@@ -1073,6 +1130,11 @@ const MapWorkspace = () => {
       baseStationUi?.navigation_source ?? baseStationUi?.source_id ?? null,
     );
     setBaseStationNavigationSource(nextBaseStationSource);
+    setBaseStationTrackColor(
+      typeof baseStationUi?.track_color === 'string' && baseStationUi.track_color.trim().length > 0
+        ? baseStationUi.track_color
+        : effective.styles.track.color,
+    );
     const baseLat = typeof baseStationUi?.lat === 'number' ? baseStationUi.lat : null;
     const baseLon = typeof baseStationUi?.lon === 'number' ? baseStationUi.lon : null;
     const baseHeadingRaw = baseStationUi?.heading_deg;
@@ -1256,6 +1318,7 @@ const MapWorkspace = () => {
         layers,
         missionDivers,
         baseStationNavigationSource,
+        baseStationTrackColor,
         baseStationTelemetry,
         mapView,
         coordPrecision,
@@ -1305,6 +1368,7 @@ const MapWorkspace = () => {
     laneFeatures,
     missionDivers,
     baseStationNavigationSource,
+    baseStationTrackColor,
     baseStationTelemetry,
     repository,
     trackPointsByTrackId,
@@ -1327,6 +1391,7 @@ const MapWorkspace = () => {
         for (const diver of divers) {
           setRecordingState((prev) => trackRecorderReduce(prev, { type: 'connectionRestored', agentId: diver.uid }));
         }
+        setRecordingState((prev) => trackRecorderReduce(prev, { type: 'connectionRestored', agentId: BASE_STATION_AGENT_ID }));
       }
       setConnectionLostSeconds(0);
       return;
@@ -1455,6 +1520,28 @@ const MapWorkspace = () => {
     const telemetry = resolveTelemetryBySource(baseStationNavigationSource);
     if (!telemetry) return;
 
+    const status = trackStatusByAgentId[BASE_STATION_AGENT_ID] ?? 'stopped';
+    if (status === 'recording') {
+      const lastRecordedAt = lastRecordedFixByAgentRef.current[BASE_STATION_AGENT_ID] ?? 0;
+      if (telemetry.received_at !== lastRecordedAt) {
+        lastRecordedFixByAgentRef.current[BASE_STATION_AGENT_ID] = telemetry.received_at;
+        setRecordingState((prev) =>
+          trackRecorderReduce(prev, {
+            type: 'fixReceived',
+            agentId: BASE_STATION_AGENT_ID,
+            fix: {
+              lat: telemetry.lat,
+              lon: telemetry.lon,
+              speed: telemetry.speed,
+              course: telemetry.course,
+              depth: telemetry.depth,
+              timestamp: new Date(telemetry.received_at).toISOString(),
+            },
+          }),
+        );
+      }
+    }
+
     const next: BaseStationTelemetryState = {
       lat: telemetry.lat,
       lon: telemetry.lon,
@@ -1482,7 +1569,7 @@ const MapWorkspace = () => {
       }
       return next;
     });
-  }, [baseStationNavigationSource, isSourceEnabled, resolveTelemetryBySource]);
+  }, [baseStationNavigationSource, isSourceEnabled, resolveTelemetryBySource, trackStatusByAgentId]);
 
   const handleTelemetryFix = useCallback(
     (sourceId: ProviderSourceId, fix: TelemetryFix) => {
@@ -1825,7 +1912,7 @@ const MapWorkspace = () => {
   };
 
   const handleTrackAction = (action: 'pause' | 'resume') => {
-    if (missionDivers.length === 0 || !isRecordingControlsEnabled) return;
+    if (!isRecordingControlsEnabled) return;
 
     if (action === 'pause') {
       setRecordingState((prev) => {
@@ -1837,6 +1924,10 @@ const MapWorkspace = () => {
           if (status === 'recording') {
             next = trackRecorderReduce(next, { type: 'pause', agentId });
           }
+        }
+        const baseStationStatus = next.trackStatusByAgentId[BASE_STATION_AGENT_ID] ?? 'stopped';
+        if (baseStationStatus === 'recording') {
+          next = trackRecorderReduce(next, { type: 'pause', agentId: BASE_STATION_AGENT_ID });
         }
         return next;
       });
@@ -1850,16 +1941,28 @@ const MapWorkspace = () => {
 
     setRecordingState((prev) => {
       let next = prev;
-      for (const diver of missionDivers) {
-        const agentId = diver.uid;
-        if (!agentId) continue;
-        const status = next.trackStatusByAgentId[agentId] ?? 'stopped';
-        if (status !== 'recording') {
-          next = trackRecorderReduce(next, { type: 'resume', agentId });
+        for (const diver of missionDivers) {
+          const agentId = diver.uid;
+          if (!agentId) continue;
+          const status = next.trackStatusByAgentId[agentId] ?? 'stopped';
+          if (status !== 'recording') {
+            next = trackRecorderReduce(next, {
+              type: 'resume',
+              agentId,
+              trackColor: diver.track_color ?? styles.track.color,
+            });
+          }
         }
-      }
-      return next;
-    });
+        const baseStationStatus = next.trackStatusByAgentId[BASE_STATION_AGENT_ID] ?? 'stopped';
+        if (baseStationStatus !== 'recording') {
+          next = trackRecorderReduce(next, {
+            type: 'resume',
+            agentId: BASE_STATION_AGENT_ID,
+            trackColor: baseStationTrackColor || styles.track.color,
+          });
+        }
+        return next;
+      });
   };
 
   const handleAgentToggleRecording = (agentUid: string) => {
@@ -1869,12 +1972,35 @@ const MapWorkspace = () => {
       return;
     }
     const currentStatus = trackStatusByAgentId[agentUid] ?? 'stopped';
+    const diver = missionDivers.find((item) => item.uid === agentUid);
+    const trackColor = diver?.track_color ?? styles.track.color;
     if (currentStatus === 'recording') {
       setRecordingState((prev) => trackRecorderReduce(prev, { type: 'pause', agentId: agentUid }));
     } else {
-      setRecordingState((prev) => trackRecorderReduce(prev, { type: 'start', agentId: agentUid }));
+      setRecordingState((prev) =>
+        trackRecorderReduce(prev, { type: 'start', agentId: agentUid, trackColor }),
+      );
     }
   };
+
+  const handleBaseStationTrackAction = useCallback(
+    (action: 'start' | 'pause' | 'stop') => {
+      if (!isRecordingControlsEnabled) return;
+      if (isDraft && action === 'start') {
+        setShowCreateMission(true);
+        return;
+      }
+      if (isDraft) return;
+      setRecordingState((prev) =>
+        trackRecorderReduce(prev, {
+          type: action === 'start' ? 'start' : action,
+          agentId: BASE_STATION_AGENT_ID,
+          ...(action === 'start' ? { trackColor: baseStationTrackColor || styles.track.color } : {}),
+        }),
+      );
+    },
+    [baseStationTrackColor, isDraft, isRecordingControlsEnabled, styles.track.color],
+  );
 
   const handleAgentPin = useCallback((agentUid: string) => {
     setPinnedAgentId((prev) => (prev === agentUid ? null : agentUid));
@@ -2023,10 +2149,38 @@ const MapWorkspace = () => {
   const handleSettingsReset = async () => {
     await handleSettingsApply(DEFAULT_APP_SETTINGS.defaults);
     setBaseStationNavigationSource(null);
+    setBaseStationTrackColor(DEFAULT_BASE_STATION_TRACK_COLOR);
   };
 
   const handleDiversApply = (next: DiverUiConfig[]) => {
-    setMissionDivers(normalizeDivers(next));
+    const normalizedNext = normalizeDivers(next);
+    const prevByUid = new Map(missionDivers.map((diver) => [diver.uid, diver.track_color] as const));
+    setMissionDivers(normalizedNext);
+    setRecordingState((prev) => {
+      if (!prev.mission) return prev;
+      const activeTracks = prev.mission.active_tracks;
+      const changedColorByTrackId = new Map<string, string>();
+      for (const diver of normalizedNext) {
+        const prevColor = prevByUid.get(diver.uid);
+        if (!prevColor || prevColor === diver.track_color) continue;
+        const activeTrackId = activeTracks[diver.uid];
+        if (activeTrackId) {
+          changedColorByTrackId.set(activeTrackId, diver.track_color);
+        }
+      }
+      if (changedColorByTrackId.size === 0) return prev;
+      return {
+        ...prev,
+        mission: {
+          ...prev.mission,
+          tracks: prev.mission.tracks.map((track) =>
+            changedColorByTrackId.has(track.id)
+              ? { ...track, color: changedColorByTrackId.get(track.id) }
+              : track,
+          ),
+        },
+      };
+    });
   };
 
   const handleDiversReset = () => {
@@ -2054,6 +2208,25 @@ const MapWorkspace = () => {
     }
   };
 
+  const handleBaseStationTrackColorApply = (next: string) => {
+    const resolved = next.trim() || DEFAULT_BASE_STATION_TRACK_COLOR;
+    setBaseStationTrackColor(resolved);
+    setRecordingState((prev) => {
+      if (!prev.mission) return prev;
+      const activeTrackId = prev.mission.active_tracks[BASE_STATION_AGENT_ID];
+      if (!activeTrackId) return prev;
+      return {
+        ...prev,
+        mission: {
+          ...prev.mission,
+          tracks: prev.mission.tracks.map((track) =>
+            track.id === activeTrackId ? { ...track, color: resolved } : track,
+          ),
+        },
+      };
+    });
+  };
+
   const handleToggleEquipmentConnection = (sourceId: string, enabled: boolean) => {
     setEquipmentEnabledBySource((prev) => ({ ...prev, [sourceId]: enabled }));
     const sourceOption = navigationSourceOptions.find((option) => option.id === sourceId);
@@ -2074,8 +2247,20 @@ const MapWorkspace = () => {
 
     try {
       if (request.tracks) {
-        const metaById = new Map(missionDocument.tracks.map((t, i) => [t.id, { meta: t, name: `Трек ${i + 1}` }]));
+        const diverTitleByAgentId = new Map(missionDivers.map((diver) => [diver.uid, diver.title] as const));
+        const resolveTrackName = (agentId: string | null, index: number): string => {
+          if (agentId === BASE_STATION_AGENT_ID) return 'Базовая станция';
+          if (agentId && diverTitleByAgentId.has(agentId)) return diverTitleByAgentId.get(agentId) as string;
+          return `Трек ${index + 1}`;
+        };
+        const metaById = new Map(
+          missionDocument.tracks.map((track, i) => [track.id, { meta: track, name: resolveTrackName(track.agent_id, i) }]),
+        );
         const resolveActive = (): string[] => {
+          const activeByAgent = Object.values(missionDocument.active_tracks).filter((id, idx, all) => all.indexOf(id) === idx);
+          if (activeByAgent.length > 0) {
+            return activeByAgent.filter((id) => metaById.has(id));
+          }
           if (missionDocument.active_track_id && metaById.has(missionDocument.active_track_id)) {
             return [missionDocument.active_track_id];
           }
@@ -2454,11 +2639,13 @@ const MapWorkspace = () => {
             onLayerToggle={handleLayerToggle}
             divers={missionDivers}
             trackStatusByAgentId={trackStatusByAgentId}
+            baseStationTrackStatus={trackStatusByAgentId[BASE_STATION_AGENT_ID] ?? 'stopped'}
             selectedAgentId={selectedAgentId}
             pinnedAgentId={pinnedAgentId}
             onAgentSelect={setSelectedAgentId}
             onAgentCenter={handleAgentCenter}
             onAgentToggleRecording={handleAgentToggleRecording}
+            onBaseStationTrackAction={handleBaseStationTrackAction}
             onAgentPin={handleAgentPin}
             isDraft={isDraft}
             isRecordingEnabled={isRecordingControlsEnabled}
@@ -2590,6 +2777,8 @@ const MapWorkspace = () => {
         onApply={handleSettingsApply}
         onApplyDivers={handleDiversApply}
         onApplyBaseStationNavigationSource={handleBaseStationNavigationSourceApply}
+        baseStationTrackColor={baseStationTrackColor}
+        onApplyBaseStationTrackColor={handleBaseStationTrackColorApply}
         onReset={handleSettingsReset}
         onResetDivers={handleDiversReset}
         navigationSourceOptions={navigationSourceOptions}

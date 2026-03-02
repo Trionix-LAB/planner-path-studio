@@ -23,9 +23,9 @@ export type TrackFixPayload = {
 
 export type TrackRecorderEvent =
   | { type: 'hydrate'; mission: MissionDocument | null; trackPointsByTrackId: Record<string, TrackPoint[]>; trackStatusByAgentId?: Record<string, TrackRecorderStatus> }
-  | { type: 'start'; agentId: string; timestamp?: string }
+  | { type: 'start'; agentId: string; timestamp?: string; trackColor?: string }
   | { type: 'pause'; agentId: string; timestamp?: string }
-  | { type: 'resume'; agentId: string; timestamp?: string }
+  | { type: 'resume'; agentId: string; timestamp?: string; trackColor?: string }
   | { type: 'stop'; agentId: string; timestamp?: string }
   | { type: 'stopAll'; timestamp?: string }
   | { type: 'deleteTrack'; trackId: string }
@@ -104,7 +104,12 @@ export const createTrackRecorderState = (
   };
 };
 
-const ensureRecordingForAgent = (state: TrackRecorderState, agentId: string, timestamp?: string): TrackRecorderState => {
+const ensureRecordingForAgent = (
+  state: TrackRecorderState,
+  agentId: string,
+  timestamp?: string,
+  trackColor?: string,
+): TrackRecorderState => {
   if (!state.mission) return state;
 
   // Check if this agent already has an active track
@@ -149,6 +154,7 @@ const ensureRecordingForAgent = (state: TrackRecorderState, agentId: string, tim
         {
           id,
           agent_id: agentId,
+          color: trackColor,
           file,
           started_at: startedAt,
           ended_at: null,
@@ -331,9 +337,9 @@ export const trackRecorderReduce = (
     case 'hydrate':
       return createTrackRecorderState(event.mission, event.trackPointsByTrackId, event.trackStatusByAgentId);
     case 'start':
-      return ensureRecordingForAgent(state, event.agentId, event.timestamp);
+      return ensureRecordingForAgent(state, event.agentId, event.timestamp, event.trackColor);
     case 'resume':
-      return ensureRecordingForAgent(state, event.agentId, event.timestamp);
+      return ensureRecordingForAgent(state, event.agentId, event.timestamp, event.trackColor);
     case 'pause':
       return closeAgentTrack(state, event.agentId, 'paused', event.timestamp);
     case 'stop':

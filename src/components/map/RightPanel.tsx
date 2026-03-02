@@ -251,7 +251,7 @@ const RightPanel = ({
                   <div className="flex items-center gap-1">
                     <span
                       className="h-2 w-2 rounded-full shrink-0"
-                      style={{ backgroundColor: selectedAgent.track_color }}
+                      style={{ backgroundColor: track.color ?? styles.track.color }}
                       aria-hidden
                     />
                     <div className="font-medium leading-5 flex-1 min-w-0 truncate">{`Трек ${index + 1}`}</div>

@@ -32,9 +32,11 @@ const renderDialog = async ({
       missionDivers={[diver]}
       isZimaAssignedInProfile={isZimaAssignedInProfile}
       baseStationNavigationSource={null}
+      baseStationTrackColor="#a855f7"
       onApply={vi.fn()}
       onApplyDivers={vi.fn()}
       onApplyBaseStationNavigationSource={vi.fn()}
+      onApplyBaseStationTrackColor={vi.fn()}
       onReset={vi.fn()}
       onResetDivers={vi.fn()}
       navigationSourceOptions={[
@@ -119,9 +121,11 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
         missionDivers={[buildDiver('zima2r')]}
         isZimaAssignedInProfile={true}
         baseStationNavigationSource={null}
+        baseStationTrackColor="#a855f7"
         onApply={vi.fn()}
         onApplyDivers={onApplyDivers}
         onApplyBaseStationNavigationSource={vi.fn()}
+        onApplyBaseStationTrackColor={vi.fn()}
         onReset={vi.fn()}
         onResetDivers={vi.fn()}
         navigationSourceOptions={[
@@ -164,9 +168,11 @@ describe('SettingsDialog theme toggle (T-90)', () => {
       missionDivers: [buildDiver('zima2r')],
       isZimaAssignedInProfile: true,
       baseStationNavigationSource: null,
+      baseStationTrackColor: '#a855f7',
       onApply: vi.fn(),
       onApplyDivers: vi.fn(),
       onApplyBaseStationNavigationSource: vi.fn(),
+      onApplyBaseStationTrackColor: vi.fn(),
       onReset: vi.fn(),
       onResetDivers: vi.fn(),
       navigationSourceOptions: [

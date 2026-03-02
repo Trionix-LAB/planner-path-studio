@@ -1,5 +1,5 @@
 import { Checkbox } from '@/components/ui/checkbox';
-import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle, LocateFixed, Trash2, Anchor, Pin } from 'lucide-react';
+import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle, LocateFixed, Trash2, Anchor, Pin, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MapObject } from '@/features/map/model/types';
 import type { DiverUiConfig, TrackRecorderStatus } from '@/features/mission';
@@ -17,11 +17,13 @@ interface LeftPanelProps {
   onLayerToggle: (layer: keyof LeftPanelProps['layers']) => void;
   divers: DiverUiConfig[];
   trackStatusByAgentId: Record<string, TrackRecorderStatus>;
+  baseStationTrackStatus: TrackRecorderStatus;
   selectedAgentId: string | null;
   pinnedAgentId: string | null;
   onAgentSelect: (agentUid: string) => void;
   onAgentCenter?: (agentUid: string) => void;
   onAgentToggleRecording?: (agentUid: string) => void;
+  onBaseStationTrackAction?: (action: 'start' | 'pause' | 'stop') => void;
   onAgentPin?: (agentUid: string) => void;
   isDraft: boolean;
   isRecordingEnabled: boolean;
@@ -31,6 +33,8 @@ interface LeftPanelProps {
   onObjectCenter?: (id: string) => void;
   onObjectDelete?: (id: string) => void;
 }
+
+const BASE_STATION_AGENT_ID = 'base-station';
 
 const getObjectColor = (obj: MapObject): string => {
   if (obj.color) return obj.color;
@@ -44,11 +48,13 @@ const LeftPanel = ({
   onLayerToggle,
   divers,
   trackStatusByAgentId,
+  baseStationTrackStatus,
   selectedAgentId,
   pinnedAgentId,
   onAgentSelect,
   onAgentCenter,
   onAgentToggleRecording,
+  onBaseStationTrackAction,
   onAgentPin,
   isDraft,
   isRecordingEnabled,
@@ -58,6 +64,7 @@ const LeftPanel = ({
   onObjectCenter,
   onObjectDelete,
 }: LeftPanelProps) => {
+  const isBaseStationSelected = selectedAgentId === BASE_STATION_AGENT_ID;
   const layerItems = [
     { key: 'diver' as const, icon: Waves, label: 'Водолаз', locked: true },
     { key: 'baseStation' as const, icon: Anchor, label: 'Базовая станция', locked: false },
@@ -105,6 +112,103 @@ const LeftPanel = ({
         Агенты
       </div>
       <div className="p-1.5 space-y-1">
+        <div
+          className={cn(
+            'p-1.5 rounded border group cursor-pointer transition-colors',
+            isBaseStationSelected
+              ? 'bg-primary/20 border-primary/40'
+              : 'bg-sidebar-accent border-sidebar-border/80 hover:bg-sidebar-accent/80',
+          )}
+          role="button"
+          tabIndex={0}
+          aria-label="Базовая станция"
+          aria-pressed={isBaseStationSelected}
+          onClick={() => onAgentSelect(BASE_STATION_AGENT_ID)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onAgentSelect(BASE_STATION_AGENT_ID);
+            }
+          }}
+        >
+          <div className="flex items-center gap-1.5">
+            <Anchor className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <div className="font-medium leading-5 flex-1 min-w-0 truncate">Базовая станция</div>
+            {baseStationTrackStatus === 'recording' && (
+              <span className="h-2 w-2 rounded-full bg-red-500 shrink-0 animate-pulse" aria-label="Запись идёт" />
+            )}
+            {baseStationTrackStatus === 'paused' && (
+              <span className="h-2 w-2 rounded-full bg-yellow-500 shrink-0" aria-label="Запись на паузе" />
+            )}
+          </div>
+          {!isDraft && onBaseStationTrackAction ? (
+            <div className="mt-1.5 flex items-center gap-1">
+              <button
+                type="button"
+                className={cn(
+                  'h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm transition-opacity',
+                  baseStationTrackStatus === 'recording'
+                    ? 'opacity-40 text-muted-foreground cursor-not-allowed'
+                    : 'text-muted-foreground hover:text-success hover:bg-success/10 opacity-0 group-hover:opacity-100',
+                  !isRecordingEnabled && 'opacity-40 cursor-not-allowed hover:text-muted-foreground hover:bg-transparent',
+                  baseStationTrackStatus === 'paused' && 'opacity-100',
+                )}
+                disabled={!isRecordingEnabled || baseStationTrackStatus === 'recording'}
+                aria-label="Начать запись базовой станции"
+                title={baseStationTrackStatus === 'paused' ? 'Продолжить запись' : 'Начать запись'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBaseStationTrackAction('start');
+                }}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="12" r="8" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  'h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm transition-opacity',
+                  baseStationTrackStatus === 'recording'
+                    ? 'text-red-500 hover:text-red-600 hover:bg-red-500/10 opacity-100'
+                    : 'text-muted-foreground opacity-40 cursor-not-allowed',
+                  !isRecordingEnabled && 'opacity-40 cursor-not-allowed hover:text-muted-foreground hover:bg-transparent',
+                )}
+                disabled={!isRecordingEnabled || baseStationTrackStatus !== 'recording'}
+                aria-label="Пауза записи базовой станции"
+                title="Пауза записи"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBaseStationTrackAction('pause');
+                }}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="4" width="4" height="16" rx="1" />
+                  <rect x="14" y="4" width="4" height="16" rx="1" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  'h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm transition-opacity',
+                  baseStationTrackStatus !== 'stopped'
+                    ? 'text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-100'
+                    : 'text-muted-foreground opacity-40 cursor-not-allowed',
+                  !isRecordingEnabled && 'opacity-40 cursor-not-allowed hover:text-muted-foreground hover:bg-transparent',
+                )}
+                disabled={!isRecordingEnabled || baseStationTrackStatus === 'stopped'}
+                aria-label="Завершить трек базовой станции"
+                title="Завершить трек"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBaseStationTrackAction('stop');
+                }}
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+              </button>
+            </div>
+          ) : null}
+        </div>
         {divers.map((diver) => {
           const agentStatus = trackStatusByAgentId[diver.uid] ?? 'stopped';
           const isRecording = agentStatus === 'recording';

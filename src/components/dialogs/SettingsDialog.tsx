@@ -42,9 +42,11 @@ interface SettingsDialogProps {
   missionDivers: DiverUiConfig[];
   isZimaAssignedInProfile: boolean;
   baseStationNavigationSource: NavigationSourceId | null;
+  baseStationTrackColor: string;
   onApply: (next: AppUiDefaults) => Promise<void> | void;
   onApplyDivers: (next: DiverUiConfig[]) => Promise<void> | void;
   onApplyBaseStationNavigationSource: (next: NavigationSourceId | null) => Promise<void> | void;
+  onApplyBaseStationTrackColor: (next: string) => Promise<void> | void;
   onReset: () => Promise<void> | void;
   onResetDivers: () => Promise<void> | void;
   equipmentItems?: Array<{
@@ -76,9 +78,11 @@ const SettingsDialog = ({
   missionDivers,
   isZimaAssignedInProfile,
   baseStationNavigationSource,
+  baseStationTrackColor,
   onApply,
   onApplyDivers,
   onApplyBaseStationNavigationSource,
+  onApplyBaseStationTrackColor,
   onReset,
   onResetDivers,
   equipmentItems = [],
@@ -92,6 +96,7 @@ const SettingsDialog = ({
   const [baseStationSourceDraft, setBaseStationSourceDraft] = useState<NavigationSourceId | null>(
     baseStationNavigationSource,
   );
+  const [baseStationTrackColorDraft, setBaseStationTrackColorDraft] = useState<string>(baseStationTrackColor);
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [themeDraft, setThemeDraft] = useState<AppTheme>(() => readStoredAppTheme());
@@ -108,9 +113,10 @@ const SettingsDialog = ({
     setDraft(value);
     setDiversDraft(missionDivers);
     setBaseStationSourceDraft(baseStationNavigationSource);
+    setBaseStationTrackColorDraft(baseStationTrackColor);
     setThemeDraft(readStoredAppTheme());
     setIsDirty(false);
-  }, [open, value, missionDivers, baseStationNavigationSource]);
+  }, [open, value, missionDivers, baseStationNavigationSource, baseStationTrackColor]);
 
   const update = (next: AppUiDefaults) => {
     setDraft(next);
@@ -124,6 +130,11 @@ const SettingsDialog = ({
 
   const updateBaseStationSource = (next: NavigationSourceId | null) => {
     setBaseStationSourceDraft(next);
+    setIsDirty(true);
+  };
+
+  const updateBaseStationTrackColor = (next: string) => {
+    setBaseStationTrackColorDraft(next);
     setIsDirty(true);
   };
 
@@ -173,6 +184,7 @@ const SettingsDialog = ({
       await onApply(normalized);
       await onApplyDivers(diversDraft);
       await onApplyBaseStationNavigationSource(baseStationSourceDraft);
+      await onApplyBaseStationTrackColor(baseStationTrackColorDraft);
       writeStoredAppTheme(themeDraft);
       applyAppTheme(themeDraft);
       setIsDirty(false);
@@ -188,7 +200,9 @@ const SettingsDialog = ({
       await onReset();
       await onResetDivers();
       await onApplyBaseStationNavigationSource(null);
+      await onApplyBaseStationTrackColor(draft.styles.track.color);
       setBaseStationSourceDraft(null);
+      setBaseStationTrackColorDraft(draft.styles.track.color);
       setThemeDraft('dark');
       writeStoredAppTheme('dark');
       applyAppTheme('dark');
@@ -702,6 +716,15 @@ const SettingsDialog = ({
                     <div className="text-xs text-muted-foreground">
                       Если источник не назначен, метка базовой станции скрывается на карте.
                     </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Цвет трека</Label>
+                    <Input
+                      type="color"
+                      value={baseStationTrackColorDraft}
+                      onChange={(e) => updateBaseStationTrackColor(e.target.value)}
+                      className="w-12 h-9 p-1"
+                    />
                   </div>
                 </div>
 
