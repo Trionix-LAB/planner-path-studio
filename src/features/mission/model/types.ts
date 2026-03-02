@@ -28,6 +28,7 @@ export type MissionTrackMeta = {
 
 export type MissionUiState = {
   follow_diver?: boolean;
+  hidden_track_ids?: string[];
   divers?: DiverUiConfig[];
   layers?: {
     track?: boolean;

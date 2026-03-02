@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import RightPanel from '@/components/map/RightPanel';
 import type { DiverUiConfig, MissionDocument } from '@/features/mission';
 
@@ -206,5 +206,84 @@ describe('RightPanel HUD defaults (includes agent track UI — R-015)', () => {
     expect(screen.getByText('Треки: Базовая станция')).toBeInTheDocument();
     expect(screen.getByText('Трек 1')).toBeInTheDocument();
     expect(screen.queryByLabelText('Удалить трек 2')).toBeNull();
+  });
+
+  it('toggles per-track and all-tracks visibility actions', () => {
+    const missionDocument: MissionDocument = {
+      schema_version: 1,
+      mission_id: 'mission-2',
+      name: 'Test 2',
+      created_at: '2026-03-02T10:00:00.000Z',
+      updated_at: '2026-03-02T10:05:00.000Z',
+      active_track_id: null,
+      active_tracks: { 'agent-1': 'track-1' },
+      tracks: [
+        {
+          id: 'track-1',
+          agent_id: 'agent-1',
+          file: 'tracks/agent-1-track-0001.csv',
+          started_at: '2026-03-02T10:00:00.000Z',
+          ended_at: null,
+          note: null,
+          color: '#22c55e',
+        },
+        {
+          id: 'track-2',
+          agent_id: 'agent-1',
+          file: 'tracks/agent-1-track-0002.csv',
+          started_at: '2026-03-02T10:02:00.000Z',
+          ended_at: null,
+          note: null,
+          color: '#0ea5e9',
+        },
+      ],
+      files: {
+        routes: 'routes/routes.geojson',
+        markers: 'markers/markers.geojson',
+      },
+    };
+    const onTrackVisibilityToggle = vi.fn();
+    const onTracksVisibilitySet = vi.fn();
+
+    render(
+      <RightPanel
+        diverData={{ lat: 59.93428, lon: 30.335099, speed: 0.8, course: 45, depth: 12.5 }}
+        hasTelemetryData={true}
+        hasTelemetryHistory={true}
+        coordPrecision={6}
+        styles={{
+          track: { color: '#22c55e', width_px: 3 },
+          route: { color: '#0ea5e9', width_px: 3 },
+          survey_area: {
+            stroke_color: '#f59e0b',
+            stroke_width_px: 2,
+            fill_color: '#f59e0b',
+            fill_opacity: 0.2,
+          },
+          lane: { color: '#22c55e', width_px: 2 },
+          marker: { color: '#22c55e' },
+        }}
+        connectionStatus="ok"
+        isConnectionEnabled={true}
+        selectedAgent={testAgent}
+        selectedAgentTrackStatus="recording"
+        selectedAgentActiveTrackNumber={1}
+        missionDocument={missionDocument}
+        trackStatusByAgentId={{ 'agent-1': 'recording' }}
+        hiddenTrackIds={['track-2']}
+        selectedObject={null}
+        selectedZoneLanesOutdated={false}
+        selectedZoneLaneCount={null}
+        onObjectSelect={() => {}}
+        onTrackVisibilityToggle={onTrackVisibilityToggle}
+        onTracksVisibilitySet={onTracksVisibilitySet}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Скрыть трек 1' }));
+    expect(onTrackVisibilityToggle).toHaveBeenCalledWith('track-1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Скрыть все треки' }));
+    expect(onTracksVisibilitySet).toHaveBeenCalledWith(['track-1', 'track-2'], false);
   });
 });

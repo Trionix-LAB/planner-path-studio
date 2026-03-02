@@ -90,7 +90,7 @@ interface MapCanvasProps {
       course?: number;
     }
   >;
-  trackSegments: Array<{ points: Array<[number, number]>; color: string }>;
+  trackSegments: Array<{ trackId: string; points: Array<[number, number]>; color: string }>;
   followAgentId: string | null;
   connectionStatus: 'ok' | 'timeout' | 'error';
   connectionLostSeconds?: number;
@@ -1348,7 +1348,7 @@ const MapCanvas = ({
         {layers.track &&
           trackSegments.map((segment, index) => (
             <Polyline
-              key={`track-segment-${index}`}
+              key={`track-segment-${segment.trackId}-${index}`}
               positions={segment.points}
               pathOptions={{
                 color: segment.color,

@@ -30,6 +30,8 @@ export { computeRealtimeVisibilityState } from './model/realtimeVisibility';
 export type { RealtimeUiConnectionState, RealtimeVisibilityState } from './model/realtimeVisibility';
 export { createTrackRecorderState, trackRecorderReduce } from './model/trackRecorder';
 export type { TrackFixPayload, TrackRecorderEvent, TrackRecorderState, TrackRecorderStatus } from './model/trackRecorder';
+export { filterVisibleTrackSegments } from './model/trackVisibility';
+export type { ColoredTrackSegment } from './model/trackVisibility';
 export { createDefaultDiver, createDefaultDivers, normalizeDivers } from './model/divers';
 export {
   MISSION_SCHEMA_VERSION,

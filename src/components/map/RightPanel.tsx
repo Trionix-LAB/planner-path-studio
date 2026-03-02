@@ -1,5 +1,5 @@
 import type { MapObject } from "@/features/map/model/types";
-import { Wifi, WifiOff, Radio, Trash2 } from 'lucide-react';
+import { Wifi, WifiOff, Radio, Trash2, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MapObjectProperties from './MapObjectProperties';
 import type { AppUiDefaults } from '@/features/settings';
@@ -27,6 +27,7 @@ interface RightPanelProps {
   /** Mission for filtering tracks */
   missionDocument: MissionDocument | null;
   trackStatusByAgentId: Record<string, TrackRecorderStatus>;
+  hiddenTrackIds?: string[];
   selectedObject: MapObject | null;
   selectedZoneLanesOutdated: boolean;
   selectedZoneLaneCount: number | null;
@@ -38,6 +39,8 @@ interface RightPanelProps {
   onPickLaneEdge?: (id: string) => void;
   onPickLaneStart?: (id: string) => void;
   onTrackDelete?: (trackId: string) => void;
+  onTrackVisibilityToggle?: (trackId: string) => void;
+  onTracksVisibilitySet?: (trackIds: string[], visible: boolean) => void;
 }
 
 type ConnectionUiState = 'off' | 'ok' | 'timeout' | 'error' | 'waiting';
@@ -65,6 +68,7 @@ const RightPanel = ({
   selectedAgentActiveTrackNumber,
   missionDocument,
   trackStatusByAgentId,
+  hiddenTrackIds = [],
   selectedObject,
   selectedZoneLanesOutdated,
   selectedZoneLaneCount,
@@ -76,6 +80,8 @@ const RightPanel = ({
   onPickLaneEdge,
   onPickLaneStart,
   onTrackDelete,
+  onTrackVisibilityToggle,
+  onTracksVisibilitySet,
 }: RightPanelProps) => {
   const noTelemetry = !hasTelemetryData;
   const connectionState: ConnectionUiState = !isConnectionEnabled
@@ -104,6 +110,9 @@ const RightPanel = ({
   const agentTracks = selectedAgent && missionDocument
     ? missionDocument.tracks.filter((t) => t.agent_id === selectedAgent.uid)
     : [];
+  const hiddenTrackIdSet = new Set(hiddenTrackIds);
+  const hasAnyVisibleSelectedTrack = agentTracks.some((track) => !hiddenTrackIdSet.has(track.id));
+  const isAllSelectedTracksHidden = agentTracks.length > 0 && !hasAnyVisibleSelectedTrack;
 
   const trackStatus = selectedAgentTrackStatus;
   const trackId = selectedAgentActiveTrackNumber;
@@ -233,12 +242,24 @@ const RightPanel = ({
         <>
           <div className="panel-header">
             Треки: {selectedAgent.title}
+            {agentTracks.length > 0 && onTracksVisibilitySet && (
+              <button
+                type="button"
+                className="ml-auto h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+                aria-label={isAllSelectedTracksHidden ? 'Показать все треки' : 'Скрыть все треки'}
+                title={isAllSelectedTracksHidden ? 'Показать все треки' : 'Скрыть все треки'}
+                onClick={() => onTracksVisibilitySet(agentTracks.map((track) => track.id), isAllSelectedTracksHidden)}
+              >
+                {isAllSelectedTracksHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+              </button>
+            )}
           </div>
           <div className="p-1.5 space-y-1 max-h-48 overflow-y-auto">
             {agentTracks.map((track, index) => {
               const isActive =
                 missionDocument?.active_tracks[selectedAgent.uid] === track.id &&
                 trackStatusByAgentId[selectedAgent.uid] === 'recording';
+              const isHidden = hiddenTrackIdSet.has(track.id);
               return (
                 <div
                   key={track.id}
@@ -255,6 +276,17 @@ const RightPanel = ({
                       aria-hidden
                     />
                     <div className="font-medium leading-5 flex-1 min-w-0 truncate">{`Трек ${index + 1}`}</div>
+                    {onTrackVisibilityToggle && (
+                      <button
+                        type="button"
+                        className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-opacity"
+                        aria-label={isHidden ? `Показать трек ${index + 1}` : `Скрыть трек ${index + 1}`}
+                        title={isHidden ? 'Показать трек' : 'Скрыть трек'}
+                        onClick={() => onTrackVisibilityToggle(track.id)}
+                      >
+                        {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
                     {onTrackDelete && (
                       <button
                         type="button"
