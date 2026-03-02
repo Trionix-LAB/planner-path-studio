@@ -19,6 +19,11 @@ declare global {
 				writeJson: (key: string, value: unknown) => Promise<void>;
 				remove: (key: string) => Promise<void>;
 			};
+			raster?: {
+				convertTiffBase64ToPngBase64: (tiffBase64: string) => Promise<string | null>;
+				readSiblingTfwTextByTifPath: (tifPath: string) => Promise<string | null>;
+				resolveLocalPathForFile: (file: File) => Promise<string | null>;
+			};
 			lifecycle?: {
 				onPrepareClose: (listener: (payload: { token?: string }) => void) => () => void;
 				resolvePrepareClose: (payload: { token: string; ok: boolean; error?: string }) => void;

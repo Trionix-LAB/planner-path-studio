@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const CHANNELS = {
   pickDirectory: 'planner:pickDirectory',
@@ -16,6 +16,10 @@ const CHANNELS = {
     readJson: 'planner:settings:readJson',
     writeJson: 'planner:settings:writeJson',
     remove: 'planner:settings:remove',
+  },
+  raster: {
+    convertTiffBase64ToPngBase64: 'planner:raster:convertTiffBase64ToPngBase64',
+    readSiblingTfwTextByTifPath: 'planner:raster:readSiblingTfwTextByTifPath',
   },
   lifecycle: {
     prepareClose: 'planner:lifecycle:prepareClose',
@@ -79,6 +83,28 @@ const api = {
     readJson: (key) => ipcRenderer.invoke(CHANNELS.settings.readJson, key),
     writeJson: (key, value) => ipcRenderer.invoke(CHANNELS.settings.writeJson, key, value),
     remove: (key) => ipcRenderer.invoke(CHANNELS.settings.remove, key),
+  },
+  raster: {
+    convertTiffBase64ToPngBase64: (tiffBase64) =>
+      ipcRenderer.invoke(CHANNELS.raster.convertTiffBase64ToPngBase64, tiffBase64),
+    readSiblingTfwTextByTifPath: (tifPath) =>
+      ipcRenderer.invoke(CHANNELS.raster.readSiblingTfwTextByTifPath, tifPath),
+    resolveLocalPathForFile: async (file) => {
+      try {
+        if (!file) return null;
+        const path = webUtils?.getPathForFile?.(file);
+        if (typeof path === 'string' && path.trim().length > 0) return path;
+      } catch {
+        // continue with fallback
+      }
+      try {
+        const fallback = file && typeof file.path === 'string' ? file.path : null;
+        if (typeof fallback === 'string' && fallback.trim().length > 0) return fallback;
+      } catch {
+        // ignore
+      }
+      return null;
+    },
   },
   lifecycle: {
     onPrepareClose: (listener) => subscribe(CHANNELS.lifecycle.prepareClose, listener),

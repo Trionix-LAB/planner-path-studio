@@ -1,11 +1,12 @@
 import { Checkbox } from '@/components/ui/checkbox';
-import { Eye, Route, MapPin, Grid3X3, Ruler, Waves, Circle, LocateFixed, Trash2, Anchor, Pin, Square } from 'lucide-react';
+import { Eye, EyeOff, Route, MapPin, Grid3X3, Ruler, Waves, Circle, LocateFixed, Trash2, Anchor, Pin, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MapObject } from '@/features/map/model/types';
 import type { DiverUiConfig, TrackRecorderStatus } from '@/features/mission';
 
 interface LeftPanelProps {
   layers: {
+    basemap: boolean;
     track: boolean;
     routes: boolean;
     markers: boolean;
@@ -32,6 +33,18 @@ interface LeftPanelProps {
   onObjectSelect: (id: string | null) => void;
   onObjectCenter?: (id: string) => void;
   onObjectDelete?: (id: string) => void;
+  rasterOverlays?: Array<{
+    id: string;
+    name: string;
+    visible: boolean;
+    opacity: number;
+    zIndex: number;
+  }>;
+  onRasterOverlayToggle?: (id: string) => void;
+  onRasterOverlayOpacityChange?: (id: string, opacity: number) => void;
+  onRasterOverlayMove?: (id: string, delta: -1 | 1) => void;
+  onRasterOverlayDelete?: (id: string) => void;
+  onRasterOverlayCenter?: (id: string) => void;
 }
 
 const BASE_STATION_AGENT_ID = 'base-station';
@@ -63,10 +76,17 @@ const LeftPanel = ({
   onObjectSelect,
   onObjectCenter,
   onObjectDelete,
+  rasterOverlays = [],
+  onRasterOverlayToggle,
+  onRasterOverlayOpacityChange,
+  onRasterOverlayMove,
+  onRasterOverlayDelete,
+  onRasterOverlayCenter,
 }: LeftPanelProps) => {
   const isBaseStationSelected = selectedAgentId === BASE_STATION_AGENT_ID;
   const layerItems = [
     { key: 'diver' as const, icon: Waves, label: 'Водолаз', locked: true },
+    { key: 'basemap' as const, icon: Circle, label: 'Тайловая подложка', locked: false },
     { key: 'baseStation' as const, icon: Anchor, label: 'Базовая станция', locked: false },
     { key: 'track' as const, icon: Route, label: 'Треки', locked: false },
     { key: 'routes' as const, icon: Route, label: 'Маршруты/Галсы', locked: false },
@@ -351,6 +371,84 @@ const LeftPanel = ({
           <div className="p-1.5 text-[11px] leading-4 text-muted-foreground">
             Нет агентов. Добавьте их в настройках.
           </div>
+        )}
+      </div>
+
+      <div className="border-t border-sidebar-border mt-1" />
+
+      <div className="panel-header">Растры</div>
+      <div className="p-1.5 space-y-1.5">
+        {rasterOverlays.length > 0 ? (
+          <div className="space-y-1 max-h-36 overflow-y-auto">
+            {rasterOverlays
+              .slice()
+              .sort((a, b) => b.zIndex - a.zIndex)
+              .map((overlay) => (
+                <div key={overlay.id} className="p-1 rounded bg-sidebar-accent/70 text-[11px]">
+                  <div className="flex items-center gap-1">
+                    <span className="truncate flex-1">{overlay.name}</span>
+                    <button
+                      type="button"
+                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                      onClick={() => onRasterOverlayCenter?.(overlay.id)}
+                      title="Переместиться к растру"
+                      aria-label={`Переместиться к растру ${overlay.name}`}
+                    >
+                      <LocateFixed className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                      onClick={() => onRasterOverlayToggle?.(overlay.id)}
+                      title={overlay.visible ? 'Скрыть растр' : 'Показать растр'}
+                      aria-label={overlay.visible ? `Скрыть растр ${overlay.name}` : `Показать растр ${overlay.name}`}
+                    >
+                      {overlay.visible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                      onClick={() => onRasterOverlayMove?.(overlay.id, 1)}
+                      title="Выше"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                      onClick={() => onRasterOverlayMove?.(overlay.id, -1)}
+                      title="Ниже"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      className="h-5 w-5 rounded hover:bg-destructive/20"
+                      onClick={() => onRasterOverlayDelete?.(overlay.id)}
+                      title="Удалить"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={Math.round(overlay.opacity * 100)}
+                    className="w-full"
+                    onChange={(event) =>
+                      onRasterOverlayOpacityChange?.(
+                        overlay.id,
+                        Math.max(0, Math.min(1, Number(event.target.value) / 100)),
+                      )
+                    }
+                  />
+                </div>
+              ))}
+          </div>
+        ) : (
+          <div className="text-[11px] text-muted-foreground">Нет импортированных растров</div>
         )}
       </div>
 

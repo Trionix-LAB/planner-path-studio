@@ -49,6 +49,11 @@ const createPlatform = (
     list: async (prefix) => filesByPrefix[prefix] ?? [],
     stat: async () => null,
   },
+  raster: {
+    convertTiffBase64ToPngBase64: async () => null,
+    readSiblingTfwTextByTifPath: async () => null,
+    resolveLocalPathForFile: async () => null,
+  },
 });
 
 describe('useDelayedMissionDeletion', () => {

@@ -58,4 +58,9 @@ export type Platform = {
   fs: FileSystemBridge;
   settings: SettingsBridge;
   fileStore: FileStoreBridge;
+  raster: {
+    convertTiffBase64ToPngBase64: (tiffBase64: string) => Promise<string | null>;
+    readSiblingTfwTextByTifPath: (tifPath: string) => Promise<string | null>;
+    resolveLocalPathForFile: (file: File) => Promise<string | null>;
+  };
 };

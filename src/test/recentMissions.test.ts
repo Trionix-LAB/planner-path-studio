@@ -53,6 +53,11 @@ const createPlatform = ({ isElectron, files = {}, mtimes = {} }: TestPlatformOpt
       return Number.isFinite(mtimeMs) ? { mtimeMs } : null;
     },
   },
+  raster: {
+    convertTiffBase64ToPngBase64: async () => null,
+    readSiblingTfwTextByTifPath: async () => null,
+    resolveLocalPathForFile: async () => null,
+  },
 });
 
 describe('loadRecentMissions (R-014 — Recent missions)', () => {
