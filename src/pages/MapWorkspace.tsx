@@ -37,6 +37,7 @@ import {
   createSimulationTelemetryProvider,
   createTrackRecorderState,
   didZoneLaneInputsChange,
+  filterVisibleTrackSegments,
   generateLanesFromZoneObject,
   isConvexZonePolygon,
   markZoneLanesOutdated,
@@ -121,6 +122,7 @@ type WorkspaceSnapshot = {
   divers: DiverUiConfig[];
   baseStationNavigationSource: NavigationSourceId | null;
   baseStationTrackColor: string;
+  hiddenTrackIds: string[];
   baseStationTelemetry: BaseStationTelemetryState | null;
   mapView: MissionUiState['map_view'] | null;
   coordPrecision: number;
@@ -163,6 +165,7 @@ const DEFAULT_MAP_PANELS_COLLAPSED: MapPanelsCollapsedState = {
 
 const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   follow_diver: defaults.follow_diver,
+  hidden_track_ids: [],
   divers: createDefaultDivers(1),
   layers: { ...defaults.layers },
   base_station: {
@@ -475,6 +478,7 @@ const MapWorkspace = () => {
   const [missionDivers, setMissionDivers] = useState<DiverUiConfig[]>(() => createDefaultDivers(1));
   const [baseStationNavigationSource, setBaseStationNavigationSource] = useState<NavigationSourceId | null>(null);
   const [baseStationTrackColor, setBaseStationTrackColor] = useState<string>(DEFAULT_BASE_STATION_TRACK_COLOR);
+  const [hiddenTrackIds, setHiddenTrackIds] = useState<string[]>([]);
   const [baseStationTelemetry, setBaseStationTelemetry] = useState<BaseStationTelemetryState | null>(null);
   const [layers, setLayers] = useState<LayersState>(DEFAULT_LAYERS);
   const [objects, setObjects] = useState<MapObject[]>([]);
@@ -576,6 +580,7 @@ const MapWorkspace = () => {
     divers: createDefaultDivers(1),
     baseStationNavigationSource: null,
     baseStationTrackColor: DEFAULT_BASE_STATION_TRACK_COLOR,
+    hiddenTrackIds: [],
     baseStationTelemetry: null,
     mapView: null,
     coordPrecision: DEFAULT_APP_SETTINGS.defaults.coordinates.precision,
@@ -585,6 +590,8 @@ const MapWorkspace = () => {
     isLoaded: false,
   });
 
+  const hiddenTrackIdSet = useMemo(() => new Set(hiddenTrackIds), [hiddenTrackIds]);
+
   const trackSegments = useMemo(() => {
     const segments = buildTrackSegments(trackPointsByTrackId);
     const fallbackColor = styles.track.color;
@@ -593,9 +600,13 @@ const MapWorkspace = () => {
     return segments.map((segment) => {
       const meta = trackMetaById.get(segment.trackId);
       const color = meta?.color ?? fallbackColor;
-      return { points: segment.points, color };
+      return { trackId: segment.trackId, points: segment.points, color };
     });
   }, [missionDocument?.tracks, styles.track.color, trackPointsByTrackId]);
+  const visibleTrackSegments = useMemo(
+    () => filterVisibleTrackSegments(trackSegments, hiddenTrackIdSet),
+    [hiddenTrackIdSet, trackSegments],
+  );
   const activeTrackNumber = useMemo(() => {
     if (!missionDocument) return 0;
     if (!missionDocument.active_track_id) return missionDocument.tracks.length;
@@ -855,6 +866,7 @@ const MapWorkspace = () => {
       divers: missionDivers,
       baseStationNavigationSource,
       baseStationTrackColor,
+      hiddenTrackIds,
       baseStationTelemetry,
       mapView,
       coordPrecision,
@@ -873,6 +885,7 @@ const MapWorkspace = () => {
     missionDivers,
     baseStationNavigationSource,
     baseStationTrackColor,
+    hiddenTrackIds,
     baseStationTelemetry,
     mapView,
     coordPrecision,
@@ -885,6 +898,15 @@ const MapWorkspace = () => {
   useEffect(() => {
     missionDiversRef.current = missionDivers;
   }, [missionDivers]);
+
+  useEffect(() => {
+    if (!missionDocument) return;
+    const existingTrackIds = new Set(missionDocument.tracks.map((track) => track.id));
+    setHiddenTrackIds((prev) => {
+      const next = prev.filter((id) => existingTrackIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [missionDocument]);
 
   // Backfill historical colors for legacy tracks that do not have per-track color.
   useEffect(() => {
@@ -912,6 +934,27 @@ const MapWorkspace = () => {
       };
     });
   }, [baseStationTrackColor, missionDivers, styles.track.color]);
+
+  const toggleTrackHidden = useCallback((trackId: string) => {
+    setHiddenTrackIds((prev) => (prev.includes(trackId) ? prev.filter((id) => id !== trackId) : [...prev, trackId]));
+  }, []);
+
+  const setTracksHiddenForSelection = useCallback((trackIds: string[], visible: boolean) => {
+    if (trackIds.length === 0) return;
+    setHiddenTrackIds((prev) => {
+      const set = new Set(prev);
+      if (visible) {
+        for (const id of trackIds) set.delete(id);
+      } else {
+        for (const id of trackIds) set.add(id);
+      }
+      const next = Array.from(set);
+      if (next.length === prev.length && next.every((id, index) => id === prev[index])) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     setMissionDivers((prev) => {
@@ -970,6 +1013,7 @@ const MapWorkspace = () => {
       diversState: DiverUiConfig[],
       baseStationSourceState: NavigationSourceId | null,
       baseStationTrackColorState: string,
+      hiddenTrackIdsState: string[],
       baseStationTelemetryState: BaseStationTelemetryState | null,
       nextMapView: MissionUiState['map_view'] | null,
       nextCoordPrecision: number,
@@ -983,6 +1027,7 @@ const MapWorkspace = () => {
         ui: {
           ...(mission.ui ?? {}),
           follow_diver: followEnabled,
+          hidden_track_ids: hiddenTrackIdsState,
           divers: diversState,
           layers: {
             track: layersState.track,
@@ -1063,6 +1108,7 @@ const MapWorkspace = () => {
         snapshot.divers,
         snapshot.baseStationNavigationSource,
         snapshot.baseStationTrackColor,
+        snapshot.hiddenTrackIds,
         snapshot.baseStationTelemetry,
         snapshot.mapView,
         snapshot.coordPrecision,
@@ -1134,6 +1180,11 @@ const MapWorkspace = () => {
       typeof baseStationUi?.track_color === 'string' && baseStationUi.track_color.trim().length > 0
         ? baseStationUi.track_color
         : effective.styles.track.color,
+    );
+    setHiddenTrackIds(
+      Array.isArray(bundle.mission.ui?.hidden_track_ids)
+        ? bundle.mission.ui?.hidden_track_ids.filter((id): id is string => typeof id === 'string')
+        : [],
     );
     const baseLat = typeof baseStationUi?.lat === 'number' ? baseStationUi.lat : null;
     const baseLon = typeof baseStationUi?.lon === 'number' ? baseStationUi.lon : null;
@@ -1319,6 +1370,7 @@ const MapWorkspace = () => {
         missionDivers,
         baseStationNavigationSource,
         baseStationTrackColor,
+        hiddenTrackIds,
         baseStationTelemetry,
         mapView,
         coordPrecision,
@@ -1369,6 +1421,7 @@ const MapWorkspace = () => {
     missionDivers,
     baseStationNavigationSource,
     baseStationTrackColor,
+    hiddenTrackIds,
     baseStationTelemetry,
     repository,
     trackPointsByTrackId,
@@ -2685,7 +2738,7 @@ const MapWorkspace = () => {
             isBaseStationSourceAssigned={baseStationNavigationSource !== null}
             divers={missionDivers}
             diverPositionsById={diverTelemetryById}
-            trackSegments={trackSegments}
+            trackSegments={visibleTrackSegments}
             followAgentId={pinnedAgentId}
             connectionStatus={connectionStatus}
             connectionLostSeconds={connectionLostSeconds}
@@ -2724,6 +2777,7 @@ const MapWorkspace = () => {
             selectedAgentActiveTrackNumber={selectedAgentActiveTrackNumber}
             missionDocument={missionDocument}
             trackStatusByAgentId={trackStatusByAgentId}
+            hiddenTrackIds={hiddenTrackIds}
             selectedObject={selectedObject}
             onObjectSelect={handleObjectSelect}
             onObjectUpdate={handleObjectUpdate}
@@ -2735,6 +2789,8 @@ const MapWorkspace = () => {
             selectedZoneLaneCount={selectedZoneLaneCount}
             selectedZoneLaneFeatures={selectedZoneLaneFeatures}
             onTrackDelete={handleTrackDelete}
+            onTrackVisibilityToggle={toggleTrackHidden}
+            onTracksVisibilitySet={setTracksHiddenForSelection}
           />
         }
         status={
