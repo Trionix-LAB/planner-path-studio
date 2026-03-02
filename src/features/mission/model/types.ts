@@ -29,6 +29,17 @@ export type MissionTrackMeta = {
 export type MissionUiState = {
   follow_diver?: boolean;
   hidden_track_ids?: string[];
+  raster_overlays?: Array<{
+    id: string;
+    name: string;
+    file: string;
+    tfw_file?: string;
+    bounds: { north: number; south: number; east: number; west: number };
+    opacity: number;
+    visible: boolean;
+    z_index: number;
+    source: 'geotiff' | 'tif+tfw';
+  }>;
   divers?: DiverUiConfig[];
   layers?: {
     track?: boolean;
@@ -37,6 +48,7 @@ export type MissionUiState = {
     base_station?: boolean;
     grid?: boolean;
     scale_bar?: boolean;
+    basemap?: boolean;
   };
   coordinates?: {
     precision?: number;

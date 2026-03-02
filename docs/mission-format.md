@@ -33,6 +33,7 @@
 - `tracks`: array объектов:
   - `id`: string (UUID)
   - `agent_id`: string | null (uid агента, которому принадлежит трек; `null` для треков, созданных до введения мультиагентной записи)
+  - `color`: string | undefined (исторический цвет конкретного трека; при отсутствии используется fallback стилей)
   - `file`: string (относительный путь, например `tracks/agent1-track-0001.csv`)
   - `started_at`: string (системное время начала записи, UTC, `Z`)
   - `ended_at`: string | null (системное время окончания записи, UTC, `Z`)
@@ -42,7 +43,18 @@
   - `markers`: string (например `markers/markers.geojson`)
 - `ui` (опционально, но рекомендуется сохранять):
   - `follow_diver`: boolean
-  - `layers`: object (видимость слоев: `track`, `routes`, `markers`, `base_station`, `grid`, `scale_bar`)
+  - `hidden_track_ids`: string[] (список скрытых треков; по умолчанию пустой)
+  - `raster_overlays`: array (опционально)
+    - `id`: string
+    - `name`: string
+    - `file`: string (относительный путь к файлу данных слоя, например `overlays/<id>.tif.b64`)
+    - `tfw_file`: string | undefined (опционально, для источника `tif+tfw`; относительный путь, например `overlays/<id>.tfw`)
+    - `bounds`: `{ north, south, east, west }`
+    - `opacity`: number (`0..1`)
+    - `visible`: boolean
+    - `z_index`: number
+    - `source`: `'geotiff' | 'tif+tfw'`
+  - `layers`: object (видимость слоев: `track`, `routes`, `markers`, `base_station`, `grid`, `scale_bar`, `basemap`)
   - `coordinates` (опционально): object
     - `precision`: number (кол-во знаков после запятой для lat/lon; default 6)
   - `map_view`: object:
@@ -80,7 +92,10 @@
 - В миссии для каждого агента может быть не более одного «активного» трека (в который пишутся точки). Маппинг `agent_uid -> track_id` хранится в `active_tracks`. Несколько агентов могут записывать треки параллельно.
 - Поле `active_track_id` сохраняется для обратной совместимости. При чтении: если `active_tracks` отсутствует, а `active_track_id` задан, он интерпретируется как активный трек первого (primary) агента.
 - Поле `agent_id` в треке указывает, какому агенту принадлежит трек. Треки с `agent_id = null` считаются принадлежащими primary-агенту (первому в массиве `ui.divers`).
+- Поле `color` в треке фиксирует исторический цвет конкретной сессии записи и не должно массово перекрашиваться при изменении глобального/агентского цвета.
 - Поля `ui.navigation_sources` и `ui.base_station` считаются опциональными для совместимости с уже сохраненными миссиями MVP.
+- `ui.raster_overlays` хранит только метаданные слоя; payload растра хранится отдельным файлом в папке миссии.
+- Для импортированных растров источника `tif+tfw` рядом с копией TIFF в папке миссии сохраняется и копия исходного `TFW` (`ui.raster_overlays[].tfw_file`).
 
 ### 2.3 Пример `mission.json`
 
@@ -125,7 +140,8 @@
       "markers": true,
       "base_station": true,
       "grid": false,
-      "scale_bar": true
+      "scale_bar": true,
+      "basemap": true
     },
     "coordinates": { "precision": 6 },
     "measurements": {

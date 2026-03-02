@@ -47,6 +47,11 @@ type ElectronApi = {
     writeJson: (key: string, value: unknown) => Promise<void>;
     remove: (key: string) => Promise<void>;
   };
+  raster?: {
+    convertTiffBase64ToPngBase64: (tiffBase64: string) => Promise<string | null>;
+    readSiblingTfwTextByTifPath: (tifPath: string) => Promise<string | null>;
+    resolveLocalPathForFile: (file: File) => Promise<string | null>;
+  };
   lifecycle?: {
     onPrepareClose: (listener: (payload: { token?: string }) => void) => () => void;
     resolvePrepareClose: (payload: { token: string; ok: boolean; error?: string }) => void;
@@ -206,6 +211,23 @@ export const electronPlatform: Platform = {
       const api = getApi();
       if (!api) return null;
       return api.fileStore.stat(normalizeStorePath(path));
+    },
+  },
+  raster: {
+    convertTiffBase64ToPngBase64: async (tiffBase64) => {
+      const api = getApi();
+      if (!api?.raster) return null;
+      return api.raster.convertTiffBase64ToPngBase64(tiffBase64);
+    },
+    readSiblingTfwTextByTifPath: async (tifPath) => {
+      const api = getApi();
+      if (!api?.raster) return null;
+      return api.raster.readSiblingTfwTextByTifPath(tifPath);
+    },
+    resolveLocalPathForFile: async (file) => {
+      const api = getApi();
+      if (!api?.raster) return null;
+      return api.raster.resolveLocalPathForFile(file);
     },
   },
 };

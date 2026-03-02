@@ -21,6 +21,7 @@ describe('LeftPanel base station controls (T-99)', () => {
     const { rerender } = render(
       <LeftPanel
         layers={{
+          basemap: true,
           track: true,
           routes: true,
           markers: true,
@@ -55,6 +56,7 @@ describe('LeftPanel base station controls (T-99)', () => {
     rerender(
       <LeftPanel
         layers={{
+          basemap: true,
           track: true,
           routes: true,
           markers: true,
@@ -84,5 +86,60 @@ describe('LeftPanel base station controls (T-99)', () => {
     expect(onBaseStationTrackAction).toHaveBeenCalledWith('pause');
     fireEvent.click(screen.getByRole('button', { name: 'Завершить трек базовой станции' }));
     expect(onBaseStationTrackAction).toHaveBeenCalledWith('stop');
+  });
+
+  it('handles raster controls: center, hide/show and basemap toggle', () => {
+    const onLayerToggle = vi.fn();
+    const onRasterOverlayToggle = vi.fn();
+    const onRasterOverlayCenter = vi.fn();
+
+    render(
+      <LeftPanel
+        layers={{
+          basemap: true,
+          track: true,
+          routes: true,
+          markers: true,
+          baseStation: true,
+          grid: false,
+          scaleBar: true,
+          diver: true,
+        }}
+        onLayerToggle={onLayerToggle}
+        divers={[diver]}
+        trackStatusByAgentId={{}}
+        baseStationTrackStatus="stopped"
+        selectedAgentId={null}
+        pinnedAgentId={null}
+        onAgentSelect={vi.fn()}
+        onAgentToggleRecording={vi.fn()}
+        onBaseStationTrackAction={vi.fn()}
+        isDraft={false}
+        isRecordingEnabled={true}
+        objects={[]}
+        rasterOverlays={[
+          {
+            id: 'raster-1',
+            name: 'Raster 1',
+            visible: true,
+            opacity: 1,
+            zIndex: 1,
+          },
+        ]}
+        selectedObjectId={null}
+        onObjectSelect={vi.fn()}
+        onRasterOverlayToggle={onRasterOverlayToggle}
+        onRasterOverlayCenter={onRasterOverlayCenter}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Тайловая подложка'));
+    expect(onLayerToggle).toHaveBeenCalledWith('basemap');
+
+    fireEvent.click(screen.getByRole('button', { name: /Переместиться к растру Raster 1/i }));
+    expect(onRasterOverlayCenter).toHaveBeenCalledWith('raster-1');
+
+    fireEvent.click(screen.getByRole('button', { name: /Скрыть растр Raster 1/i }));
+    expect(onRasterOverlayToggle).toHaveBeenCalledWith('raster-1');
   });
 });

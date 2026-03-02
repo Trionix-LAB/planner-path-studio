@@ -167,4 +167,9 @@ export const webPlatform: Platform = {
     },
     stat: async () => null,
   },
+  raster: {
+    convertTiffBase64ToPngBase64: async () => null,
+    readSiblingTfwTextByTifPath: async () => null,
+    resolveLocalPathForFile: async () => null,
+  },
 };

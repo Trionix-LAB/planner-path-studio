@@ -57,6 +57,7 @@ Key principles:
 
 - [**docs/tasks.md**](docs/tasks.md) — Current tasks and TODO items
 - [**docs/devices.md**](docs/devices.md) — Hardware device specifications
+- [**docs/features/tif-tfw-import-modes.md**](docs/features/tif-tfw-import-modes.md) — Quick guide for choosing `TIF + TFW` import mode (degrees / Mercator / UTM)
 - [**docs/electron-telemetry-provider.md**](docs/electron-telemetry-provider.md) — Electron telemetry integration notes
 - [**spec/adr/**](spec/adr/) — Architectural Decision Records
 

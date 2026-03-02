@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { ImageOverlay, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { AlertTriangle } from "lucide-react";
@@ -52,6 +52,7 @@ interface MapCanvasProps {
   lanePickMode: 'none' | 'edge' | 'start';
   lanePickZoneId: string | null;
   layers: {
+    basemap: boolean;
     track: boolean;
     routes: boolean;
     markers: boolean;
@@ -91,6 +92,15 @@ interface MapCanvasProps {
     }
   >;
   trackSegments: Array<{ trackId: string; points: Array<[number, number]>; color: string }>;
+  rasterOverlays?: Array<{
+    id: string;
+    name: string;
+    url: string;
+    bounds: { north: number; south: number; east: number; west: number };
+    opacity: number;
+    visible: boolean;
+    zIndex: number;
+  }>;
   followAgentId: string | null;
   connectionStatus: 'ok' | 'timeout' | 'error';
   connectionLostSeconds?: number;
@@ -469,6 +479,7 @@ const MapCanvas = ({
   divers,
   diverPositionsById = {},
   trackSegments,
+  rasterOverlays = [],
   followAgentId,
   connectionStatus,
   connectionLostSeconds,
@@ -1292,15 +1303,17 @@ const MapCanvas = ({
         doubleClickZoom={false}
         attributionControl={false}
       >
-        <CachedTileLayer
-          providerKey={platform.map.tileLayerUrl()}
-          urlTemplate={platform.map.tileLayerUrl()}
-          subdomains={tileSubdomains}
-          tileSize={typeof tileSize === 'number' ? tileSize : 256}
-          maxNativeZoom={baseMaxNativeZoom}
-          zIndex={1}
-        />
-        {overlayTileLayerUrl && overlayTileLayerAttribution ? (
+        {layers.basemap ? (
+          <CachedTileLayer
+            providerKey={platform.map.tileLayerUrl()}
+            urlTemplate={platform.map.tileLayerUrl()}
+            subdomains={tileSubdomains}
+            tileSize={typeof tileSize === 'number' ? tileSize : 256}
+            maxNativeZoom={baseMaxNativeZoom}
+            zIndex={1}
+          />
+        ) : null}
+        {layers.basemap && overlayTileLayerUrl && overlayTileLayerAttribution ? (
           <TileLayer
             url={overlayTileLayerUrl}
             attribution={overlayTileLayerAttribution}
@@ -1354,6 +1367,22 @@ const MapCanvas = ({
                 color: segment.color,
                 weight: styles.track.width_px,
               }}
+            />
+          ))}
+
+        {rasterOverlays
+          .filter((overlay) => overlay.visible && overlay.url)
+          .sort((a, b) => a.zIndex - b.zIndex)
+          .map((overlay) => (
+            <ImageOverlay
+              key={`raster-overlay-${overlay.id}`}
+              url={overlay.url}
+              opacity={overlay.opacity}
+              zIndex={overlay.zIndex}
+              bounds={[
+                [overlay.bounds.south, overlay.bounds.west],
+                [overlay.bounds.north, overlay.bounds.east],
+              ]}
             />
           ))}
 

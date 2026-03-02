@@ -1,7 +1,12 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 const dgram = require('dgram');
+const os = require('os');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+
+const execFileAsync = promisify(execFile);
 
 const CHANNELS = {
   pickDirectory: 'planner:pickDirectory',
@@ -19,6 +24,10 @@ const CHANNELS = {
     readJson: 'planner:settings:readJson',
     writeJson: 'planner:settings:writeJson',
     remove: 'planner:settings:remove',
+  },
+  raster: {
+    convertTiffBase64ToPngBase64: 'planner:raster:convertTiffBase64ToPngBase64',
+    readSiblingTfwTextByTifPath: 'planner:raster:readSiblingTfwTextByTifPath',
   },
   lifecycle: {
     prepareClose: 'planner:lifecycle:prepareClose',
@@ -202,6 +211,91 @@ const writeTextAtomic = async (filePath, content) => {
       // ignore cleanup failure
     }
     throw error;
+  }
+};
+
+const toPngBuffer = (image) => {
+  if (!image || image.isEmpty()) return null;
+  try {
+    const pngBuffer = image.toPNG();
+    return pngBuffer && pngBuffer.length > 0 ? pngBuffer : null;
+  } catch {
+    return null;
+  }
+};
+
+const convertTiffBufferToPngBufferViaNativeImagePath = async (inputBuffer) => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'planner-tiff-native-'));
+  const inputPath = path.join(tempRoot, 'input.tif');
+  try {
+    await fs.writeFile(inputPath, inputBuffer);
+    return toPngBuffer(nativeImage.createFromPath(inputPath));
+  } catch {
+    return null;
+  } finally {
+    try {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+};
+
+const convertTiffBufferToPngBufferViaImageMagick = async (inputBuffer) => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'planner-tiff-'));
+  const inputPath = path.join(tempRoot, 'input.tif');
+  const outputPath = path.join(tempRoot, 'output.png');
+  const variants = [
+    ['magick', [inputPath, outputPath]],
+    ['magick', ['convert', inputPath, outputPath]],
+    ['convert', [inputPath, outputPath]],
+  ];
+  try {
+    await fs.writeFile(inputPath, inputBuffer);
+    for (const [command, args] of variants) {
+      try {
+        await execFileAsync(command, args, { timeout: 15000 });
+      } catch {
+        continue;
+      }
+      try {
+        const pngBuffer = await fs.readFile(outputPath);
+        if (pngBuffer && pngBuffer.length > 0) {
+          return pngBuffer;
+        }
+      } catch {
+        // continue with next converter variant
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    try {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+};
+
+const readSiblingTfwTextByTifPath = async (tifPath) => {
+  if (typeof tifPath !== 'string' || !tifPath.trim()) return null;
+  try {
+    const resolvedTifPath = path.resolve(tifPath.trim());
+    const ext = path.extname(resolvedTifPath).toLowerCase();
+    if (ext !== '.tif' && ext !== '.tiff') return null;
+
+    const dir = path.dirname(resolvedTifPath);
+    const base = path.basename(resolvedTifPath, path.extname(resolvedTifPath));
+    const expectedLower = `${base.toLowerCase()}.tfw`;
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const tfwEntry = entries.find((entry) => entry.isFile() && entry.name.toLowerCase() === expectedLower);
+    if (!tfwEntry) return null;
+
+    return await fs.readFile(path.join(dir, tfwEntry.name), 'utf8');
+  } catch {
+    return null;
   }
 };
 
@@ -1104,6 +1198,35 @@ const registerIpcHandlers = () => {
     const settings = await readSettingsFile(settingsPath);
     delete settings[key];
     await writeSettingsFile(settingsPath, settings);
+  });
+
+  ipcMain.handle(CHANNELS.raster.convertTiffBase64ToPngBase64, async (_event, tiffBase64) => {
+    if (typeof tiffBase64 !== 'string' || !tiffBase64.trim()) return null;
+    try {
+      const inputBuffer = Buffer.from(tiffBase64.trim(), 'base64');
+      if (!inputBuffer.length) return null;
+      const directPngBuffer = toPngBuffer(nativeImage.createFromBuffer(inputBuffer));
+      if (directPngBuffer) {
+        return directPngBuffer.toString('base64');
+      }
+
+      const pathDecoderPngBuffer = await convertTiffBufferToPngBufferViaNativeImagePath(inputBuffer);
+      if (pathDecoderPngBuffer) {
+        return pathDecoderPngBuffer.toString('base64');
+      }
+
+      const fallbackPng = await convertTiffBufferToPngBufferViaImageMagick(inputBuffer);
+      if (fallbackPng && fallbackPng.length > 0) {
+        return fallbackPng.toString('base64');
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle(CHANNELS.raster.readSiblingTfwTextByTifPath, async (_event, tifPath) => {
+    return readSiblingTfwTextByTifPath(tifPath);
   });
 
   ipcMain.handle(CHANNELS.zima.start, async (_event, input) => {
