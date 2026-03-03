@@ -46,6 +46,19 @@ interface LeftPanelProps {
   onRasterOverlayDelete?: (id: string) => void;
   onRasterOverlayCenter?: (id: string) => void;
   onRasterOverlayToggleAll?: () => void;
+  vectorOverlays?: Array<{
+    id: string;
+    name: string;
+    visible: boolean;
+    opacity: number;
+    zIndex: number;
+  }>;
+  onVectorOverlayToggle?: (id: string) => void;
+  onVectorOverlayOpacityChange?: (id: string, opacity: number) => void;
+  onVectorOverlayMove?: (id: string, delta: -1 | 1) => void;
+  onVectorOverlayDelete?: (id: string) => void;
+  onVectorOverlayCenter?: (id: string) => void;
+  onVectorOverlayToggleAll?: () => void;
 }
 
 const BASE_STATION_AGENT_ID = 'base-station';
@@ -84,9 +97,17 @@ const LeftPanel = ({
   onRasterOverlayDelete,
   onRasterOverlayCenter,
   onRasterOverlayToggleAll,
+  vectorOverlays = [],
+  onVectorOverlayToggle,
+  onVectorOverlayOpacityChange,
+  onVectorOverlayMove,
+  onVectorOverlayDelete,
+  onVectorOverlayCenter,
+  onVectorOverlayToggleAll,
 }: LeftPanelProps) => {
   const isBaseStationSelected = selectedAgentId === BASE_STATION_AGENT_ID;
   const isAllRastersHidden = rasterOverlays.length > 0 && rasterOverlays.every((o) => !o.visible);
+  const isAllVectorsHidden = vectorOverlays.length > 0 && vectorOverlays.every((o) => !o.visible);
   const layerItems = [
     { key: 'diver' as const, icon: Waves, label: 'Водолаз', locked: true },
     { key: 'basemap' as const, icon: Circle, label: 'Тайловая подложка', locked: false },
@@ -465,6 +486,97 @@ const LeftPanel = ({
           </div>
         ) : (
           <div className="text-[11px] text-muted-foreground">Нет импортированных растров</div>
+        )}
+      </div>
+
+      <div className="border-t border-sidebar-border mt-1" />
+
+      <div className="panel-header">
+        Векторные слои
+        {vectorOverlays.length > 0 && onVectorOverlayToggleAll && (
+          <button
+            type="button"
+            className="ml-auto h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+            aria-label={isAllVectorsHidden ? 'Показать все векторные слои' : 'Скрыть все векторные слои'}
+            title={isAllVectorsHidden ? 'Показать все векторные слои' : 'Скрыть все векторные слои'}
+            onClick={onVectorOverlayToggleAll}
+          >
+            {isAllVectorsHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </button>
+        )}
+      </div>
+      <div className="p-1.5 space-y-1.5">
+        {vectorOverlays.length > 0 ? (
+          <div className="space-y-1 max-h-36 overflow-y-auto">
+            {vectorOverlays
+              .slice()
+              .sort((a, b) => b.zIndex - a.zIndex)
+              .map((overlay) => (
+                <div key={overlay.id} className="p-1 rounded bg-sidebar-accent/70 text-[11px]">
+                  <div className="flex items-center gap-1">
+                    <span className="truncate flex-1">{overlay.name}</span>
+                    <button
+                      type="button"
+                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                      onClick={() => onVectorOverlayCenter?.(overlay.id)}
+                      title="Переместиться к слою"
+                      aria-label={`Переместиться к слою ${overlay.name}`}
+                    >
+                      <LocateFixed className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                      onClick={() => onVectorOverlayToggle?.(overlay.id)}
+                      title={overlay.visible ? 'Скрыть слой' : 'Показать слой'}
+                      aria-label={overlay.visible ? `Скрыть слой ${overlay.name}` : `Показать слой ${overlay.name}`}
+                    >
+                      {overlay.visible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                      onClick={() => onVectorOverlayMove?.(overlay.id, 1)}
+                      title="Выше"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                      onClick={() => onVectorOverlayMove?.(overlay.id, -1)}
+                      title="Ниже"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      className="h-5 w-5 rounded hover:bg-destructive/20"
+                      onClick={() => onVectorOverlayDelete?.(overlay.id)}
+                      title="Удалить"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={Math.round(overlay.opacity * 100)}
+                    className="w-full"
+                    onChange={(event) =>
+                      onVectorOverlayOpacityChange?.(
+                        overlay.id,
+                        Math.max(0, Math.min(1, Number(event.target.value) / 100)),
+                      )
+                    }
+                  />
+                </div>
+              ))}
+          </div>
+        ) : (
+          <div className="text-[11px] text-muted-foreground">Нет импортированных векторных слоев</div>
         )}
       </div>
 

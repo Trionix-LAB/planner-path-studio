@@ -73,6 +73,13 @@ interface TopToolbarProps {
       utmHemisphere?: 'north' | 'south';
     },
   ) => void;
+  onImportDxfFiles?: (
+    files: FileList | File[],
+    options: {
+      utmZone: number;
+      utmHemisphere: 'north' | 'south';
+    },
+  ) => void;
   onFinishMission: () => void;
   onGoToStart: () => void;
 }
@@ -98,6 +105,7 @@ const TopToolbar = ({
   onOpenSettings,
   onOpenOfflineMaps,
   onImportRasterFiles,
+  onImportDxfFiles,
   onFinishMission,
   onGoToStart,
 }: TopToolbarProps) => {
@@ -105,11 +113,17 @@ const TopToolbar = ({
   const tifTfwDegreesInputRef = useRef<HTMLInputElement | null>(null);
   const tifTfwMercatorInputRef = useRef<HTMLInputElement | null>(null);
   const tifTfwUtmInputRef = useRef<HTMLInputElement | null>(null);
+  const dxfUtmInputRef = useRef<HTMLInputElement | null>(null);
   const pendingUtmConfigRef = useRef<{ zone: number; hemisphere: 'north' | 'south' } | null>(null);
+  const pendingDxfUtmConfigRef = useRef<{ zone: number; hemisphere: 'north' | 'south' } | null>(null);
   const [utmDialogOpen, setUtmDialogOpen] = useState(false);
+  const [dxfUtmDialogOpen, setDxfUtmDialogOpen] = useState(false);
   const [utmZoneText, setUtmZoneText] = useState('37');
   const [utmHemisphere, setUtmHemisphere] = useState<'north' | 'south'>('north');
   const [utmError, setUtmError] = useState<string | null>(null);
+  const [dxfUtmZoneText, setDxfUtmZoneText] = useState('37');
+  const [dxfUtmHemisphere, setDxfUtmHemisphere] = useState<'north' | 'south'>('north');
+  const [dxfUtmError, setDxfUtmError] = useState<string | null>(null);
   const UTM_ZONE_ERROR = 'Некорректная UTM зона: ожидается число от 1 до 60.';
 
   const parseUtmZone = (value: string): number | null => {
@@ -126,6 +140,16 @@ const TopToolbar = ({
     }
     setUtmError(null);
     return { zone, hemisphere: utmHemisphere };
+  };
+
+  const validateDxfUtmConfig = (): { zone: number; hemisphere: 'north' | 'south' } | null => {
+    const zone = parseUtmZone(dxfUtmZoneText);
+    if (zone === null) {
+      setDxfUtmError(UTM_ZONE_ERROR);
+      return null;
+    }
+    setDxfUtmError(null);
+    return { zone, hemisphere: dxfUtmHemisphere };
   };
   const tools = [
     { id: 'select' as Tool, icon: MousePointer2, label: 'Выбор/Редактирование' },
@@ -205,6 +229,29 @@ const TopToolbar = ({
               });
             }
             pendingUtmConfigRef.current = null;
+            event.currentTarget.value = '';
+          }}
+        />
+        <input
+          ref={dxfUtmInputRef}
+          type="file"
+          className="hidden"
+          accept=".dxf,.dwg"
+          multiple
+          onChange={(event) => {
+            const files = event.target.files;
+            if (files && files.length > 0) {
+              const utm = pendingDxfUtmConfigRef.current;
+              if (!utm) {
+                event.currentTarget.value = '';
+                return;
+              }
+              onImportDxfFiles?.(files, {
+                utmZone: utm.zone,
+                utmHemisphere: utm.hemisphere,
+              });
+            }
+            pendingDxfUtmConfigRef.current = null;
             event.currentTarget.value = '';
           }}
         />
@@ -289,6 +336,24 @@ const TopToolbar = ({
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <ImagePlus className="w-4 h-4 mr-2" />
+                  Импортировать DWG/DXF
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-72">
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setDxfUtmError(null);
+                      setDxfUtmDialogOpen(true);
+                    }}
+                  >
+                    <ImagePlus className="w-4 h-4 mr-2" />
+                    DWG/DXF + UTM
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />
@@ -355,6 +420,67 @@ const TopToolbar = ({
               }}
             >
               Выбрать TIF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={dxfUtmDialogOpen} onOpenChange={setDxfUtmDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Импорт DWG/DXF + UTM</DialogTitle>
+            <DialogDescription>Укажите UTM зону и полушарие перед выбором DWG/DXF.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="dxf-utm-zone">UTM зона (1..60)</Label>
+              <Input
+                id="dxf-utm-zone"
+                value={dxfUtmZoneText}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setDxfUtmZoneText(nextValue);
+                  if (nextValue.trim().length === 0) {
+                    setDxfUtmError(UTM_ZONE_ERROR);
+                    return;
+                  }
+                  setDxfUtmError(parseUtmZone(nextValue) === null ? UTM_ZONE_ERROR : null);
+                }}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={60}
+                step={1}
+                placeholder="37"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="dxf-utm-hemisphere">Полушарие</Label>
+              <select
+                id="dxf-utm-hemisphere"
+                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={dxfUtmHemisphere}
+                onChange={(event) => setDxfUtmHemisphere(event.target.value === 'south' ? 'south' : 'north')}
+              >
+                <option value="north">Северное (N)</option>
+                <option value="south">Южное (S)</option>
+              </select>
+            </div>
+            {dxfUtmError ? <p className="text-xs text-destructive">{dxfUtmError}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              disabled={parseUtmZone(dxfUtmZoneText) === null}
+              onClick={() => {
+                const utm = validateDxfUtmConfig();
+                if (!utm) return;
+                pendingDxfUtmConfigRef.current = utm;
+                setDxfUtmDialogOpen(false);
+                dxfUtmInputRef.current?.click();
+              }}
+            >
+              Выбрать DWG/DXF
             </Button>
           </DialogFooter>
         </DialogContent>

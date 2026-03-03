@@ -40,6 +40,19 @@ export type MissionUiState = {
     z_index: number;
     source: 'geotiff' | 'tif+tfw';
   }>;
+  vector_overlays?: Array<{
+    id: string;
+    name: string;
+    file: string;
+    cache_file?: string;
+    type: 'dxf' | 'dwg';
+    file_encoding?: 'utf8' | 'base64';
+    utm_zone: number;
+    utm_hemisphere: 'N' | 'S';
+    opacity: number;
+    visible: boolean;
+    z_index: number;
+  }>;
   divers?: DiverUiConfig[];
   layers?: {
     track?: boolean;
