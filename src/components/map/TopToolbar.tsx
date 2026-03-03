@@ -273,7 +273,7 @@ const TopToolbar = ({
                     }}
                   >
                     <ImagePlus className="w-4 h-4 mr-2" />
-                    TIF + TFW (Меркатор, EPSG:3857)
+                    TIF + TFW (WebMercator, EPSG:3857)
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={(event) => {

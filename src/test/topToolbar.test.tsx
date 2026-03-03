@@ -163,7 +163,7 @@ describe('top toolbar mission menu', () => {
     });
 
     await openImportTifSubmenu();
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'TIF + TFW (Меркатор, EPSG:3857)' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'TIF + TFW (WebMercator, EPSG:3857)' }));
 
     const input = document.querySelectorAll('input[accept=".tif,.tiff"]')[2] as HTMLInputElement | null;
     expect(input).not.toBeNull();

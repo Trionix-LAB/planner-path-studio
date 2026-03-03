@@ -84,8 +84,11 @@ npm run test:watch       # Run tests in watch mode
 npm run verify           # Run all checks: typecheck + lint + test + build
 
 # Electron Desktop App
-npm run electron:dev     # Start Electron app in dev mode with HMR
-npm run electron:build   # Build portable Windows executable
+npm run electron:dev          # Start Electron app in dev mode with HMR
+npm run electron:build        # Build for current platform (auto-detected)
+npm run electron:build:win    # Build Windows portable .exe
+npm run electron:build:linux  # Build Linux AppImage + .deb
+npm run electron:build:mac    # Build macOS .dmg + .zip (requires macOS)
 
 # Deployment
 npm run deploy           # Deploy to GitHub Pages
@@ -279,10 +282,23 @@ npm install
 npm run electron:dev  # Starts Vite dev server + Electron with HMR
 ```
 
-### Building Windows Executable
+### Building Desktop Executables
+
+Run the build from the target OS — native builds are required due to the `serialport` native module.
+
+#### Platform matrix
+
+| Command | Run on | Output | Location |
+|---|---|---|---|
+| `npm run electron:build:win` | Windows | `Planner Path Studio-Portable-{ver}.exe` | `release/` |
+| `npm run electron:build:linux` | Linux | `Planner Path Studio-{ver}-x64.AppImage` + `.deb` | `release/` |
+| `npm run electron:build:mac` | macOS | `Planner Path Studio-{ver}-x64.dmg` + `-arm64.dmg` | `release/` |
+| `npm run electron:build` | any | artifact for current OS | `release/` |
+
+#### Windows
 
 ```sh
-npm run electron:build
+npm run electron:build:win
 ```
 
 Output: `release/Planner Path Studio-Portable-0.0.0.exe`
@@ -290,7 +306,30 @@ Output: `release/Planner Path Studio-Portable-0.0.0.exe`
 **Note:** If build fails due to OS permissions when unpacking signing tools:
 - Enable **Developer Mode** in Windows, or
 - Run build in administrator terminal
-- Alternatively, `win.signAndEditExecutable=false` is already configured to avoid symlink issues
+- `win.signAndEditExecutable=false` is already configured to avoid symlink issues
+
+#### Linux
+
+```sh
+npm run electron:build:linux
+```
+
+Output:
+- `release/Planner Path Studio-0.0.0-x64.AppImage` — universal, no installation required, run directly
+- `release/Planner Path Studio-0.0.0-x64.deb` — Debian/Ubuntu installer
+
+#### macOS
+
+```sh
+npm run electron:build:mac
+```
+
+Output:
+- `release/Planner Path Studio-0.0.0-x64.dmg` — Intel Mac installer
+- `release/Planner Path Studio-0.0.0-arm64.dmg` — Apple Silicon (M1/M2/M3) installer
+- `.zip` variants alongside each `.dmg`
+
+**Note:** macOS builds can only be produced on a macOS host. For CI/CD, use a macOS runner.
 
 ### What Changes in Electron
 
@@ -306,7 +345,7 @@ Output: `release/Planner Path Studio-Portable-0.0.0.exe`
 
 Both web and Electron builds work from the same codebase:
 - Web: `npm run dev` → `npm run build`
-- Electron: `npm run electron:dev` → `npm run electron:build`
+- Electron: `npm run electron:dev` → `npm run electron:build:win` / `:linux` / `:mac`
 
 Platform-specific code is isolated in `src/platform/` with separate implementations for web and Electron.
 
