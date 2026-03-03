@@ -11,9 +11,8 @@
 - `routes/` - маршруты, зоны обследования и галсы (GeoJSON).
 - `markers/` - точки-маркеры (GeoJSON).
 - `overlays/` - импортированные пользовательские наложения:
-  - растры (`*.tif.b64`, `*.tfw`);
-  - CAD-исходники (`*.dxf`, `*.dwg.b64`);
-  - кэш распарсенной CAD-геометрии (`*.vector-cache.json`).
+  - `overlays/rasters/` - растры (`*.tif.b64`, `*.tfw`);
+  - `overlays/vectors/` - CAD-исходники (`*.dxf`, `*.dwg.b64`) и кэш распарсенной CAD-геометрии (`*.vector-cache.json`).
 - `exports/` - опционально: результаты экспорта (GPX/KML/CSV).
   - Для CSV-экспорта пользователь может выбрать CRS (`WGS84`/`СК-42`/`ГСК-2011`) и формат представления координат (`ДД`/`ГМ`/`ГМС`); это влияет только на файлы в `exports/`.
 - `logs/` - опционально: файлы логов/телеметрии, если принято хранить вместе с миссией.
@@ -52,8 +51,8 @@
   - `raster_overlays`: array (опционально)
     - `id`: string
     - `name`: string
-    - `file`: string (относительный путь к файлу данных слоя, например `overlays/<id>.tif.b64`)
-    - `tfw_file`: string | undefined (опционально, для источника `tif+tfw`; относительный путь, например `overlays/<id>.tfw`)
+    - `file`: string (относительный путь к файлу данных слоя, например `overlays/rasters/<id>.tif.b64`)
+    - `tfw_file`: string | undefined (опционально, для источника `tif+tfw`; относительный путь, например `overlays/rasters/<id>.tfw`)
     - `bounds`: `{ north, south, east, west }`
     - `opacity`: number (`0..1`)
     - `visible`: boolean
@@ -62,8 +61,9 @@
   - `vector_overlays`: array (опционально)
     - `id`: string
     - `name`: string
-    - `file`: string (относительный путь к файлу слоя; `DXF` — как текстовый `.dxf`, `DWG` — в бинарном содержимом, сохраненном как base64-текст `.dwg.b64`)
-    - `cache_file`: string | undefined (опционально, относительный путь к файлу кэша распарсенной геометрии, например `overlays/<id>.vector-cache.json`)
+    - `file`: string (относительный путь к файлу слоя; `DXF` — как текстовый `.dxf`, `DWG` — в бинарном содержимом, сохраненном как base64-текст `.dwg.b64`; каталог `overlays/vectors/`)
+    - `cache_file`: string | undefined (опционально, относительный путь к файлу кэша распарсенной геометрии, например `overlays/vectors/<id>.vector-cache.json`)
+    - `color`: string | undefined (опционально, пользовательский цвет отображения сущностей векторного слоя: линии/точки/фигуры, например `#0f766e`)
     - `type`: `'dxf' | 'dwg'`
     - `file_encoding` (опционально): `'utf8' | 'base64'` (`base64` для бинарного `DWG`)
     - `utm_zone`: number (`1..60`)
@@ -74,6 +74,12 @@
     - Примечание: входной импорт поддерживает `.dxf` и `.dwg` без конвертации между форматами.
     - Примечание: `DXF` парсится нативно встроенным модулем `src/features/map/dxfOverlay/parseDxf.ts`; `DWG` — нативно через `@mlightcad/libredwg-web` (`src/features/map/dwgOverlay/parseDwg.ts`).
   - `layers`: object (видимость слоев: `track`, `routes`, `markers`, `base_station`, `grid`, `scale_bar`, `basemap`)
+  - `left_panel_sections` (опционально): object (состояние секций левой панели)
+    - `layers`: boolean
+    - `agents`: boolean
+    - `rasters`: boolean
+    - `vectors`: boolean
+    - `objects`: boolean
   - `coordinates` (опционально): object
     - `precision`: number (кол-во знаков после запятой для lat/lon; default 6)
   - `map_view`: object:
@@ -118,10 +124,15 @@
 - `ui.vector_overlays` хранит метаданные CAD-слоя и пути к файлам в папке миссии:
   - `file` — исходный импортированный CAD-файл (`.dxf` или `.dwg.b64`),
   - `cache_file` — кэш распарсенной WGS84-геометрии (если создан).
+- Каталоги хранения MUST быть разделены:
+  - растры в `overlays/rasters/`,
+  - векторы и их cache в `overlays/vectors/`.
 - При открытии миссии для `vector_overlays` применяется `cache-first`:
   - сначала читается `cache_file`,
   - при отсутствии/несовпадении метаданных/ошибке чтения выполняется повторный нативный парсинг `file` и перезапись `cache_file`.
 - При успешном чтении `cache_file` отрисовка CAD-слоя выполняется напрямую из кэша без повторного парсинга исходного `DWG`/`DXF`, что снижает задержки при повторном открытии миссии и уменьшает нагрузку на UI.
+- Для обратной совместимости, если `cache_file` отсутствует, приложение может вычислить путь к кэшу рядом с `file` (в том же каталоге), что позволяет сразу использовать уже существующий кэш в старых миссиях.
+- `ui.left_panel_sections` хранит состояние свернутых/развернутых секций левой панели и используется как в mission, так и в draft.
 
 ### 2.2.1 Формат `vector-cache` файла
 

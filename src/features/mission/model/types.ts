@@ -45,6 +45,7 @@ export type MissionUiState = {
     name: string;
     file: string;
     cache_file?: string;
+    color?: string;
     type: 'dxf' | 'dwg';
     file_encoding?: 'utf8' | 'base64';
     utm_zone: number;
@@ -62,6 +63,13 @@ export type MissionUiState = {
     grid?: boolean;
     scale_bar?: boolean;
     basemap?: boolean;
+  };
+  left_panel_sections?: {
+    layers?: boolean;
+    agents?: boolean;
+    rasters?: boolean;
+    vectors?: boolean;
+    objects?: boolean;
   };
   coordinates?: {
     precision?: number;

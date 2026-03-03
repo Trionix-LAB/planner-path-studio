@@ -43,7 +43,7 @@ describe('mission repository raster overlays persistence (T-97)', () => {
             {
               id: 'overlay-1',
               name: 'scan-1',
-              file: 'overlays/overlay-1.tif.b64',
+              file: 'overlays/rasters/overlay-1.tif.b64',
               bounds: { north: 60, south: 59, east: 31, west: 30 },
               opacity: 0.8,
               visible: true,
@@ -58,7 +58,7 @@ describe('mission repository raster overlays persistence (T-97)', () => {
 
     const opened = await repository.openMission(rootPath, { acquireLock: false });
     expect(opened.mission.ui?.raster_overlays).toHaveLength(1);
-    expect(opened.mission.ui?.raster_overlays?.[0].file).toBe('overlays/overlay-1.tif.b64');
+    expect(opened.mission.ui?.raster_overlays?.[0].file).toBe('overlays/rasters/overlay-1.tif.b64');
     expect(opened.mission.ui?.raster_overlays?.[0].source).toBe('geotiff');
   });
 });

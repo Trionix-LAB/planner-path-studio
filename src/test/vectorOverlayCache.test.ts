@@ -8,7 +8,7 @@ import {
 } from '@/features/map/vectorOverlays/cache';
 
 const sourceMeta: VectorOverlayCacheSourceMeta = {
-  file: 'overlays/overlay-1.dxf',
+  file: 'overlays/vectors/overlay-1.dxf',
   type: 'dxf',
   fileEncoding: 'utf8',
   utmZone: 37,

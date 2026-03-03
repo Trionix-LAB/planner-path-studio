@@ -105,6 +105,7 @@ interface MapCanvasProps {
   vectorOverlays?: Array<{
     id: string;
     name: string;
+    color: string;
     opacity: number;
     visible: boolean;
     zIndex: number;
@@ -145,39 +146,64 @@ type VectorOverlayGeoJsonFeature = {
         coordinates: Array<[number, number]>;
       }
     | {
+        type: "Polygon";
+        coordinates: Array<Array<[number, number]>>;
+      }
+    | {
         type: "Point";
         coordinates: [number, number];
       };
-  properties: { kind: "polyline" | "point" };
+  properties: { kind: "polyline" | "polygon" | "point" };
 };
 type VectorOverlayGeoJsonCollection = {
   type: "FeatureCollection";
   features: VectorOverlayGeoJsonFeature[];
 };
 
+const isClosedPolyline = (points: Array<{ lat: number; lon: number }>): boolean => {
+  if (points.length < 4) return false;
+  const first = points[0];
+  const last = points[points.length - 1];
+  return Math.abs(first.lat - last.lat) < 1e-10 && Math.abs(first.lon - last.lon) < 1e-10;
+};
+
 const toVectorOverlayGeoJson = (
   features: DxfOverlayFeatureCollection["features"],
 ): VectorOverlayGeoJsonCollection => ({
   type: "FeatureCollection",
-  features: features.map((feature) =>
-    feature.type === "polyline"
-      ? {
-          type: "Feature",
-          geometry: {
-            type: "LineString",
-            coordinates: feature.points.map((point) => [point.lon, point.lat] as [number, number]),
-          },
-          properties: { kind: "polyline" },
-        }
-      : {
-          type: "Feature",
-          geometry: {
-            type: "Point",
-            coordinates: [feature.point.lon, feature.point.lat],
-          },
-          properties: { kind: "point" },
+  features: features.map((feature) => {
+    if (feature.type === "point") {
+      return {
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [feature.point.lon, feature.point.lat],
         },
-  ),
+        properties: { kind: "point" },
+      };
+    }
+
+    const coordinates = feature.points.map((point) => [point.lon, point.lat] as [number, number]);
+    if (isClosedPolyline(feature.points)) {
+      return {
+        type: "Feature",
+        geometry: {
+          type: "Polygon",
+          coordinates: [coordinates],
+        },
+        properties: { kind: "polygon" },
+      };
+    }
+
+    return {
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates,
+      },
+      properties: { kind: "polyline" },
+    };
+  }),
 });
 
 const OverlayLayers = memo(
@@ -226,17 +252,23 @@ const OverlayLayers = memo(
         {visibleVectorOverlays.map((overlay) => (
           <Pane key={`vector-pane-${overlay.id}`} name={`vector-pane-${overlay.id}`} style={{ zIndex: 450 + overlay.zIndex }}>
             <GeoJSON
+              key={`vector-geojson-${overlay.id}-${overlay.geoJson.features.length}`}
               data={overlay.geoJson as unknown as GeoJSON.GeoJsonObject}
-              style={{
-                color: "#0f766e",
-                weight: 2,
-                opacity: overlay.opacity,
+              style={(feature) => {
+                const isPolygon = feature?.geometry?.type === "Polygon";
+                return {
+                  color: overlay.color,
+                  weight: 2,
+                  opacity: overlay.opacity,
+                  fillColor: overlay.color,
+                  fillOpacity: isPolygon ? Math.max(0.08, overlay.opacity * 0.2) : 0,
+                };
               }}
               pointToLayer={(_, latlng) =>
                 L.circleMarker(latlng, {
                   radius: 3,
-                  color: "#0f766e",
-                  fillColor: "#0f766e",
+                  color: overlay.color,
+                  fillColor: overlay.color,
                   fillOpacity: overlay.opacity,
                   opacity: overlay.opacity,
                   weight: 1,

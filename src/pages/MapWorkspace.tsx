@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import TopToolbar from '@/components/map/TopToolbar';
 import RightPanel from '@/components/map/RightPanel';
-import LeftPanel from '@/components/map/LeftPanel';
+import LeftPanel, { type LeftPanelSectionsCollapsedState } from '@/components/map/LeftPanel';
 import StatusBar from '@/components/map/StatusBar';
 import MapCanvas from '@/components/map/MapCanvas';
 import MapWorkspaceFrame, { type MapPanelsCollapsedState } from '@/components/map/MapWorkspaceFrame';
@@ -107,6 +107,8 @@ const WAL_STAGE_DELAY_MS = 250;
 const AUTOSAVE_DELAY_MS = 900;
 const BASE_STATION_AGENT_ID = 'base-station';
 const OVERLAYS_DIR = 'overlays';
+const OVERLAYS_RASTER_DIR = `${OVERLAYS_DIR}/rasters`;
+const OVERLAYS_VECTOR_DIR = `${OVERLAYS_DIR}/vectors`;
 const createOverlayId = (): string =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -240,6 +242,7 @@ type WorkspaceSnapshot = {
   styles: AppUiDefaults['styles'];
   rasterOverlays: NonNullable<MissionUiState['raster_overlays']>;
   vectorOverlays: NonNullable<MissionUiState['vector_overlays']>;
+  leftPanelSectionsCollapsed: LeftPanelSectionsCollapsedState;
   isLoaded: boolean;
 };
 
@@ -252,6 +255,7 @@ type MapBounds = {
 
 type RasterOverlayUi = NonNullable<MissionUiState['raster_overlays']>[number];
 type VectorOverlayUi = NonNullable<MissionUiState['vector_overlays']>[number];
+const DEFAULT_VECTOR_OVERLAY_COLOR = '#0f766e';
 
 const computeVectorOverlayBounds = (features: DxfOverlayFeatureCollection['features']): MapBounds | null => {
   const lats: number[] = [];
@@ -292,11 +296,17 @@ const resolveVectorOverlayFileEncoding = (
   return overlay.type === 'dwg' ? 'base64' : 'utf8';
 };
 
-const resolveVectorOverlayCacheFilePath = (overlay: Pick<VectorOverlayUi, 'id' | 'cache_file'>): string => {
+const resolveVectorOverlayCacheFilePath = (overlay: Pick<VectorOverlayUi, 'id' | 'file' | 'cache_file'>): string => {
   if (typeof overlay.cache_file === 'string' && overlay.cache_file.trim().length > 0) {
     return overlay.cache_file;
   }
-  return `${OVERLAYS_DIR}/${overlay.id}.vector-cache.json`;
+  const sourceFile = typeof overlay.file === 'string' ? overlay.file.trim() : '';
+  const slashIndex = sourceFile.lastIndexOf('/');
+  if (slashIndex > 0) {
+    const dir = sourceFile.slice(0, slashIndex);
+    return `${dir}/${overlay.id}.vector-cache.json`;
+  }
+  return `${OVERLAYS_VECTOR_DIR}/${overlay.id}.vector-cache.json`;
 };
 
 const toVectorOverlayCacheSourceMeta = (overlay: VectorOverlayUi): VectorOverlayCacheSourceMeta => ({
@@ -360,6 +370,14 @@ const DEFAULT_MAP_PANELS_COLLAPSED: MapPanelsCollapsedState = {
   right: false,
 };
 
+const DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED: LeftPanelSectionsCollapsedState = {
+  layers: false,
+  agents: false,
+  rasters: false,
+  vectors: false,
+  objects: false,
+};
+
 const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   follow_diver: defaults.follow_diver,
   hidden_track_ids: [],
@@ -367,6 +385,7 @@ const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   vector_overlays: [],
   divers: createDefaultDivers(1),
   layers: { ...defaults.layers, basemap: true },
+  left_panel_sections: { ...DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED },
   base_station: {
     navigation_source: null,
     track_color: defaults.styles.track.color,
@@ -704,6 +723,9 @@ const MapWorkspace = () => {
   const [mapPanelsCollapsed, setMapPanelsCollapsed] = useState<MapPanelsCollapsedState>(
     DEFAULT_MAP_PANELS_COLLAPSED,
   );
+  const [leftPanelSectionsCollapsed, setLeftPanelSectionsCollapsed] = useState<LeftPanelSectionsCollapsedState>(
+    DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED,
+  );
   const [mapView, setMapView] = useState<MissionUiState['map_view'] | null>(null);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
   const [coordPrecision, setCoordPrecision] = useState(DEFAULT_APP_SETTINGS.defaults.coordinates.precision);
@@ -793,6 +815,7 @@ const MapWorkspace = () => {
     hiddenTrackIds: [],
     rasterOverlays: [],
     vectorOverlays: [],
+    leftPanelSectionsCollapsed: DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED,
     baseStationTelemetry: null,
     mapView: null,
     coordPrecision: DEFAULT_APP_SETTINGS.defaults.coordinates.precision,
@@ -837,6 +860,7 @@ const MapWorkspace = () => {
       vectorOverlays.map((overlay) => ({
         id: overlay.id,
         name: overlay.name,
+        color: overlay.color ?? DEFAULT_VECTOR_OVERLAY_COLOR,
         opacity: overlay.opacity,
         visible: overlay.visible,
         zIndex: overlay.z_index,
@@ -1123,6 +1147,7 @@ const MapWorkspace = () => {
       styles,
       rasterOverlays,
       vectorOverlays,
+      leftPanelSectionsCollapsed,
       isLoaded,
     };
   }, [
@@ -1144,6 +1169,7 @@ const MapWorkspace = () => {
     styles,
     rasterOverlays,
     vectorOverlays,
+    leftPanelSectionsCollapsed,
     isLoaded,
   ]);
 
@@ -1509,9 +1535,9 @@ const MapWorkspace = () => {
           }
 
           const id = createOverlayId();
-          const filePath = `${OVERLAYS_DIR}/${id}.tif.b64`;
+          const filePath = `${OVERLAYS_RASTER_DIR}/${id}.tif.b64`;
           await platform.fileStore.writeText(`${missionRootPath}/${filePath}`, arrayBufferToBase64(tifBuffer));
-          const tfwFilePath = source === 'tif+tfw' ? `${OVERLAYS_DIR}/${id}.tfw` : undefined;
+          const tfwFilePath = source === 'tif+tfw' ? `${OVERLAYS_RASTER_DIR}/${id}.tfw` : undefined;
           if (source === 'tif+tfw' && tfwFilePath && tfwTextForStorage !== null) {
             await platform.fileStore.writeText(`${missionRootPath}/${tfwFilePath}`, tfwTextForStorage);
           }
@@ -1611,8 +1637,8 @@ const MapWorkspace = () => {
           }
 
           const id = createOverlayId();
-          filePath = overlayType === 'dwg' ? `${OVERLAYS_DIR}/${id}.dwg.b64` : `${OVERLAYS_DIR}/${id}.dxf`;
-          const cacheFilePath = `${OVERLAYS_DIR}/${id}.vector-cache.json`;
+          filePath = overlayType === 'dwg' ? `${OVERLAYS_VECTOR_DIR}/${id}.dwg.b64` : `${OVERLAYS_VECTOR_DIR}/${id}.dxf`;
+          const cacheFilePath = `${OVERLAYS_VECTOR_DIR}/${id}.vector-cache.json`;
           await platform.fileStore.writeText(`${missionRootPath}/${filePath}`, fileContent);
 
           const data: VectorOverlayMapData = {
@@ -1624,6 +1650,7 @@ const MapWorkspace = () => {
             name: baseName,
             file: filePath,
             cache_file: cacheFilePath,
+            color: DEFAULT_VECTOR_OVERLAY_COLOR,
             type: overlayType,
             file_encoding: fileEncoding,
             utm_zone: options.utmZone,
@@ -1732,6 +1759,11 @@ const MapWorkspace = () => {
   const setVectorOverlayOpacity = useCallback((id: string, opacity: number) => {
     const nextOpacity = Math.max(0, Math.min(1, opacity));
     setVectorOverlays((prev) => prev.map((overlay) => (overlay.id === id ? { ...overlay, opacity: nextOpacity } : overlay)));
+  }, []);
+
+  const setVectorOverlayColor = useCallback((id: string, color: string) => {
+    if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+    setVectorOverlays((prev) => prev.map((overlay) => (overlay.id === id ? { ...overlay, color } : overlay)));
   }, []);
 
   const moveVectorOverlay = useCallback((id: string, delta: -1 | 1) => {
@@ -1884,6 +1916,7 @@ const MapWorkspace = () => {
       nextStyles: AppUiDefaults['styles'],
       rasterOverlaysState: RasterOverlayUi[],
       vectorOverlaysState: VectorOverlayUi[],
+      nextLeftPanelSectionsCollapsed: LeftPanelSectionsCollapsedState,
     ): MissionBundle => {
       const geo = mapObjectsToGeoJson(missionObjects);
       const nextMission: MissionDocument = {
@@ -1902,6 +1935,7 @@ const MapWorkspace = () => {
             grid: layersState.grid,
             scale_bar: layersState.scaleBar,
           },
+          left_panel_sections: nextLeftPanelSectionsCollapsed,
           base_station: {
             navigation_source: baseStationSourceState,
             track_color: baseStationTrackColorState,
@@ -1984,6 +2018,7 @@ const MapWorkspace = () => {
         snapshot.styles,
         snapshot.rasterOverlays,
         snapshot.vectorOverlays,
+        snapshot.leftPanelSectionsCollapsed,
       );
       await repository.saveMission(bundle);
 
@@ -2041,6 +2076,14 @@ const MapWorkspace = () => {
       scaleBar: effective.layers.scale_bar,
       diver: true,
     });
+    const sections = bundle.mission.ui?.left_panel_sections;
+    setLeftPanelSectionsCollapsed({
+      layers: typeof sections?.layers === 'boolean' ? sections.layers : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.layers,
+      agents: typeof sections?.agents === 'boolean' ? sections.agents : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.agents,
+      rasters: typeof sections?.rasters === 'boolean' ? sections.rasters : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.rasters,
+      vectors: typeof sections?.vectors === 'boolean' ? sections.vectors : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.vectors,
+      objects: typeof sections?.objects === 'boolean' ? sections.objects : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.objects,
+    });
     const baseStationUi = bundle.mission.ui?.base_station;
     const nextBaseStationSource = normalizeNavigationSourceId(
       baseStationUi?.navigation_source ?? baseStationUi?.source_id ?? null,
@@ -2083,6 +2126,7 @@ const MapWorkspace = () => {
               typeof item?.name === 'string' &&
               typeof item?.file === 'string' &&
               (typeof item?.cache_file === 'undefined' || typeof item?.cache_file === 'string') &&
+              (typeof item?.color === 'undefined' || typeof item?.color === 'string') &&
               (item?.type === 'dxf' || item?.type === 'dwg') &&
               (typeof item?.file_encoding === 'undefined' ||
                 item?.file_encoding === 'utf8' ||
@@ -2300,6 +2344,7 @@ const MapWorkspace = () => {
         styles,
         rasterOverlays,
         vectorOverlays,
+        leftPanelSectionsCollapsed,
       );
 
     walStageTimerRef.current = window.setTimeout(async () => {
@@ -2355,6 +2400,7 @@ const MapWorkspace = () => {
     styles,
     rasterOverlays,
     vectorOverlays,
+    leftPanelSectionsCollapsed,
   ]);
 
   const applyPrimaryConnectionState = useCallback((nextState: TelemetryConnectionState) => {
@@ -3685,6 +3731,7 @@ const MapWorkspace = () => {
             vectorOverlays={vectorOverlays.map((overlay) => ({
               id: overlay.id,
               name: overlay.name,
+              color: overlay.color ?? DEFAULT_VECTOR_OVERLAY_COLOR,
               visible: overlay.visible,
               opacity: overlay.opacity,
               zIndex: overlay.z_index,
@@ -3701,10 +3748,13 @@ const MapWorkspace = () => {
             onRasterOverlayToggleAll={toggleAllRasterOverlaysVisible}
             onVectorOverlayToggle={toggleVectorOverlayVisible}
             onVectorOverlayOpacityChange={setVectorOverlayOpacity}
+            onVectorOverlayColorChange={setVectorOverlayColor}
             onVectorOverlayMove={moveVectorOverlay}
             onVectorOverlayDelete={deleteVectorOverlay}
             onVectorOverlayCenter={centerVectorOverlay}
             onVectorOverlayToggleAll={toggleAllVectorOverlaysVisible}
+            sectionsCollapsed={leftPanelSectionsCollapsed}
+            onSectionsCollapsedChange={setLeftPanelSectionsCollapsed}
           />
         }
         center={

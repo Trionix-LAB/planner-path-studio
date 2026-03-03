@@ -5,7 +5,18 @@ import { parseDwgToWgs84 } from '@/features/map/dwgOverlay/parseDwg';
 
 describe('parseDwgToWgs84', () => {
   it('parses test DWG and returns map features', async () => {
-    const fixture = readFileSync(resolve(process.cwd(), 'tools/test.dwg'));
+    const fixturePath = (() => {
+      const root = process.cwd();
+      const legacy = resolve(root, 'tools/test.dwg');
+      const current = resolve(root, 'tools/test_vectors/test.dwg');
+      try {
+        readFileSync(legacy);
+        return legacy;
+      } catch {
+        return current;
+      }
+    })();
+    const fixture = readFileSync(fixturePath);
     const arrayBuffer = fixture.buffer.slice(fixture.byteOffset, fixture.byteOffset + fixture.byteLength);
 
     const result = await parseDwgToWgs84(arrayBuffer, {

@@ -42,8 +42,8 @@ describe('mission repository vector overlays persistence (T-102)', () => {
             {
               id: 'overlay-1',
               name: 'plan-1',
-              file: 'overlays/overlay-1.dxf',
-              cache_file: 'overlays/overlay-1.vector-cache.json',
+              file: 'overlays/vectors/overlay-1.dxf',
+              cache_file: 'overlays/vectors/overlay-1.vector-cache.json',
               type: 'dxf',
               utm_zone: 37,
               utm_hemisphere: 'N',
@@ -54,8 +54,8 @@ describe('mission repository vector overlays persistence (T-102)', () => {
             {
               id: 'overlay-2',
               name: 'plan-2',
-              file: 'overlays/overlay-2.dwg.b64',
-              cache_file: 'overlays/overlay-2.vector-cache.json',
+              file: 'overlays/vectors/overlay-2.dwg.b64',
+              cache_file: 'overlays/vectors/overlay-2.vector-cache.json',
               type: 'dwg',
               file_encoding: 'base64',
               utm_zone: 37,
@@ -72,12 +72,12 @@ describe('mission repository vector overlays persistence (T-102)', () => {
 
     const opened = await repository.openMission(rootPath, { acquireLock: false });
     expect(opened.mission.ui?.vector_overlays).toHaveLength(2);
-    expect(opened.mission.ui?.vector_overlays?.[0].file).toBe('overlays/overlay-1.dxf');
-    expect(opened.mission.ui?.vector_overlays?.[0].cache_file).toBe('overlays/overlay-1.vector-cache.json');
+    expect(opened.mission.ui?.vector_overlays?.[0].file).toBe('overlays/vectors/overlay-1.dxf');
+    expect(opened.mission.ui?.vector_overlays?.[0].cache_file).toBe('overlays/vectors/overlay-1.vector-cache.json');
     expect(opened.mission.ui?.vector_overlays?.[0].type).toBe('dxf');
     expect(opened.mission.ui?.vector_overlays?.[0].utm_zone).toBe(37);
-    expect(opened.mission.ui?.vector_overlays?.[1].file).toBe('overlays/overlay-2.dwg.b64');
-    expect(opened.mission.ui?.vector_overlays?.[1].cache_file).toBe('overlays/overlay-2.vector-cache.json');
+    expect(opened.mission.ui?.vector_overlays?.[1].file).toBe('overlays/vectors/overlay-2.dwg.b64');
+    expect(opened.mission.ui?.vector_overlays?.[1].cache_file).toBe('overlays/vectors/overlay-2.vector-cache.json');
     expect(opened.mission.ui?.vector_overlays?.[1].type).toBe('dwg');
     expect(opened.mission.ui?.vector_overlays?.[1].file_encoding).toBe('base64');
   });

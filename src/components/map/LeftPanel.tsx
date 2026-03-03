@@ -1,8 +1,41 @@
+import { useRef, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Eye, EyeOff, Route, MapPin, Grid3X3, Ruler, Waves, Circle, LocateFixed, Trash2, Anchor, Pin, Square } from 'lucide-react';
+import {
+  Eye,
+  EyeOff,
+  Route,
+  MapPin,
+  Grid3X3,
+  Ruler,
+  Waves,
+  Circle,
+  LocateFixed,
+  Trash2,
+  Anchor,
+  Pin,
+  Square,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MapObject } from '@/features/map/model/types';
 import type { DiverUiConfig, TrackRecorderStatus } from '@/features/mission';
+
+export type LeftPanelSectionsCollapsedState = {
+  layers: boolean;
+  agents: boolean;
+  rasters: boolean;
+  vectors: boolean;
+  objects: boolean;
+};
+
+const DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED: LeftPanelSectionsCollapsedState = {
+  layers: false,
+  agents: false,
+  rasters: false,
+  vectors: false,
+  objects: false,
+};
 
 interface LeftPanelProps {
   layers: {
@@ -49,16 +82,20 @@ interface LeftPanelProps {
   vectorOverlays?: Array<{
     id: string;
     name: string;
+    color?: string;
     visible: boolean;
     opacity: number;
     zIndex: number;
   }>;
   onVectorOverlayToggle?: (id: string) => void;
   onVectorOverlayOpacityChange?: (id: string, opacity: number) => void;
+  onVectorOverlayColorChange?: (id: string, color: string) => void;
   onVectorOverlayMove?: (id: string, delta: -1 | 1) => void;
   onVectorOverlayDelete?: (id: string) => void;
   onVectorOverlayCenter?: (id: string) => void;
   onVectorOverlayToggleAll?: () => void;
+  sectionsCollapsed?: LeftPanelSectionsCollapsedState;
+  onSectionsCollapsedChange?: (next: LeftPanelSectionsCollapsedState) => void;
 }
 
 const BASE_STATION_AGENT_ID = 'base-station';
@@ -100,11 +137,32 @@ const LeftPanel = ({
   vectorOverlays = [],
   onVectorOverlayToggle,
   onVectorOverlayOpacityChange,
+  onVectorOverlayColorChange,
   onVectorOverlayMove,
   onVectorOverlayDelete,
   onVectorOverlayCenter,
   onVectorOverlayToggleAll,
+  sectionsCollapsed,
+  onSectionsCollapsedChange,
 }: LeftPanelProps) => {
+  const vectorColorInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [localSectionCollapsed, setLocalSectionCollapsed] = useState<LeftPanelSectionsCollapsedState>(
+    DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED,
+  );
+  const sectionCollapsed = sectionsCollapsed ?? localSectionCollapsed;
+
+  const toggleSection = (section: keyof LeftPanelSectionsCollapsedState) => {
+    const next: LeftPanelSectionsCollapsedState = {
+      ...sectionCollapsed,
+      [section]: !sectionCollapsed[section],
+    };
+    if (onSectionsCollapsedChange) {
+      onSectionsCollapsedChange(next);
+      return;
+    }
+    setLocalSectionCollapsed(next);
+  };
+
   const isBaseStationSelected = selectedAgentId === BASE_STATION_AGENT_ID;
   const isAllRastersHidden = rasterOverlays.length > 0 && rasterOverlays.every((o) => !o.visible);
   const isAllVectorsHidden = vectorOverlays.length > 0 && vectorOverlays.every((o) => !o.visible);
@@ -122,40 +180,61 @@ const LeftPanel = ({
   return (
     <div className="w-56 bg-sidebar border-r border-sidebar-border flex flex-col text-[13px]">
       {/* Layers */}
-      <div className="panel-header">
+      <div className="panel-header flex items-center gap-2">
         <Eye className="w-4 h-4 inline mr-2" />
-        Слои
+        <span className="flex-1">Слои</span>
+        <button
+          type="button"
+          className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
+          aria-label={sectionCollapsed.layers ? 'Развернуть секцию Слои' : 'Свернуть секцию Слои'}
+          title={sectionCollapsed.layers ? 'Развернуть' : 'Свернуть'}
+          onClick={() => toggleSection('layers')}
+        >
+          {sectionCollapsed.layers ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
       </div>
-      <div className="p-1.5 space-y-0.5">
-        {layerItems.map((item) => (
-          <label
-            key={item.key}
-            className={`flex items-center gap-2.5 px-1.5 py-1 rounded hover:bg-sidebar-accent cursor-pointer ${
-              item.locked ? 'opacity-75' : ''
-            }`}
-          >
-            <Checkbox
-              checked={layers[item.key]}
-              disabled={item.locked}
-              onCheckedChange={() => onLayerToggle(item.key)}
-            />
-            <item.icon className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="text-[13px] leading-5">{item.label}</span>
-            {item.locked && (
-              <span className="text-[11px] leading-4 text-muted-foreground ml-auto">(фикс.)</span>
-            )}
-          </label>
-        ))}
-      </div>
+      {!sectionCollapsed.layers ? (
+        <div className="p-1.5 space-y-0.5">
+          {layerItems.map((item) => (
+            <label
+              key={item.key}
+              className={`flex items-center gap-2.5 px-1.5 py-1 rounded hover:bg-sidebar-accent cursor-pointer ${
+                item.locked ? 'opacity-75' : ''
+              }`}
+            >
+              <Checkbox
+                checked={layers[item.key]}
+                disabled={item.locked}
+                onCheckedChange={() => onLayerToggle(item.key)}
+              />
+              <item.icon className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-[13px] leading-5">{item.label}</span>
+              {item.locked && (
+                <span className="text-[11px] leading-4 text-muted-foreground ml-auto">(фикс.)</span>
+              )}
+            </label>
+          ))}
+        </div>
+      ) : null}
 
       <div className="border-t border-sidebar-border mt-1.5" />
 
       {/* Agents */}
-      <div className="panel-header">
+      <div className="panel-header flex items-center gap-2">
         <Waves className="w-4 h-4 inline mr-2" />
-        Агенты
+        <span className="flex-1">Агенты</span>
+        <button
+          type="button"
+          className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
+          aria-label={sectionCollapsed.agents ? 'Развернуть секцию Агенты' : 'Свернуть секцию Агенты'}
+          title={sectionCollapsed.agents ? 'Развернуть' : 'Свернуть'}
+          onClick={() => toggleSection('agents')}
+        >
+          {sectionCollapsed.agents ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
       </div>
-      <div className="p-1.5 space-y-1">
+      {!sectionCollapsed.agents ? (
+        <div className="p-1.5 space-y-1">
         <div
           className={cn(
             'p-1.5 rounded border group cursor-pointer transition-colors',
@@ -396,25 +475,36 @@ const LeftPanel = ({
             Нет агентов. Добавьте их в настройках.
           </div>
         )}
-      </div>
+        </div>
+      ) : null}
 
       <div className="border-t border-sidebar-border mt-1" />
 
-      <div className="panel-header">
-        Растры
-        {rasterOverlays.length > 0 && onRasterOverlayToggleAll && (
+      <div className="panel-header flex items-center gap-1">
+        <span className="flex-1">Растры</span>
+        {rasterOverlays.length > 0 && onRasterOverlayToggleAll ? (
           <button
             type="button"
-            className="ml-auto h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+            className="h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
             aria-label={isAllRastersHidden ? 'Показать все растры' : 'Скрыть все растры'}
             title={isAllRastersHidden ? 'Показать все растры' : 'Скрыть все растры'}
             onClick={onRasterOverlayToggleAll}
           >
             {isAllRastersHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
           </button>
-        )}
+        ) : null}
+        <button
+          type="button"
+          className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
+          aria-label={sectionCollapsed.rasters ? 'Развернуть секцию Растры' : 'Свернуть секцию Растры'}
+          title={sectionCollapsed.rasters ? 'Развернуть' : 'Свернуть'}
+          onClick={() => toggleSection('rasters')}
+        >
+          {sectionCollapsed.rasters ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
       </div>
-      <div className="p-1.5 space-y-1.5">
+      {!sectionCollapsed.rasters ? (
+        <div className="p-1.5 space-y-1.5">
         {rasterOverlays.length > 0 ? (
           <div className="space-y-1 max-h-36 overflow-y-auto">
             {rasterOverlays
@@ -487,33 +577,57 @@ const LeftPanel = ({
         ) : (
           <div className="text-[11px] text-muted-foreground">Нет импортированных растров</div>
         )}
-      </div>
+        </div>
+      ) : null}
 
       <div className="border-t border-sidebar-border mt-1" />
 
-      <div className="panel-header">
-        Векторные слои
-        {vectorOverlays.length > 0 && onVectorOverlayToggleAll && (
+      <div className="panel-header flex items-center gap-1">
+        <span className="flex-1">Векторные слои</span>
+        {vectorOverlays.length > 0 && onVectorOverlayToggleAll ? (
           <button
             type="button"
-            className="ml-auto h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+            className="h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
             aria-label={isAllVectorsHidden ? 'Показать все векторные слои' : 'Скрыть все векторные слои'}
             title={isAllVectorsHidden ? 'Показать все векторные слои' : 'Скрыть все векторные слои'}
             onClick={onVectorOverlayToggleAll}
           >
             {isAllVectorsHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
           </button>
-        )}
+        ) : null}
+        <button
+          type="button"
+          className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
+          aria-label={sectionCollapsed.vectors ? 'Развернуть секцию Векторные слои' : 'Свернуть секцию Векторные слои'}
+          title={sectionCollapsed.vectors ? 'Развернуть' : 'Свернуть'}
+          onClick={() => toggleSection('vectors')}
+        >
+          {sectionCollapsed.vectors ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
       </div>
-      <div className="p-1.5 space-y-1.5">
+      {!sectionCollapsed.vectors ? (
+        <div className="p-1.5 space-y-1.5">
         {vectorOverlays.length > 0 ? (
           <div className="space-y-1 max-h-36 overflow-y-auto">
             {vectorOverlays
               .slice()
               .sort((a, b) => b.zIndex - a.zIndex)
               .map((overlay) => (
-                <div key={overlay.id} className="p-1 rounded bg-sidebar-accent/70 text-[11px]">
+                <div
+                  key={overlay.id}
+                  className="p-1 rounded bg-sidebar-accent/70 text-[11px]"
+                  onContextMenu={(event) => {
+                    if (!onVectorOverlayColorChange) return;
+                    event.preventDefault();
+                    vectorColorInputRefs.current[overlay.id]?.click();
+                  }}
+                >
                   <div className="flex items-center gap-1">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: overlay.color ?? '#0f766e' }}
+                      aria-hidden
+                    />
                     <span className="truncate flex-1">{overlay.name}</span>
                     <button
                       type="button"
@@ -572,18 +686,43 @@ const LeftPanel = ({
                       )
                     }
                   />
+                  {onVectorOverlayColorChange ? (
+                    <input
+                      ref={(node) => {
+                        vectorColorInputRefs.current[overlay.id] = node;
+                      }}
+                      type="color"
+                      value={overlay.color ?? '#0f766e'}
+                      className="sr-only"
+                      aria-label={`Цвет слоя ${overlay.name}`}
+                      onChange={(event) => onVectorOverlayColorChange(overlay.id, event.target.value)}
+                    />
+                  ) : null}
                 </div>
               ))}
           </div>
         ) : (
           <div className="text-[11px] text-muted-foreground">Нет импортированных векторных слоев</div>
         )}
-      </div>
+        </div>
+      ) : null}
 
       <div className="border-t border-sidebar-border mt-1" />
 
-      <div className="panel-header">Объекты</div>
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-1.5 space-y-0.5">
+      <div className="panel-header flex items-center gap-2">
+        <span className="flex-1">Объекты</span>
+        <button
+          type="button"
+          className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
+          aria-label={sectionCollapsed.objects ? 'Развернуть секцию Объекты' : 'Свернуть секцию Объекты'}
+          title={sectionCollapsed.objects ? 'Развернуть' : 'Свернуть'}
+          onClick={() => toggleSection('objects')}
+        >
+          {sectionCollapsed.objects ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+      {!sectionCollapsed.objects ? (
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-1.5 space-y-0.5">
         {objects.map((obj) => (
           <div
             key={obj.id}
@@ -629,7 +768,8 @@ const LeftPanel = ({
             Нет объектов. Создайте их инструментами на карте.
           </div>
         )}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 };
