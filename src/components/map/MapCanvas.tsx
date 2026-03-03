@@ -967,6 +967,16 @@ const MapCanvas = ({
     return { routes, zones, markers };
   }, [objects]);
 
+  const zoneLaneColorById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const obj of objects) {
+      if (obj.type !== 'zone') continue;
+      const customLaneColor = typeof obj.laneColor === 'string' ? obj.laneColor.trim() : '';
+      map.set(obj.id, customLaneColor || styles.lane.color);
+    }
+    return map;
+  }, [objects, styles.lane.color]);
+
   const segmentLengthOverlays = useMemo(() => {
     if (segmentLengthsMode === 'off') return [] as Array<{ key: string; lat: number; lon: number; label: string }>;
     const overlays: Array<{ key: string; lat: number; lon: number; label: string }> = [];
@@ -1420,6 +1430,7 @@ const MapCanvas = ({
             const parentAreaId = lane.properties.parent_area_id;
             const isParentSelected = selectedObjectId === parentAreaId;
             const isOutdated = Boolean(outdatedZoneIds[parentAreaId]);
+            const laneColor = zoneLaneColorById.get(parentAreaId) ?? styles.lane.color;
             const lanePoints = lane.geometry.coordinates.map(
               ([lon, lat]) => [lat, lon] as [number, number],
             );
@@ -1429,7 +1440,7 @@ const MapCanvas = ({
                 key={lane.properties.id}
                 positions={lanePoints}
                 pathOptions={{
-                  color: isOutdated ? 'hsl(215, 16%, 47%)' : styles.lane.color,
+                  color: laneColor,
                   weight: (isParentSelected ? 1 : 0) + styles.lane.width_px,
                   opacity: isOutdated ? 0.35 : isParentSelected ? 0.95 : 0.75,
                   dashArray: isOutdated ? '3 7' : (styles.lane.dash || undefined),
@@ -1539,7 +1550,7 @@ const MapCanvas = ({
                 key={`traversal-${overlay.zoneId}`}
                 positions={overlay.traversalPath}
                 pathOptions={{
-                  color: 'hsl(142, 71%, 45%)',
+                  color: zoneLaneColorById.get(overlay.zoneId) ?? styles.lane.color,
                   weight: overlay.isSelected ? 3 : 2,
                   opacity: overlay.isSelected ? 0.9 : 0.7,
                 }}
