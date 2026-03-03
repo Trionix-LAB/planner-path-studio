@@ -4,14 +4,17 @@ export {
   joinPath,
   markersToCsv,
   markersToGpx,
+  routesToCsv,
   routesToGpx,
   routesToKml,
   safeFilename,
+  tracksToCsv,
   tracksToGpx,
   tracksToKml,
 } from './model/exporters';
 
 export type {
+  ExportCsvCoordinateOptions,
   ExportMarkersFormat,
   ExportObjectsMode,
   ExportRequest,

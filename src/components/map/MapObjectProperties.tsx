@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -10,9 +10,29 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import type { MapObject } from '@/features/map/model/types';
 import type { LaneFeature } from '@/features/mission';
+import { convertPoint, getCrsLabel, supportedCoordinateCrs, type CrsId } from '@/features/geo/crs';
+import {
+  coordinateInputFormats,
+  formatCoordinateForInput,
+  getCoordinateInputFormatLabel,
+  getCoordinateInputMaskLabel,
+  getCoordinatePlaceholder,
+  parseCoordinateInput,
+  reformatCoordinateValue,
+  sanitizeCoordinateInput,
+  type CoordinateInputFormat,
+} from '@/features/geo/coordinateInputFormat';
 import { parseLaneAngleInput } from '@/features/mission/model/laneAngle';
 import type { AppUiDefaults } from '@/features/settings';
 import { AlertTriangle, Trash2, X } from 'lucide-react';
@@ -21,6 +41,10 @@ import { haversineDistanceMeters } from './scaleUtils';
 interface MapObjectPropertiesProps {
   object: MapObject;
   styles: AppUiDefaults['styles'];
+  coordinateInputCrs?: CrsId;
+  coordinateInputFormat?: CoordinateInputFormat;
+  onCoordinateInputCrsChange?: (crs: CrsId) => void;
+  onCoordinateInputFormatChange?: (format: CoordinateInputFormat) => void;
   onSave: (id: string, updates: Partial<MapObject>) => void;
   onClose: () => void;
   onDelete?: (id: string) => void;
@@ -43,6 +67,26 @@ type PointCellErrors = Record<number, { lat?: string; lon?: string }>;
 type PointInputErrors = {
   lat?: string;
   lon?: string;
+};
+
+type PointPreviewRow = {
+  lat: string;
+  lon: string;
+  error?: string;
+};
+
+type LaneVertexRow = {
+  laneIndex: number;
+  vertexIndex: number;
+  lat: number;
+  lon: number;
+};
+
+type LaneVertexDisplayRow = {
+  laneIndex: number;
+  vertexIndex: number;
+  lat: string;
+  lon: string;
 };
 
 const getDefaultColor = (type: MapObject['type'], styles: AppUiDefaults['styles']): string => {
@@ -91,54 +135,95 @@ const formatLaneCount = (count: number | null | undefined): string => {
   return String(count);
 };
 
-const toEditableRowsFromObject = (object: MapObject): EditablePointRow[] => {
+const toEditableRowsFromObject = (
+  object: MapObject,
+  targetCrs: CrsId,
+  targetFormat: CoordinateInputFormat,
+): EditablePointRow[] => {
   if (
     (object.type === 'route' && object.geometry?.type === 'route') ||
     (object.type === 'zone' && object.geometry?.type === 'zone')
   ) {
-    return object.geometry.points.map((point, index) => ({
-      id: `${object.id}-${index}-${point.lat}-${point.lon}`,
-      lat: point.lat.toFixed(6),
-      lon: point.lon.toFixed(6),
-    }));
+    return object.geometry.points.map((point, index) => {
+      const converted = convertPoint(point, 'wgs84', targetCrs);
+      return {
+        id: `${object.id}-${index}-${point.lat}-${point.lon}`,
+        lat: formatCoordinateForInput(converted.lat, targetFormat),
+        lon: formatCoordinateForInput(converted.lon, targetFormat),
+      };
+    });
   }
   return [];
 };
 
-const validatePointInput = (latRaw: string, lonRaw: string): PointInputErrors => {
-  const errors: PointInputErrors = {};
-  const lat = Number(latRaw.trim());
-  const lon = Number(lonRaw.trim());
+const toEditableMarkerPoint = (
+  object: MapObject,
+  targetCrs: CrsId,
+  targetFormat: CoordinateInputFormat,
+): { lat: string; lon: string } => {
+  if (object.type !== 'marker' || object.geometry?.type !== 'marker') {
+    return { lat: '', lon: '' };
+  }
+  const converted = convertPoint(object.geometry.point, 'wgs84', targetCrs);
+  return {
+    lat: formatCoordinateForInput(converted.lat, targetFormat),
+    lon: formatCoordinateForInput(converted.lon, targetFormat),
+  };
+};
 
-  if (!Number.isFinite(lat)) {
-    errors.lat = 'Некорректная широта';
-  } else if (lat < -90 || lat > 90) {
-    errors.lat = 'Широта должна быть от -90 до 90';
+const validatePointInput = (
+  latRaw: string,
+  lonRaw: string,
+  format: CoordinateInputFormat,
+): PointInputErrors => {
+  const errors: PointInputErrors = {};
+  const lat = parseCoordinateInput(latRaw, format, 'lat');
+  const lon = parseCoordinateInput(lonRaw, format, 'lon');
+
+  if (!lat.ok) {
+    if ('reason' in lat && lat.reason === 'out_of_range') {
+      errors.lat = 'Широта должна быть от -90 до 90';
+    } else {
+      errors.lat = 'Некорректная широта';
+    }
   }
 
-  if (!Number.isFinite(lon)) {
-    errors.lon = 'Некорректная долгота';
-  } else if (lon < -180 || lon > 180) {
-    errors.lon = 'Долгота должна быть от -180 до 180';
+  if (!lon.ok) {
+    if ('reason' in lon && lon.reason === 'out_of_range') {
+      errors.lon = 'Долгота должна быть от -180 до 180';
+    } else {
+      errors.lon = 'Некорректная долгота';
+    }
   }
 
   return errors;
 };
 
+const parsePointInputValue = (
+  valueRaw: string,
+  format: CoordinateInputFormat,
+  axis: 'lat' | 'lon',
+): number | null => {
+  const parsed = parseCoordinateInput(valueRaw, format, axis);
+  if (!parsed.ok) return null;
+  return parsed.value;
+};
+
 const validatePointRows = (
   rows: EditablePointRow[],
   minPoints: number,
+  format: CoordinateInputFormat,
 ): { points: Array<{ lat: number; lon: number }> | null; cellErrors: PointCellErrors; tableError: string | null } => {
   const cellErrors: PointCellErrors = {};
   const points: Array<{ lat: number; lon: number }> = [];
 
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
-    const nextError = validatePointInput(row.lat, row.lon);
-    const lat = Number(row.lat.trim());
-    const lon = Number(row.lon.trim());
+    const nextError = validatePointInput(row.lat, row.lon, format);
+    const lat = parsePointInputValue(row.lat, format, 'lat');
+    const lon = parsePointInputValue(row.lon, format, 'lon');
 
-    if (nextError.lat || nextError.lon) {
+    if (nextError.lat || nextError.lon || lat === null || lon === null) {
       cellErrors[i] = nextError;
       continue;
     }
@@ -169,13 +254,139 @@ const validatePointRows = (
   };
 };
 
+const convertRowsToWgs84 = (
+  rows: EditablePointRow[],
+  minPoints: number,
+  sourceCrs: CrsId,
+  format: CoordinateInputFormat,
+): { points: Array<{ lat: number; lon: number }> | null; cellErrors: PointCellErrors; tableError: string | null } => {
+  const validated = validatePointRows(rows, minPoints, format);
+  if (!validated.points) return validated;
+  try {
+    const converted = validated.points.map((point) => convertPoint(point, sourceCrs, 'wgs84'));
+    return {
+      points: converted,
+      cellErrors: {},
+      tableError: null,
+    };
+  } catch (error) {
+    return {
+      points: null,
+      cellErrors: {},
+      tableError: error instanceof Error ? error.message : 'Не удалось конвертировать координаты.',
+    };
+  }
+};
+
+const convertMarkerToWgs84 = (
+  latRaw: string,
+  lonRaw: string,
+  sourceCrs: CrsId,
+  format: CoordinateInputFormat,
+): { point: { lat: number; lon: number } | null; error: string | null } => {
+  const errors = validatePointInput(latRaw, lonRaw, format);
+  if (errors.lat || errors.lon) {
+    return {
+      point: null,
+      error: errors.lat ?? errors.lon ?? 'Исправьте ошибки в координатах',
+    };
+  }
+  const lat = parsePointInputValue(latRaw, format, 'lat');
+  const lon = parsePointInputValue(lonRaw, format, 'lon');
+  if (lat === null || lon === null) {
+    return {
+      point: null,
+      error: 'Исправьте ошибки в координатах',
+    };
+  }
+  try {
+    return {
+      point: convertPoint({ lat, lon }, sourceCrs, 'wgs84'),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      point: null,
+      error: error instanceof Error ? error.message : 'Не удалось конвертировать координаты.',
+    };
+  }
+};
+
+const mapRowsBetweenCrs = (
+  rows: EditablePointRow[],
+  from: CrsId,
+  to: CrsId,
+  format: CoordinateInputFormat,
+): EditablePointRow[] =>
+  rows.map((row) => {
+    const lat = parsePointInputValue(row.lat, format, 'lat');
+    const lon = parsePointInputValue(row.lon, format, 'lon');
+    if (lat === null || lon === null) return row;
+    try {
+      const next = convertPoint({ lat, lon }, from, to);
+      return {
+        ...row,
+        lat: formatCoordinateForInput(next.lat, format),
+        lon: formatCoordinateForInput(next.lon, format),
+      };
+    } catch {
+      return row;
+    }
+  });
+
+const buildPointPreviewRows = (
+  rows: EditablePointRow[],
+  sourceCrs: CrsId,
+  format: CoordinateInputFormat,
+): PointPreviewRow[] =>
+  rows.map((row) => {
+    const lat = parsePointInputValue(row.lat, format, 'lat');
+    const lon = parsePointInputValue(row.lon, format, 'lon');
+    if (lat === null || lon === null) {
+      return { lat: '—', lon: '—', error: 'Некорректные координаты' };
+    }
+    try {
+      const converted = convertPoint({ lat, lon }, sourceCrs, 'wgs84');
+      return {
+        lat: converted.lat.toFixed(6),
+        lon: converted.lon.toFixed(6),
+      };
+    } catch (error) {
+      return {
+        lat: '—',
+        lon: '—',
+        error: error instanceof Error ? error.message : 'Ошибка конвертации',
+      };
+    }
+  });
+
+const mapRowsBetweenFormat = (
+  rows: EditablePointRow[],
+  fromFormat: CoordinateInputFormat,
+  toFormat: CoordinateInputFormat,
+): EditablePointRow[] =>
+  rows.map((row) => ({
+    ...row,
+    lat: reformatCoordinateValue(row.lat, fromFormat, toFormat, 'lat'),
+    lon: reformatCoordinateValue(row.lon, fromFormat, toFormat, 'lon'),
+  }));
+
+const mapMarkerBetweenFormat = (
+  point: { lat: string; lon: string },
+  fromFormat: CoordinateInputFormat,
+  toFormat: CoordinateInputFormat,
+): { lat: string; lon: string } => ({
+  lat: reformatCoordinateValue(point.lat, fromFormat, toFormat, 'lat'),
+  lon: reformatCoordinateValue(point.lon, fromFormat, toFormat, 'lon'),
+});
+
 const getMinPointsForObject = (object: MapObject): number => {
   if (object.type === 'route') return 2;
   if (object.type === 'zone') return 3;
   return 0;
 };
 
-const formatLaneVertexRows = (laneFeatures: LaneFeature[] | undefined) => {
+const formatLaneVertexRows = (laneFeatures: LaneFeature[] | undefined): LaneVertexRow[] => {
   if (!laneFeatures || laneFeatures.length === 0) return [];
   return [...laneFeatures]
     .sort((a, b) => a.properties.lane_index - b.properties.lane_index)
@@ -183,15 +394,43 @@ const formatLaneVertexRows = (laneFeatures: LaneFeature[] | undefined) => {
       lane.geometry.coordinates.map(([lon, lat], vertexIndex) => ({
         laneIndex: lane.properties.lane_index,
         vertexIndex: vertexIndex + 1,
-        lat: lat.toFixed(6),
-        lon: lon.toFixed(6),
+        lat,
+        lon,
       })),
     );
 };
 
+const mapLaneVertexRowsForDisplay = (
+  rows: LaneVertexRow[],
+  targetCrs: CrsId,
+  targetFormat: CoordinateInputFormat,
+): LaneVertexDisplayRow[] =>
+  rows.map((row) => {
+    try {
+      const converted = convertPoint({ lat: row.lat, lon: row.lon }, 'wgs84', targetCrs);
+      return {
+        laneIndex: row.laneIndex,
+        vertexIndex: row.vertexIndex,
+        lat: formatCoordinateForInput(converted.lat, targetFormat),
+        lon: formatCoordinateForInput(converted.lon, targetFormat),
+      };
+    } catch {
+      return {
+        laneIndex: row.laneIndex,
+        vertexIndex: row.vertexIndex,
+        lat: '—',
+        lon: '—',
+      };
+    }
+  });
+
 const MapObjectProperties = ({
   object,
   styles,
+  coordinateInputCrs = 'wgs84',
+  coordinateInputFormat = 'dd',
+  onCoordinateInputCrsChange,
+  onCoordinateInputFormatChange,
   onSave,
   onClose,
   onDelete,
@@ -209,18 +448,60 @@ const MapObjectProperties = ({
   const [zoneVisible, setZoneVisible] = useState(true);
   const [color, setColor] = useState('#0ea5e9');
   const [laneColor, setLaneColor] = useState('#22c55e');
+  const [selectedCoordinateCrs, setSelectedCoordinateCrs] = useState<CrsId>(coordinateInputCrs);
+  const [selectedCoordinateFormat, setSelectedCoordinateFormat] = useState<CoordinateInputFormat>(coordinateInputFormat);
   const [pointRows, setPointRows] = useState<EditablePointRow[]>([]);
+  const [markerPointRow, setMarkerPointRow] = useState<{ lat: string; lon: string }>({ lat: '', lon: '' });
+  const [markerCoordinateError, setMarkerCoordinateError] = useState<string | null>(null);
   const [pointCellErrors, setPointCellErrors] = useState<PointCellErrors>({});
   const [pointTableError, setPointTableError] = useState<string | null>(null);
   const [isRouteVerticesDialogOpen, setIsRouteVerticesDialogOpen] = useState(false);
   const [isZoneVerticesDialogOpen, setIsZoneVerticesDialogOpen] = useState(false);
   const [isLaneVerticesDialogOpen, setIsLaneVerticesDialogOpen] = useState(false);
+  const [isMarkerCoordinatesDialogOpen, setIsMarkerCoordinatesDialogOpen] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const previousObjectRef = useRef<MapObject | null>(null);
+  const previousStylesRef = useRef<AppUiDefaults['styles'] | null>(null);
   const routeLengthLabel = useMemo(() => formatRouteLength(computeRouteLengthMeters(object)), [object]);
   const minPoints = useMemo(() => getMinPointsForObject(object), [object]);
   const laneVertexRows = useMemo(() => formatLaneVertexRows(zoneLaneFeatures), [zoneLaneFeatures]);
+  const laneVertexDisplayRows = useMemo(
+    () => mapLaneVertexRowsForDisplay(laneVertexRows, selectedCoordinateCrs, selectedCoordinateFormat),
+    [laneVertexRows, selectedCoordinateCrs, selectedCoordinateFormat],
+  );
+  const pointRowsPreviewWgs84 = useMemo(
+    () => buildPointPreviewRows(pointRows, selectedCoordinateCrs, selectedCoordinateFormat),
+    [pointRows, selectedCoordinateCrs, selectedCoordinateFormat],
+  );
+  const markerPreviewWgs84 = useMemo(() => {
+    const converted = convertMarkerToWgs84(
+      markerPointRow.lat,
+      markerPointRow.lon,
+      selectedCoordinateCrs,
+      selectedCoordinateFormat,
+    );
+    return {
+      lat: converted.point ? converted.point.lat.toFixed(6) : '—',
+      lon: converted.point ? converted.point.lon.toFixed(6) : '—',
+      error: converted.error,
+    };
+  }, [markerPointRow.lat, markerPointRow.lon, selectedCoordinateCrs, selectedCoordinateFormat]);
 
   useEffect(() => {
+    setSelectedCoordinateCrs(coordinateInputCrs);
+  }, [coordinateInputCrs]);
+
+  useEffect(() => {
+    setSelectedCoordinateFormat(coordinateInputFormat);
+  }, [coordinateInputFormat]);
+
+  useEffect(() => {
+    const objectChanged = previousObjectRef.current !== object;
+    const stylesChanged = previousStylesRef.current !== styles;
+    if (!objectChanged && !stylesChanged) return;
+    previousObjectRef.current = object;
+    previousStylesRef.current = styles;
+
     const fallbackColor = getDefaultColor(object.type, styles);
     const fallbackLaneColor = getDefaultLaneColor(styles);
     setName(object.name);
@@ -230,14 +511,18 @@ const MapObjectProperties = ({
     setZoneVisible(object.visible);
     setColor(normalizeHexColor(object.color ?? fallbackColor, fallbackColor));
     setLaneColor(normalizeHexColor(object.laneColor ?? fallbackLaneColor, fallbackLaneColor));
-    setPointRows(toEditableRowsFromObject(object));
+    setPointRows(toEditableRowsFromObject(object, coordinateInputCrs, coordinateInputFormat));
+    setMarkerPointRow(toEditableMarkerPoint(object, coordinateInputCrs, coordinateInputFormat));
+    setSelectedCoordinateFormat(coordinateInputFormat);
+    setMarkerCoordinateError(null);
     setPointCellErrors({});
     setPointTableError(null);
     setIsRouteVerticesDialogOpen(false);
     setIsZoneVerticesDialogOpen(false);
     setIsLaneVerticesDialogOpen(false);
+    setIsMarkerCoordinatesDialogOpen(false);
     setIsDirty(false);
-  }, [object, styles]);
+  }, [object, styles, coordinateInputCrs, coordinateInputFormat]);
 
   const handleSave = () => {
     const fallbackColor = getDefaultColor(object.type, styles);
@@ -252,7 +537,7 @@ const MapObjectProperties = ({
     }
 
     if (object.type === 'route' && object.geometry?.type === 'route') {
-      const validation = validatePointRows(pointRows, minPoints);
+      const validation = convertRowsToWgs84(pointRows, minPoints, selectedCoordinateCrs, selectedCoordinateFormat);
       if (!validation.points) {
         setPointCellErrors(validation.cellErrors);
         setPointTableError(validation.tableError);
@@ -278,7 +563,7 @@ const MapObjectProperties = ({
       }
 
       if (object.geometry?.type === 'zone') {
-        const validation = validatePointRows(pointRows, minPoints);
+        const validation = convertRowsToWgs84(pointRows, minPoints, selectedCoordinateCrs, selectedCoordinateFormat);
         if (!validation.points) {
           setPointCellErrors(validation.cellErrors);
           setPointTableError(validation.tableError);
@@ -289,6 +574,24 @@ const MapObjectProperties = ({
           points: validation.points,
         };
       }
+    }
+
+    if (object.type === 'marker' && object.geometry?.type === 'marker') {
+      const converted = convertMarkerToWgs84(
+        markerPointRow.lat,
+        markerPointRow.lon,
+        selectedCoordinateCrs,
+        selectedCoordinateFormat,
+      );
+      if (!converted.point) {
+        setMarkerCoordinateError(converted.error);
+        return;
+      }
+      setMarkerCoordinateError(null);
+      updates.geometry = {
+        type: 'marker',
+        point: converted.point,
+      };
     }
 
     onSave(object.id, updates);
@@ -303,7 +606,8 @@ const MapObjectProperties = ({
   };
 
   const handlePointFieldChange = (index: number, field: 'lat' | 'lon', value: string) => {
-    setPointRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+    const masked = sanitizeCoordinateInput(value, selectedCoordinateFormat, field);
+    setPointRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: masked } : row)));
     setPointCellErrors((prev) => {
       if (!prev[index]?.[field]) return prev;
       const nextRowError = { ...prev[index] };
@@ -320,12 +624,51 @@ const MapObjectProperties = ({
     setIsDirty(true);
   };
 
+  const handleMarkerPointFieldChange = (field: 'lat' | 'lon', value: string) => {
+    const masked = sanitizeCoordinateInput(value, selectedCoordinateFormat, field);
+    setMarkerPointRow((prev) => ({ ...prev, [field]: masked }));
+    setMarkerCoordinateError(null);
+    setIsDirty(true);
+  };
+
+  const handleCoordinateCrsChange = (nextCrs: CrsId) => {
+    setPointRows((prev) => mapRowsBetweenCrs(prev, selectedCoordinateCrs, nextCrs, selectedCoordinateFormat));
+    setMarkerPointRow((prev) => {
+      const lat = parsePointInputValue(prev.lat, selectedCoordinateFormat, 'lat');
+      const lon = parsePointInputValue(prev.lon, selectedCoordinateFormat, 'lon');
+      if (lat === null || lon === null) return prev;
+      try {
+        const converted = convertPoint({ lat, lon }, selectedCoordinateCrs, nextCrs);
+        return {
+          lat: formatCoordinateForInput(converted.lat, selectedCoordinateFormat),
+          lon: formatCoordinateForInput(converted.lon, selectedCoordinateFormat),
+        };
+      } catch {
+        return prev;
+      }
+    });
+    setSelectedCoordinateCrs(nextCrs);
+    onCoordinateInputCrsChange?.(nextCrs);
+    setPointTableError(null);
+    setMarkerCoordinateError(null);
+  };
+
+  const handleCoordinateFormatChange = (nextFormat: CoordinateInputFormat) => {
+    if (nextFormat === selectedCoordinateFormat) return;
+    setPointRows((prev) => mapRowsBetweenFormat(prev, selectedCoordinateFormat, nextFormat));
+    setMarkerPointRow((prev) => mapMarkerBetweenFormat(prev, selectedCoordinateFormat, nextFormat));
+    setSelectedCoordinateFormat(nextFormat);
+    onCoordinateInputFormatChange?.(nextFormat);
+    setPointTableError(null);
+    setMarkerCoordinateError(null);
+  };
+
   const handleAddPoint = () => {
     const lastPoint = pointRows[pointRows.length - 1];
-    const baseLat = Number(lastPoint?.lat);
-    const baseLon = Number(lastPoint?.lon);
-    const nextLat = Number.isFinite(baseLat) ? (baseLat + 0.0001).toFixed(6) : '0.000000';
-    const nextLon = Number.isFinite(baseLon) ? (baseLon + 0.0001).toFixed(6) : '0.000000';
+    const baseLat = parsePointInputValue(lastPoint?.lat ?? '', selectedCoordinateFormat, 'lat');
+    const baseLon = parsePointInputValue(lastPoint?.lon ?? '', selectedCoordinateFormat, 'lon');
+    const nextLat = baseLat !== null ? formatCoordinateForInput(baseLat + 0.0001, selectedCoordinateFormat) : '';
+    const nextLon = baseLon !== null ? formatCoordinateForInput(baseLon + 0.0001, selectedCoordinateFormat) : '';
     setPointRows((prev) => [...prev, { id: crypto.randomUUID(), lat: nextLat, lon: nextLon }]);
     setPointTableError(null);
     setIsDirty(true);
@@ -466,6 +809,28 @@ const MapObjectProperties = ({
               rows={3}
               placeholder={object.type === 'marker' ? 'Описание маркера...' : 'Заметка о маршруте...'}
             />
+          </div>
+        )}
+
+        {object.type === 'marker' && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs text-muted-foreground">Координаты маркера</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setIsMarkerCoordinatesDialogOpen(true)}
+                aria-label="Открыть координаты маркера"
+              >
+                Открыть координаты
+              </Button>
+            </div>
+            <div className="rounded-md border border-sidebar-border px-2.5 py-2 text-xs text-muted-foreground">
+              CRS ввода: {getCrsLabel(selectedCoordinateCrs)}
+            </div>
+            {markerCoordinateError && <div className="text-xs text-destructive">{markerCoordinateError}</div>}
           </div>
         )}
 
@@ -628,16 +993,54 @@ const MapObjectProperties = ({
               Редактирование координат точек маршрута
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Система координат ввода</Label>
+            <Select value={selectedCoordinateCrs} onValueChange={(value) => handleCoordinateCrsChange(value as CrsId)}>
+              <SelectTrigger className="h-9 w-72">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {supportedCoordinateCrs.map((crs) => (
+                  <SelectItem key={`route-crs-${crs}`} value={crs}>
+                    {getCrsLabel(crs)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Формат координат</Label>
+            <RadioGroup
+              value={selectedCoordinateFormat}
+              onValueChange={(value) => handleCoordinateFormatChange(value as CoordinateInputFormat)}
+              className="gap-2"
+            >
+              {coordinateInputFormats.map((format) => (
+                <label
+                  key={`route-format-${format}`}
+                  className="flex items-start gap-2 rounded border border-border px-2.5 py-2 cursor-pointer"
+                >
+                  <RadioGroupItem value={format} />
+                  <span className="flex flex-col leading-4">
+                    <span className="text-xs">{getCoordinateInputFormatLabel(format)}</span>
+                    <span className="text-[11px] text-muted-foreground">{getCoordinateInputMaskLabel(format)}</span>
+                  </span>
+                </label>
+              ))}
+            </RadioGroup>
+          </div>
           <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-            <div className="grid grid-cols-[28px_1fr_1fr_28px] gap-2 text-[11px] text-muted-foreground">
+            <div className="grid grid-cols-[28px_1fr_1fr_1fr_1fr_28px] gap-2 text-[11px] text-muted-foreground">
               <span>#</span>
-              <span>Широта</span>
-              <span>Долгота</span>
+              <span>{`Широта (${getCrsLabel(selectedCoordinateCrs)})`}</span>
+              <span>{`Долгота (${getCrsLabel(selectedCoordinateCrs)})`}</span>
+              <span>Широта (WGS84)</span>
+              <span>Долгота (WGS84)</span>
               <span />
             </div>
             {pointRows.map((row, index) => (
               <div key={row.id} className="space-y-1">
-                <div className="grid grid-cols-[28px_1fr_1fr_28px] gap-2 items-start">
+                <div className="grid grid-cols-[28px_1fr_1fr_1fr_1fr_28px] gap-2 items-start">
                   <div className="h-10 flex items-center justify-center text-xs font-mono text-muted-foreground">
                     {index + 1}
                   </div>
@@ -645,13 +1048,29 @@ const MapObjectProperties = ({
                     className="h-10 text-sm font-mono"
                     value={row.lat}
                     onChange={(e) => handlePointFieldChange(index, 'lat', e.target.value)}
+                    placeholder={getCoordinatePlaceholder(selectedCoordinateFormat, 'lat')}
                     aria-label={`Широта точки ${index + 1}`}
                   />
                   <Input
                     className="h-10 text-sm font-mono"
                     value={row.lon}
                     onChange={(e) => handlePointFieldChange(index, 'lon', e.target.value)}
+                    placeholder={getCoordinatePlaceholder(selectedCoordinateFormat, 'lon')}
                     aria-label={`Долгота точки ${index + 1}`}
+                  />
+                  <Input
+                    className="h-10 text-sm font-mono"
+                    value={pointRowsPreviewWgs84[index]?.lat ?? '—'}
+                    readOnly
+                    tabIndex={-1}
+                    aria-label={`WGS84 широта точки ${index + 1}`}
+                  />
+                  <Input
+                    className="h-10 text-sm font-mono"
+                    value={pointRowsPreviewWgs84[index]?.lon ?? '—'}
+                    readOnly
+                    tabIndex={-1}
+                    aria-label={`WGS84 долгота точки ${index + 1}`}
                   />
                   <Button
                     type="button"
@@ -675,6 +1094,13 @@ const MapObjectProperties = ({
               Добавить точку
             </Button>
             {pointTableError && <div className="text-xs text-destructive">{pointTableError}</div>}
+            <Button
+              type="button"
+              className="w-full h-10 text-sm"
+              onClick={() => setIsRouteVerticesDialogOpen(false)}
+            >
+              Ок
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -687,16 +1113,54 @@ const MapObjectProperties = ({
               Редактирование координат вершин зоны
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Система координат ввода</Label>
+            <Select value={selectedCoordinateCrs} onValueChange={(value) => handleCoordinateCrsChange(value as CrsId)}>
+              <SelectTrigger className="h-9 w-72">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {supportedCoordinateCrs.map((crs) => (
+                  <SelectItem key={`zone-crs-${crs}`} value={crs}>
+                    {getCrsLabel(crs)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Формат координат</Label>
+            <RadioGroup
+              value={selectedCoordinateFormat}
+              onValueChange={(value) => handleCoordinateFormatChange(value as CoordinateInputFormat)}
+              className="gap-2"
+            >
+              {coordinateInputFormats.map((format) => (
+                <label
+                  key={`zone-format-${format}`}
+                  className="flex items-start gap-2 rounded border border-border px-2.5 py-2 cursor-pointer"
+                >
+                  <RadioGroupItem value={format} />
+                  <span className="flex flex-col leading-4">
+                    <span className="text-xs">{getCoordinateInputFormatLabel(format)}</span>
+                    <span className="text-[11px] text-muted-foreground">{getCoordinateInputMaskLabel(format)}</span>
+                  </span>
+                </label>
+              ))}
+            </RadioGroup>
+          </div>
           <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-            <div className="grid grid-cols-[28px_1fr_1fr_28px] gap-2 text-[11px] text-muted-foreground">
+            <div className="grid grid-cols-[28px_1fr_1fr_1fr_1fr_28px] gap-2 text-[11px] text-muted-foreground">
               <span>#</span>
-              <span>Широта</span>
-              <span>Долгота</span>
+              <span>{`Широта (${getCrsLabel(selectedCoordinateCrs)})`}</span>
+              <span>{`Долгота (${getCrsLabel(selectedCoordinateCrs)})`}</span>
+              <span>Широта (WGS84)</span>
+              <span>Долгота (WGS84)</span>
               <span />
             </div>
             {pointRows.map((row, index) => (
               <div key={row.id} className="space-y-1">
-                <div className="grid grid-cols-[28px_1fr_1fr_28px] gap-2 items-start">
+                <div className="grid grid-cols-[28px_1fr_1fr_1fr_1fr_28px] gap-2 items-start">
                   <div className="h-10 flex items-center justify-center text-xs font-mono text-muted-foreground">
                     {index + 1}
                   </div>
@@ -704,13 +1168,29 @@ const MapObjectProperties = ({
                     className="h-10 text-sm font-mono"
                     value={row.lat}
                     onChange={(e) => handlePointFieldChange(index, 'lat', e.target.value)}
+                    placeholder={getCoordinatePlaceholder(selectedCoordinateFormat, 'lat')}
                     aria-label={`Широта точки ${index + 1}`}
                   />
                   <Input
                     className="h-10 text-sm font-mono"
                     value={row.lon}
                     onChange={(e) => handlePointFieldChange(index, 'lon', e.target.value)}
+                    placeholder={getCoordinatePlaceholder(selectedCoordinateFormat, 'lon')}
                     aria-label={`Долгота точки ${index + 1}`}
+                  />
+                  <Input
+                    className="h-10 text-sm font-mono"
+                    value={pointRowsPreviewWgs84[index]?.lat ?? '—'}
+                    readOnly
+                    tabIndex={-1}
+                    aria-label={`WGS84 широта точки ${index + 1}`}
+                  />
+                  <Input
+                    className="h-10 text-sm font-mono"
+                    value={pointRowsPreviewWgs84[index]?.lon ?? '—'}
+                    readOnly
+                    tabIndex={-1}
+                    aria-label={`WGS84 долгота точки ${index + 1}`}
                   />
                   <Button
                     type="button"
@@ -734,6 +1214,109 @@ const MapObjectProperties = ({
               Добавить точку
             </Button>
             {pointTableError && <div className="text-xs text-destructive">{pointTableError}</div>}
+            <Button
+              type="button"
+              className="w-full h-10 text-sm"
+              onClick={() => setIsZoneVerticesDialogOpen(false)}
+            >
+              Ок
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isMarkerCoordinatesDialogOpen} onOpenChange={setIsMarkerCoordinatesDialogOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="text-base">Координаты маркера</DialogTitle>
+            <DialogDescription className="sr-only">
+              Ввод координат маркера с конвертацией в WGS84
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Система координат ввода</Label>
+              <Select value={selectedCoordinateCrs} onValueChange={(value) => handleCoordinateCrsChange(value as CrsId)}>
+                <SelectTrigger className="h-9 w-72">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {supportedCoordinateCrs.map((crs) => (
+                    <SelectItem key={`marker-crs-${crs}`} value={crs}>
+                      {getCrsLabel(crs)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Формат координат</Label>
+              <RadioGroup
+                value={selectedCoordinateFormat}
+                onValueChange={(value) => handleCoordinateFormatChange(value as CoordinateInputFormat)}
+                className="gap-2"
+              >
+                {coordinateInputFormats.map((format) => (
+                  <label
+                    key={`marker-format-${format}`}
+                    className="flex items-start gap-2 rounded border border-border px-2.5 py-2 cursor-pointer"
+                  >
+                    <RadioGroupItem value={format} />
+                    <span className="flex flex-col leading-4">
+                      <span className="text-xs">{getCoordinateInputFormatLabel(format)}</span>
+                      <span className="text-[11px] text-muted-foreground">{getCoordinateInputMaskLabel(format)}</span>
+                    </span>
+                  </label>
+                ))}
+              </RadioGroup>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="marker-lat-input" className="text-xs text-muted-foreground">{`Широта (${getCrsLabel(selectedCoordinateCrs)})`}</Label>
+                <Input
+                  id="marker-lat-input"
+                  className="h-10 text-sm font-mono"
+                  value={markerPointRow.lat}
+                  onChange={(e) => handleMarkerPointFieldChange('lat', e.target.value)}
+                  placeholder={getCoordinatePlaceholder(selectedCoordinateFormat, 'lat')}
+                  aria-label="Широта маркера"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="marker-lon-input" className="text-xs text-muted-foreground">{`Долгота (${getCrsLabel(selectedCoordinateCrs)})`}</Label>
+                <Input
+                  id="marker-lon-input"
+                  className="h-10 text-sm font-mono"
+                  value={markerPointRow.lon}
+                  onChange={(e) => handleMarkerPointFieldChange('lon', e.target.value)}
+                  placeholder={getCoordinatePlaceholder(selectedCoordinateFormat, 'lon')}
+                  aria-label="Долгота маркера"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Широта (WGS84)</Label>
+                <Input className="h-10 text-sm font-mono" value={markerPreviewWgs84.lat} readOnly tabIndex={-1} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Долгота (WGS84)</Label>
+                <Input className="h-10 text-sm font-mono" value={markerPreviewWgs84.lon} readOnly tabIndex={-1} />
+              </div>
+            </div>
+            {markerPreviewWgs84.error && (
+              <div className="text-xs text-destructive">{markerPreviewWgs84.error}</div>
+            )}
+            {markerCoordinateError && (
+              <div className="text-xs text-destructive">{markerCoordinateError}</div>
+            )}
+            <Button
+              type="button"
+              className="w-full h-10 text-sm"
+              onClick={() => setIsMarkerCoordinatesDialogOpen(false)}
+            >
+              Ок
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -746,18 +1329,56 @@ const MapObjectProperties = ({
               Просмотр координат вершин галсов
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-[60vh] overflow-y-auto">
-            {laneVertexRows.length === 0 ? (
+          <div className="space-y-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Система координат отображения</Label>
+              <Select value={selectedCoordinateCrs} onValueChange={(value) => handleCoordinateCrsChange(value as CrsId)}>
+                <SelectTrigger className="h-9 w-72">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {supportedCoordinateCrs.map((crs) => (
+                    <SelectItem key={`lane-crs-${crs}`} value={crs}>
+                      {getCrsLabel(crs)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Формат координат</Label>
+              <RadioGroup
+                value={selectedCoordinateFormat}
+                onValueChange={(value) => handleCoordinateFormatChange(value as CoordinateInputFormat)}
+                className="gap-2"
+              >
+                {coordinateInputFormats.map((format) => (
+                  <label
+                    key={`lane-format-${format}`}
+                    className="flex items-start gap-2 rounded border border-border px-2.5 py-2 cursor-pointer"
+                  >
+                    <RadioGroupItem value={format} />
+                    <span className="flex flex-col leading-4">
+                      <span className="text-xs">{getCoordinateInputFormatLabel(format)}</span>
+                      <span className="text-[11px] text-muted-foreground">{getCoordinateInputMaskLabel(format)}</span>
+                    </span>
+                  </label>
+                ))}
+              </RadioGroup>
+            </div>
+          </div>
+          <div className="max-h-[50vh] overflow-y-auto">
+            {laneVertexDisplayRows.length === 0 ? (
               <div className="text-sm text-muted-foreground">Галсы не сгенерированы</div>
             ) : (
               <div className="space-y-1">
                 <div className="grid grid-cols-[48px_48px_1fr_1fr] gap-2 text-[11px] text-muted-foreground">
                   <span>Галс</span>
                   <span>Верш.</span>
-                  <span>Широта</span>
-                  <span>Долгота</span>
+                  <span>{`Широта (${getCrsLabel(selectedCoordinateCrs)})`}</span>
+                  <span>{`Долгота (${getCrsLabel(selectedCoordinateCrs)})`}</span>
                 </div>
-                {laneVertexRows.map((row) => (
+                {laneVertexDisplayRows.map((row) => (
                   <div
                     key={`lane-dialog-${row.laneIndex}-vertex-${row.vertexIndex}-${row.lat}-${row.lon}`}
                     className="grid grid-cols-[48px_48px_1fr_1fr] gap-2 text-sm font-mono"

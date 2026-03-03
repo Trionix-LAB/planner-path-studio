@@ -374,35 +374,42 @@ const CenterOnObjectRequest = ({
   onMissingGeometry: (name: string) => void;
 }) => {
   const map = useMap();
+  const lastHandledNonceRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!request) return;
+    if (lastHandledNonceRef.current === request.nonce) return;
     const obj = objects.find((item) => item.id === request.objectId);
     if (!obj) return;
     if (!obj.geometry) {
       onMissingGeometry(obj.name);
+      lastHandledNonceRef.current = request.nonce;
       return;
     }
 
     if (obj.geometry.type === 'marker') {
       const targetZoom = Math.max(map.getZoom(), 16);
       map.setView([obj.geometry.point.lat, obj.geometry.point.lon], targetZoom, { animate: true });
+      lastHandledNonceRef.current = request.nonce;
       return;
     }
 
     const points = obj.geometry.points;
     if (!points || points.length === 0) {
       onMissingGeometry(obj.name);
+      lastHandledNonceRef.current = request.nonce;
       return;
     }
 
     const bounds = L.latLngBounds(points.map((p) => L.latLng(p.lat, p.lon)));
     if (!bounds.isValid()) {
       onMissingGeometry(obj.name);
+      lastHandledNonceRef.current = request.nonce;
       return;
     }
 
     map.fitBounds(bounds, { padding: [24, 24], maxZoom: platform.map.maxZoom(), animate: true });
+    lastHandledNonceRef.current = request.nonce;
   }, [map, objects, onMissingGeometry, request]);
 
   return null;
@@ -1735,6 +1742,18 @@ const MapCanvas = ({
                 }
               },
             },
+            ...(contextObject && contextObject.type !== 'lane'
+              ? [
+                {
+                  label: "Построить по координатам",
+                  action: () => {
+                    if (objectMenuState.objectId) {
+                      onObjectDoubleClick(objectMenuState.objectId);
+                    }
+                  },
+                },
+              ]
+              : []),
             {
               label: "Переименовать",
               action: () => {

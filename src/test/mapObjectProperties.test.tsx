@@ -51,6 +51,18 @@ const mockRoute: MapObject = {
   },
 };
 
+const mockMarker: MapObject = {
+  id: 'marker-1',
+  type: 'marker',
+  name: 'Test Marker',
+  visible: true,
+  note: 'Marker note',
+  geometry: {
+    type: 'marker',
+    point: { lat: 59.93428, lon: 30.335099 },
+  },
+};
+
 const mockZoneLanes: LaneFeature[] = [
   {
     type: 'Feature',
@@ -107,6 +119,97 @@ describe('MapObjectProperties regeneration logic (T-61)', () => {
     );
   });
 
+  it('closes route coordinates dialog by "Ок" and applies changes only after "Сохранить изменения"', () => {
+    const onSave = vi.fn();
+
+    render(
+      <MapObjectProperties
+        object={mockRoute}
+        styles={mockStyles}
+        onSave={onSave}
+        onClose={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть точки маршрута' }));
+    const latInput = screen.getByLabelText('Широта точки 1') as HTMLInputElement;
+    fireEvent.change(latInput, { target: { value: '60.000000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ок' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить изменения' }));
+    expect(onSave).toHaveBeenCalledWith(
+      'route-1',
+      expect.objectContaining({
+        geometry: {
+          type: 'route',
+          points: [
+            { lat: 60, lon: 30.335099 },
+            { lat: 59.9355, lon: 30.3365 },
+          ],
+        },
+      }),
+    );
+  });
+
+  it('closes marker coordinates dialog by "Ок" and applies changes only after "Сохранить изменения"', () => {
+    const onSave = vi.fn();
+
+    render(
+      <MapObjectProperties
+        object={mockMarker}
+        styles={mockStyles}
+        onSave={onSave}
+        onClose={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть координаты маркера' }));
+    const lonInput = screen.getByLabelText('Долгота маркера') as HTMLInputElement;
+    fireEvent.change(lonInput, { target: { value: '31.000000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ок' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить изменения' }));
+    expect(onSave).toHaveBeenCalledWith(
+      'marker-1',
+      expect.objectContaining({
+        geometry: {
+          type: 'marker',
+          point: { lat: 59.93428, lon: 31 },
+        },
+      }),
+    );
+  });
+
+  it('keeps "Сохранить изменения" disabled when only coordinate format changes', () => {
+    const onSave = vi.fn();
+
+    render(
+      <MapObjectProperties
+        object={mockRoute}
+        styles={mockStyles}
+        onSave={onSave}
+        onClose={() => {}}
+      />,
+    );
+
+    const saveButton = screen.getByRole('button', { name: 'Сохранить изменения' });
+    expect(saveButton).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть точки маршрута' }));
+    fireEvent.click(screen.getByText('Градусы и десятичные минуты'));
+    fireEvent.click(screen.getByRole('button', { name: 'Ок' }));
+
+    expect(saveButton).toBeDisabled();
+    fireEvent.click(saveButton);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it('shows validation error and does not save invalid coordinates', () => {
     const onSave = vi.fn();
 
@@ -161,7 +264,7 @@ describe('MapObjectProperties regeneration logic (T-61)', () => {
     );
   });
 
-  it('renders read-only zone lane vertices in dialog', () => {
+  it('renders read-only zone lane vertices with CRS/format switching', () => {
     render(
       <MapObjectProperties
         object={mockZone}
@@ -175,8 +278,27 @@ describe('MapObjectProperties regeneration logic (T-61)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Открыть вершины галсов' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Вершины галсов' })).toBeInTheDocument();
-    expect(screen.getByText('59.100000')).toBeInTheDocument();
-    expect(screen.getByText('30.200000')).toBeInTheDocument();
+    expect(screen.getByText('59.100000°')).toBeInTheDocument();
+    expect(screen.getByText('30.200000°')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Градусы, минуты и секунды'));
+    expect(screen.queryByText('59.100000°')).not.toBeInTheDocument();
+    expect(
+      screen.getAllByText((_, element) => {
+        const text = element?.textContent ?? '';
+        return text.includes('59°') && text.includes('′') && text.includes('″');
+      }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText((_, element) => {
+        const text = element?.textContent ?? '';
+        return text.includes('30°') && text.includes('′') && text.includes('″');
+      }).length,
+    ).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByText('СК-42 (Pulkovo 1942)'));
+    expect(screen.getByText('Широта (СК-42 (Pulkovo 1942))')).toBeInTheDocument();
   });
 
   it('calls onRegenerateLanes with current values from inputs', () => {

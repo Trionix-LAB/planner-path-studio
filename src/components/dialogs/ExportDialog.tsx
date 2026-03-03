@@ -20,6 +20,8 @@ import {
 import { FolderOpen } from 'lucide-react';
 import type { MapObject } from '@/features/map/model/types';
 import type { LaneFeature, MissionDocument, TrackPoint } from '@/features/mission';
+import { coordinateInputFormats, getCoordinateInputFormatLabel, type CoordinateInputFormat } from '@/features/geo/coordinateInputFormat';
+import { getCrsLabel, supportedCoordinateCrs, type CrsId } from '@/features/geo/crs';
 import type {
   ExportMarkersFormat,
   ExportObjectsMode,
@@ -39,6 +41,8 @@ interface ExportDialogProps {
   trackPointsByTrackId: Record<string, TrackPoint[]>;
   objects: MapObject[];
   laneFeatures: LaneFeature[];
+  defaultCoordinateCrs: CrsId;
+  defaultCoordinateFormat: CoordinateInputFormat;
   onExport: (request: ExportRequest) => Promise<void> | void;
 }
 
@@ -52,6 +56,55 @@ const formatTrackTime = (value: string): string => {
   });
 };
 
+const CsvCoordinateOptions = ({
+  enabled,
+  crs,
+  format,
+  onCrsChange,
+  onFormatChange,
+}: {
+  enabled: boolean;
+  crs: CrsId;
+  format: CoordinateInputFormat;
+  onCrsChange: (value: CrsId) => void;
+  onFormatChange: (value: CoordinateInputFormat) => void;
+}) => (
+  <div className="rounded border border-border/60 bg-muted/30 p-2">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Система координат (CSV)</Label>
+        <Select value={crs} onValueChange={(v) => onCrsChange(v as CrsId)} disabled={!enabled}>
+          <SelectTrigger className="h-8">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {supportedCoordinateCrs.map((crsItem) => (
+              <SelectItem key={crsItem} value={crsItem}>
+                {getCrsLabel(crsItem)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Формат координат (CSV)</Label>
+        <Select value={format} onValueChange={(v) => onFormatChange(v as CoordinateInputFormat)} disabled={!enabled}>
+          <SelectTrigger className="h-8">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {coordinateInputFormats.map((item) => (
+              <SelectItem key={item} value={item}>
+                {getCoordinateInputFormatLabel(item)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  </div>
+);
+
 const ExportDialog = ({
   open,
   onOpenChange,
@@ -61,6 +114,8 @@ const ExportDialog = ({
   trackPointsByTrackId,
   objects,
   laneFeatures,
+  defaultCoordinateCrs,
+  defaultCoordinateFormat,
   onExport,
 }: ExportDialogProps) => {
   const routesAndZones = useMemo(
@@ -82,6 +137,12 @@ const ExportDialog = ({
   const [trackMode, setTrackMode] = useState<ExportTracksMode>('all');
   const [routeMode, setRouteMode] = useState<ExportObjectsMode>('all');
   const [markerMode, setMarkerMode] = useState<ExportObjectsMode>('all');
+  const [trackCsvCrs, setTrackCsvCrs] = useState<CrsId>(defaultCoordinateCrs);
+  const [routeCsvCrs, setRouteCsvCrs] = useState<CrsId>(defaultCoordinateCrs);
+  const [markerCsvCrs, setMarkerCsvCrs] = useState<CrsId>(defaultCoordinateCrs);
+  const [trackCsvFormat, setTrackCsvFormat] = useState<CoordinateInputFormat>(defaultCoordinateFormat);
+  const [routeCsvFormat, setRouteCsvFormat] = useState<CoordinateInputFormat>(defaultCoordinateFormat);
+  const [markerCsvFormat, setMarkerCsvFormat] = useState<CoordinateInputFormat>(defaultCoordinateFormat);
 
   const [selectedTrackIds, setSelectedTrackIds] = useState<Record<string, true>>({});
   const [selectedRouteIds, setSelectedRouteIds] = useState<Record<string, true>>({});
@@ -100,10 +161,16 @@ const ExportDialog = ({
     setTrackMode('all');
     setRouteMode('all');
     setMarkerMode('all');
+    setTrackCsvCrs(defaultCoordinateCrs);
+    setRouteCsvCrs(defaultCoordinateCrs);
+    setMarkerCsvCrs(defaultCoordinateCrs);
+    setTrackCsvFormat(defaultCoordinateFormat);
+    setRouteCsvFormat(defaultCoordinateFormat);
+    setMarkerCsvFormat(defaultCoordinateFormat);
     setSelectedTrackIds({});
     setSelectedRouteIds({});
     setSelectedMarkerIds({});
-  }, [missionRootPath, open]);
+  }, [defaultCoordinateCrs, defaultCoordinateFormat, missionRootPath, open]);
 
   const handlePickExportPath = async () => {
     const picked = await platform.fs.pickDirectory({
@@ -138,6 +205,14 @@ const ExportDialog = ({
         format: trackFormat,
         mode: trackMode,
         ...(trackMode === 'selected' ? { selectedTrackIds: Object.keys(selectedTrackIds) } : {}),
+        ...(trackFormat === 'csv'
+          ? {
+              csv: {
+                crs: trackCsvCrs,
+                format: trackCsvFormat,
+              },
+            }
+          : {}),
       };
     }
 
@@ -146,6 +221,14 @@ const ExportDialog = ({
         format: routeFormat,
         mode: routeMode,
         ...(routeMode === 'selected' ? { selectedObjectIds: Object.keys(selectedRouteIds) } : {}),
+        ...(routeFormat === 'csv'
+          ? {
+              csv: {
+                crs: routeCsvCrs,
+                format: routeCsvFormat,
+              },
+            }
+          : {}),
       };
     }
 
@@ -154,6 +237,14 @@ const ExportDialog = ({
         format: markerFormat,
         mode: markerMode,
         ...(markerMode === 'selected' ? { selectedObjectIds: Object.keys(selectedMarkerIds) } : {}),
+        ...(markerFormat === 'csv'
+          ? {
+              csv: {
+                crs: markerCsvCrs,
+                format: markerCsvFormat,
+              },
+            }
+          : {}),
       };
     }
 
@@ -212,10 +303,20 @@ const ExportDialog = ({
                         <SelectContent>
                           <SelectItem value="gpx">GPX</SelectItem>
                           <SelectItem value="kml">KML</SelectItem>
+                          <SelectItem value="csv">CSV</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
+                  {exportTracks && trackFormat === 'csv' && (
+                    <CsvCoordinateOptions
+                      enabled={exportTracks}
+                      crs={trackCsvCrs}
+                      format={trackCsvFormat}
+                      onCrsChange={setTrackCsvCrs}
+                      onFormatChange={setTrackCsvFormat}
+                    />
+                  )}
                   <div className="text-xs text-muted-foreground">
                     {missionDocument ? `${missionDocument.tracks.length} трек(ов)` : 'Нет миссии'}
                   </div>
@@ -274,10 +375,20 @@ const ExportDialog = ({
                         <SelectContent>
                           <SelectItem value="gpx">GPX</SelectItem>
                           <SelectItem value="kml">KML</SelectItem>
+                          <SelectItem value="csv">CSV</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
+                  {exportRoutes && routeFormat === 'csv' && (
+                    <CsvCoordinateOptions
+                      enabled={exportRoutes}
+                      crs={routeCsvCrs}
+                      format={routeCsvFormat}
+                      onCrsChange={setRouteCsvCrs}
+                      onFormatChange={setRouteCsvFormat}
+                    />
+                  )}
                   <div className="text-xs text-muted-foreground">
                     {`${routesAndZones.length} объект(ов), ${laneFeatures.length} галс(ов)`}
                   </div>
@@ -334,6 +445,15 @@ const ExportDialog = ({
                       </Select>
                     </div>
                   </div>
+                  {exportMarkers && markerFormat === 'csv' && (
+                    <CsvCoordinateOptions
+                      enabled={exportMarkers}
+                      crs={markerCsvCrs}
+                      format={markerCsvFormat}
+                      onCrsChange={setMarkerCsvCrs}
+                      onFormatChange={setMarkerCsvFormat}
+                    />
+                  )}
                   <div className="text-xs text-muted-foreground">{`${markers.length} маркер(ов)`}</div>
 
                   {exportMarkers && markerMode === 'selected' && (
@@ -375,4 +495,3 @@ const ExportDialog = ({
 };
 
 export default ExportDialog;
-

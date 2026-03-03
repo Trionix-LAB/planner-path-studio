@@ -6,6 +6,8 @@ describe('app settings', () => {
     const settings = normalizeAppSettings(null);
     expect(settings.schema_version).toBe(1);
     expect(settings.defaults.coordinates.precision).toBe(6);
+    expect(settings.defaults.coordinates.input_crs).toBe('wgs84');
+    expect(settings.defaults.coordinates.input_format).toBe('dd');
     expect(settings.defaults.layers.scale_bar).toBe(true);
     expect(settings.defaults.layers.base_station).toBe(true);
     expect(settings.defaults.measurements.grid.line_style).toBe('dashed');
@@ -21,7 +23,7 @@ describe('app settings', () => {
       schema_version: 1,
       defaults: {
         connection: { host: '', port: 99999 },
-        coordinates: { precision: 999 },
+        coordinates: { precision: 999, input_crs: 'sk42', input_format: 'dms' },
         styles: {
           track: { width_px: 0 },
           survey_area: { fill_opacity: 5 },
@@ -38,6 +40,8 @@ describe('app settings', () => {
     };
     const normalized = normalizeAppSettings(raw);
     expect(normalized.defaults.coordinates.precision).toBe(12);
+    expect(normalized.defaults.coordinates.input_crs).toBe('sk42');
+    expect(normalized.defaults.coordinates.input_format).toBe('dms');
     expect(normalized.defaults.styles.track.width_px).toBe(1);
     expect(normalized.defaults.styles.survey_area.fill_opacity).toBe(1);
     expect(normalized.defaults.measurements.grid.mode).toBe('manual');
@@ -67,6 +71,8 @@ describe('app settings', () => {
     expect(effective.layers.scale_bar).toBe(false);
     expect(effective.layers.base_station).toBe(true);
     expect(effective.coordinates.precision).toBe(7);
+    expect(effective.coordinates.input_crs).toBe(defaults.coordinates.input_crs);
+    expect(effective.coordinates.input_format).toBe(defaults.coordinates.input_format);
     expect(effective.measurements.grid.mode).toBe('manual');
     expect(effective.measurements.grid.step_m).toBe(100);
     expect(effective.measurements.grid.color).toBe('#112233');
