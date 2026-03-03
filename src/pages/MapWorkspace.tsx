@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import TopToolbar from '@/components/map/TopToolbar';
 import RightPanel from '@/components/map/RightPanel';
-import LeftPanel from '@/components/map/LeftPanel';
+import LeftPanel, { type LeftPanelSectionsCollapsedState } from '@/components/map/LeftPanel';
 import StatusBar from '@/components/map/StatusBar';
 import MapCanvas from '@/components/map/MapCanvas';
 import MapWorkspaceFrame, { type MapPanelsCollapsedState } from '@/components/map/MapWorkspaceFrame';
@@ -91,6 +91,14 @@ import { parseGeoTiffMetadata, parseTiffCoreMetadata } from '@/features/map/rast
 import { convertUtmBoundsToEpsg4326, convertWebMercatorBoundsToEpsg4326 } from '@/features/map/rasterOverlays/projection';
 import { computeBoundsFromTfw, parseTfw } from '@/features/map/rasterOverlays/parseTfw';
 import { moveRasterOverlayByDelta } from '@/features/map/rasterOverlays/reorder';
+import { parseDxfToWgs84, type DxfOverlayFeatureCollection } from '@/features/map/dxfOverlay/parseDxf';
+import { parseDwgToWgs84 } from '@/features/map/dwgOverlay/parseDwg';
+import {
+  parseVectorOverlayCache,
+  serializeVectorOverlayCache,
+  type VectorOverlayCacheSourceMeta,
+  type VectorOverlayMapData,
+} from '@/features/map/vectorOverlays/cache';
 
 const DRAFT_ROOT_PATH = 'draft/current';
 const DRAFT_MISSION_NAME = 'Черновик';
@@ -99,6 +107,8 @@ const WAL_STAGE_DELAY_MS = 250;
 const AUTOSAVE_DELAY_MS = 900;
 const BASE_STATION_AGENT_ID = 'base-station';
 const OVERLAYS_DIR = 'overlays';
+const OVERLAYS_RASTER_DIR = `${OVERLAYS_DIR}/rasters`;
+const OVERLAYS_VECTOR_DIR = `${OVERLAYS_DIR}/vectors`;
 const createOverlayId = (): string =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -231,6 +241,8 @@ type WorkspaceSnapshot = {
   segmentLengthsMode: SegmentLengthsMode;
   styles: AppUiDefaults['styles'];
   rasterOverlays: NonNullable<MissionUiState['raster_overlays']>;
+  vectorOverlays: NonNullable<MissionUiState['vector_overlays']>;
+  leftPanelSectionsCollapsed: LeftPanelSectionsCollapsedState;
   isLoaded: boolean;
 };
 
@@ -242,6 +254,96 @@ type MapBounds = {
 };
 
 type RasterOverlayUi = NonNullable<MissionUiState['raster_overlays']>[number];
+type VectorOverlayUi = NonNullable<MissionUiState['vector_overlays']>[number];
+const DEFAULT_VECTOR_OVERLAY_COLOR = '#0f766e';
+
+const computeVectorOverlayBounds = (features: DxfOverlayFeatureCollection['features']): MapBounds | null => {
+  const lats: number[] = [];
+  const lons: number[] = [];
+  for (const feature of features) {
+    if (feature.type === 'point') {
+      lats.push(feature.point.lat);
+      lons.push(feature.point.lon);
+      continue;
+    }
+    for (const point of feature.points) {
+      lats.push(point.lat);
+      lons.push(point.lon);
+    }
+  }
+
+  if (lats.length === 0 || lons.length === 0) return null;
+  return {
+    north: Math.max(...lats),
+    south: Math.min(...lats),
+    east: Math.max(...lons),
+    west: Math.min(...lons),
+  };
+};
+
+const toPlainArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+};
+
+const resolveVectorOverlayFileEncoding = (
+  overlay: Pick<VectorOverlayUi, 'type' | 'file_encoding'>,
+): 'utf8' | 'base64' => {
+  if (overlay.file_encoding === 'utf8' || overlay.file_encoding === 'base64') {
+    return overlay.file_encoding;
+  }
+  return overlay.type === 'dwg' ? 'base64' : 'utf8';
+};
+
+const resolveVectorOverlayCacheFilePath = (overlay: Pick<VectorOverlayUi, 'id' | 'file' | 'cache_file'>): string => {
+  if (typeof overlay.cache_file === 'string' && overlay.cache_file.trim().length > 0) {
+    return overlay.cache_file;
+  }
+  const sourceFile = typeof overlay.file === 'string' ? overlay.file.trim() : '';
+  const slashIndex = sourceFile.lastIndexOf('/');
+  if (slashIndex > 0) {
+    const dir = sourceFile.slice(0, slashIndex);
+    return `${dir}/${overlay.id}.vector-cache.json`;
+  }
+  return `${OVERLAYS_VECTOR_DIR}/${overlay.id}.vector-cache.json`;
+};
+
+const toVectorOverlayCacheSourceMeta = (overlay: VectorOverlayUi): VectorOverlayCacheSourceMeta => ({
+  file: overlay.file,
+  type: overlay.type,
+  fileEncoding: resolveVectorOverlayFileEncoding(overlay),
+  utmZone: overlay.utm_zone,
+  utmHemisphere: overlay.utm_hemisphere,
+});
+
+const parseVectorOverlayFromSourceFile = async (
+  missionRootPath: string,
+  overlay: VectorOverlayUi,
+): Promise<VectorOverlayMapData> => {
+  const raw = await platform.fileStore.readText(`${missionRootPath}/${overlay.file}`);
+  if (!raw) {
+    throw new Error('Файл слоя не найден.');
+  }
+
+  const hemisphere = overlay.utm_hemisphere === 'S' ? 'south' : 'north';
+  const parsed =
+    overlay.type === 'dwg'
+      ? await parseDwgToWgs84(
+          (() => {
+            const bytes = base64ToUint8Array(raw);
+            return toPlainArrayBuffer(bytes);
+          })(),
+          { zone: overlay.utm_zone, hemisphere },
+        )
+      : parseDxfToWgs84(raw, { zone: overlay.utm_zone, hemisphere });
+  const bounds = computeVectorOverlayBounds(parsed.features);
+  if (!bounds) {
+    throw new Error('В CAD-файле не найдена поддерживаемая геометрия.');
+  }
+
+  return { features: parsed.features, bounds };
+};
 
 const DEFAULT_DIVER_DATA = {
   lat: 59.93428,
@@ -268,12 +370,22 @@ const DEFAULT_MAP_PANELS_COLLAPSED: MapPanelsCollapsedState = {
   right: false,
 };
 
+const DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED: LeftPanelSectionsCollapsedState = {
+  layers: false,
+  agents: false,
+  rasters: false,
+  vectors: false,
+  objects: false,
+};
+
 const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   follow_diver: defaults.follow_diver,
   hidden_track_ids: [],
   raster_overlays: [],
+  vector_overlays: [],
   divers: createDefaultDivers(1),
   layers: { ...defaults.layers, basemap: true },
+  left_panel_sections: { ...DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED },
   base_station: {
     navigation_source: null,
     track_color: defaults.styles.track.color,
@@ -587,6 +699,8 @@ const MapWorkspace = () => {
   const [hiddenTrackIds, setHiddenTrackIds] = useState<string[]>([]);
   const [rasterOverlays, setRasterOverlays] = useState<RasterOverlayUi[]>([]);
   const [rasterOverlayUrls, setRasterOverlayUrls] = useState<Record<string, string>>({});
+  const [vectorOverlays, setVectorOverlays] = useState<VectorOverlayUi[]>([]);
+  const [vectorOverlayDataById, setVectorOverlayDataById] = useState<Record<string, VectorOverlayMapData>>({});
   const [baseStationTelemetry, setBaseStationTelemetry] = useState<BaseStationTelemetryState | null>(null);
   const [layers, setLayers] = useState<LayersState>(DEFAULT_LAYERS);
   const [objects, setObjects] = useState<MapObject[]>([]);
@@ -608,6 +722,9 @@ const MapWorkspace = () => {
   const [mapScale, setMapScale] = useState('1:--');
   const [mapPanelsCollapsed, setMapPanelsCollapsed] = useState<MapPanelsCollapsedState>(
     DEFAULT_MAP_PANELS_COLLAPSED,
+  );
+  const [leftPanelSectionsCollapsed, setLeftPanelSectionsCollapsed] = useState<LeftPanelSectionsCollapsedState>(
+    DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED,
   );
   const [mapView, setMapView] = useState<MissionUiState['map_view'] | null>(null);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
@@ -697,6 +814,8 @@ const MapWorkspace = () => {
     baseStationTrackColor: DEFAULT_BASE_STATION_TRACK_COLOR,
     hiddenTrackIds: [],
     rasterOverlays: [],
+    vectorOverlays: [],
+    leftPanelSectionsCollapsed: DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED,
     baseStationTelemetry: null,
     mapView: null,
     coordPrecision: DEFAULT_APP_SETTINGS.defaults.coordinates.precision,
@@ -735,6 +854,19 @@ const MapWorkspace = () => {
         zIndex: overlay.z_index,
       })),
     [rasterOverlayUrls, rasterOverlays],
+  );
+  const vectorOverlaysForMap = useMemo(
+    () =>
+      vectorOverlays.map((overlay) => ({
+        id: overlay.id,
+        name: overlay.name,
+        color: overlay.color ?? DEFAULT_VECTOR_OVERLAY_COLOR,
+        opacity: overlay.opacity,
+        visible: overlay.visible,
+        zIndex: overlay.z_index,
+        features: vectorOverlayDataById[overlay.id]?.features ?? [],
+      })),
+    [vectorOverlayDataById, vectorOverlays],
   );
   const activeTrackNumber = useMemo(() => {
     if (!missionDocument) return 0;
@@ -978,6 +1110,8 @@ const MapWorkspace = () => {
   const rasterDecodeErrorShownRef = useRef<Set<string>>(new Set());
   const rasterBoundsErrorShownRef = useRef<Set<string>>(new Set());
   const rasterOverlayUrlCacheRef = useRef<Map<string, { key: string; url: string }>>(new Map());
+  const vectorOverlayErrorShownRef = useRef<Set<string>>(new Set());
+  const vectorOverlayCacheRef = useRef<Map<string, { key: string; data: VectorOverlayMapData }>>(new Map());
   const centerNonceRef = useRef(0);
   const requestCenterOnObject = useCallback((id: string) => {
     setPinnedAgentId(null);
@@ -1012,6 +1146,8 @@ const MapWorkspace = () => {
       segmentLengthsMode,
       styles,
       rasterOverlays,
+      vectorOverlays,
+      leftPanelSectionsCollapsed,
       isLoaded,
     };
   }, [
@@ -1032,6 +1168,8 @@ const MapWorkspace = () => {
     segmentLengthsMode,
     styles,
     rasterOverlays,
+    vectorOverlays,
+    leftPanelSectionsCollapsed,
     isLoaded,
   ]);
 
@@ -1191,6 +1329,98 @@ const MapWorkspace = () => {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    const syncStateFromCache = () => {
+      if (!active) return;
+      setVectorOverlayDataById(
+        Object.fromEntries(Array.from(vectorOverlayCacheRef.current.entries(), ([id, value]) => [id, value.data])),
+      );
+    };
+
+    const loadVectorOverlayData = async () => {
+      if (!missionRootPath || vectorOverlays.length === 0) {
+        vectorOverlayCacheRef.current.clear();
+        vectorOverlayErrorShownRef.current.clear();
+        setVectorOverlayDataById({});
+        return;
+      }
+
+      const activeIds = new Set(vectorOverlays.map((overlay) => overlay.id));
+      for (const [overlayId] of vectorOverlayCacheRef.current.entries()) {
+        if (!activeIds.has(overlayId)) {
+          vectorOverlayCacheRef.current.delete(overlayId);
+          vectorOverlayErrorShownRef.current.delete(overlayId);
+        }
+      }
+
+      const pending: VectorOverlayUi[] = [];
+      for (const overlay of vectorOverlays) {
+        const overlayKey = `${missionRootPath}/${overlay.file}::${resolveVectorOverlayCacheFilePath(overlay)}`;
+        const cached = vectorOverlayCacheRef.current.get(overlay.id);
+        if (cached && cached.key !== overlayKey) {
+          vectorOverlayCacheRef.current.delete(overlay.id);
+          vectorOverlayErrorShownRef.current.delete(overlay.id);
+        }
+        if (!vectorOverlayCacheRef.current.has(overlay.id)) {
+          pending.push(overlay);
+        }
+      }
+
+      syncStateFromCache();
+      if (pending.length === 0) return;
+
+      await Promise.all(
+        pending.map(async (overlay) => {
+          try {
+            const overlayKey = `${missionRootPath}/${overlay.file}::${resolveVectorOverlayCacheFilePath(overlay)}`;
+            const cacheFilePath = resolveVectorOverlayCacheFilePath(overlay);
+            const sourceMeta = toVectorOverlayCacheSourceMeta(overlay);
+
+            const cacheRaw = await platform.fileStore.readText(`${missionRootPath}/${cacheFilePath}`);
+            const cacheData = cacheRaw ? parseVectorOverlayCache(cacheRaw, sourceMeta) : null;
+            if (cacheData) {
+              vectorOverlayCacheRef.current.set(overlay.id, {
+                key: overlayKey,
+                data: cacheData,
+              });
+              return;
+            }
+
+            const parsed = await parseVectorOverlayFromSourceFile(missionRootPath, overlay);
+            const cachePayload = serializeVectorOverlayCache(sourceMeta, parsed);
+            await platform.fileStore.writeText(`${missionRootPath}/${cacheFilePath}`, cachePayload).catch(() => {
+              // cache write is best effort
+            });
+
+            vectorOverlayCacheRef.current.set(overlay.id, {
+              key: overlayKey,
+              data: parsed,
+            });
+          } catch (error) {
+            if (!vectorOverlayErrorShownRef.current.has(overlay.id)) {
+              vectorOverlayErrorShownRef.current.add(overlay.id);
+              const message = error instanceof Error ? error.message : 'Ошибка загрузки CAD-слоя.';
+              toast({
+                title: `Не удалось загрузить слой: ${overlay.name}`,
+                description: message,
+              });
+            }
+          }
+        }),
+      );
+
+      syncStateFromCache();
+    };
+
+    void loadVectorOverlayData();
+
+    return () => {
+      active = false;
+    };
+  }, [missionRootPath, vectorOverlays]);
+
   const toggleTrackHidden = useCallback((trackId: string) => {
     setHiddenTrackIds((prev) => (prev.includes(trackId) ? prev.filter((id) => id !== trackId) : [...prev, trackId]));
   }, []);
@@ -1305,9 +1535,9 @@ const MapWorkspace = () => {
           }
 
           const id = createOverlayId();
-          const filePath = `${OVERLAYS_DIR}/${id}.tif.b64`;
+          const filePath = `${OVERLAYS_RASTER_DIR}/${id}.tif.b64`;
           await platform.fileStore.writeText(`${missionRootPath}/${filePath}`, arrayBufferToBase64(tifBuffer));
-          const tfwFilePath = source === 'tif+tfw' ? `${OVERLAYS_DIR}/${id}.tfw` : undefined;
+          const tfwFilePath = source === 'tif+tfw' ? `${OVERLAYS_RASTER_DIR}/${id}.tfw` : undefined;
           if (source === 'tif+tfw' && tfwFilePath && tfwTextForStorage !== null) {
             await platform.fileStore.writeText(`${missionRootPath}/${tfwFilePath}`, tfwTextForStorage);
           }
@@ -1330,6 +1560,131 @@ const MapWorkspace = () => {
             ];
           });
           toast({ title: `Растр импортирован: ${baseName}` });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Ошибка импорта';
+          toast({ title: `Не удалось импортировать ${baseName}`, description: message });
+        }
+      }
+    },
+    [missionRootPath],
+  );
+
+  const importDxfFiles = useCallback(
+    async (
+      filesInput: FileList | File[],
+      options: {
+        utmZone: number;
+        utmHemisphere: 'north' | 'south';
+      },
+    ) => {
+      if (!missionRootPath) {
+        toast({ title: 'Импорт недоступен', description: 'Сначала откройте миссию или черновик.' });
+        return;
+      }
+
+      const files = Array.from(filesInput);
+      if (files.length === 0) return;
+
+      const dxfOrDwgFiles = files.filter((file) => {
+        const lower = file.name.toLowerCase();
+        return lower.endsWith('.dxf') || lower.endsWith('.dwg');
+      });
+      if (dxfOrDwgFiles.length === 0) {
+        toast({
+          title: 'Импорт недоступен',
+          description: 'Выберите один или несколько файлов DXF/DWG.',
+        });
+        return;
+      }
+
+      for (const sourceFile of dxfOrDwgFiles) {
+        const lower = sourceFile.name.toLowerCase();
+        const baseName = sourceFile.name.replace(/\.[^/.]+$/, '');
+
+        try {
+          let parsed: DxfOverlayFeatureCollection;
+          let filePath: string;
+          let fileContent: string;
+          let overlayType: VectorOverlayUi['type'];
+          let fileEncoding: NonNullable<VectorOverlayUi['file_encoding']>;
+          let sourceLabel = 'DXF';
+          if (lower.endsWith('.dwg')) {
+            sourceLabel = 'DWG';
+            const rawBinary = await sourceFile.arrayBuffer();
+            parsed = await parseDwgToWgs84(rawBinary, {
+              zone: options.utmZone,
+              hemisphere: options.utmHemisphere,
+            });
+            overlayType = 'dwg';
+            fileEncoding = 'base64';
+            filePath = '';
+            fileContent = arrayBufferToBase64(rawBinary);
+          } else {
+            const rawText = await sourceFile.text();
+            parsed = parseDxfToWgs84(rawText, {
+              zone: options.utmZone,
+              hemisphere: options.utmHemisphere,
+            });
+            overlayType = 'dxf';
+            fileEncoding = 'utf8';
+            filePath = '';
+            fileContent = rawText;
+          }
+
+          const bounds = computeVectorOverlayBounds(parsed.features);
+          if (!bounds) {
+            throw new Error('В CAD-файле не найдена поддерживаемая геометрия.');
+          }
+
+          const id = createOverlayId();
+          filePath = overlayType === 'dwg' ? `${OVERLAYS_VECTOR_DIR}/${id}.dwg.b64` : `${OVERLAYS_VECTOR_DIR}/${id}.dxf`;
+          const cacheFilePath = `${OVERLAYS_VECTOR_DIR}/${id}.vector-cache.json`;
+          await platform.fileStore.writeText(`${missionRootPath}/${filePath}`, fileContent);
+
+          const data: VectorOverlayMapData = {
+            features: parsed.features,
+            bounds,
+          };
+          const overlayMeta: VectorOverlayUi = {
+            id,
+            name: baseName,
+            file: filePath,
+            cache_file: cacheFilePath,
+            color: DEFAULT_VECTOR_OVERLAY_COLOR,
+            type: overlayType,
+            file_encoding: fileEncoding,
+            utm_zone: options.utmZone,
+            utm_hemisphere: options.utmHemisphere === 'south' ? 'S' : 'N',
+            opacity: 1,
+            visible: true,
+            z_index: 1,
+          };
+          const cachePayload = serializeVectorOverlayCache(toVectorOverlayCacheSourceMeta(overlayMeta), data);
+          await platform.fileStore.writeText(`${missionRootPath}/${cacheFilePath}`, cachePayload).catch(() => {
+            // cache write is best effort
+          });
+
+          setVectorOverlays((prev) => {
+            const maxZ = prev.reduce((max, item) => Math.max(max, item.z_index), 0);
+            const nextOverlay: VectorOverlayUi = {
+              ...overlayMeta,
+              z_index: maxZ + 1,
+            };
+            return [
+              ...prev,
+              nextOverlay,
+            ];
+          });
+
+          vectorOverlayCacheRef.current.set(id, {
+            key: `${missionRootPath}/${filePath}::${cacheFilePath}`,
+            data,
+          });
+          setVectorOverlayDataById((prev) => ({
+            ...prev,
+            [id]: data,
+          }));
+          toast({ title: `${sourceLabel} импортирован: ${baseName}` });
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Ошибка импорта';
           toast({ title: `Не удалось импортировать ${baseName}`, description: message });
@@ -1389,6 +1744,111 @@ const MapWorkspace = () => {
       zoom: prev?.zoom ?? 16,
     }));
   }, [rasterOverlays]);
+
+  const toggleVectorOverlayVisible = useCallback((id: string) => {
+    setVectorOverlays((prev) => prev.map((overlay) => (overlay.id === id ? { ...overlay, visible: !overlay.visible } : overlay)));
+  }, []);
+
+  const toggleAllVectorOverlaysVisible = useCallback(() => {
+    setVectorOverlays((prev) => {
+      const allHidden = prev.length > 0 && prev.every((o) => !o.visible);
+      return prev.map((o) => ({ ...o, visible: allHidden }));
+    });
+  }, []);
+
+  const setVectorOverlayOpacity = useCallback((id: string, opacity: number) => {
+    const nextOpacity = Math.max(0, Math.min(1, opacity));
+    setVectorOverlays((prev) => prev.map((overlay) => (overlay.id === id ? { ...overlay, opacity: nextOpacity } : overlay)));
+  }, []);
+
+  const setVectorOverlayColor = useCallback((id: string, color: string) => {
+    if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+    setVectorOverlays((prev) => prev.map((overlay) => (overlay.id === id ? { ...overlay, color } : overlay)));
+  }, []);
+
+  const moveVectorOverlay = useCallback((id: string, delta: -1 | 1) => {
+    setVectorOverlays((prev) => moveRasterOverlayByDelta(prev, id, delta));
+  }, []);
+
+  const deleteVectorOverlay = useCallback(
+    (id: string) => {
+      const target = vectorOverlays.find((overlay) => overlay.id === id);
+      if (!target) return;
+      setVectorOverlays((prev) => prev.filter((overlay) => overlay.id !== id));
+      setVectorOverlayDataById((prev) => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      vectorOverlayCacheRef.current.delete(id);
+      vectorOverlayErrorShownRef.current.delete(id);
+      if (missionRootPath) {
+        void platform.fileStore.remove(`${missionRootPath}/${target.file}`).catch(() => {
+          // best effort cleanup
+        });
+        void platform.fileStore.remove(`${missionRootPath}/${resolveVectorOverlayCacheFilePath(target)}`).catch(() => {
+          // best effort cleanup
+        });
+      }
+    },
+    [missionRootPath, vectorOverlays],
+  );
+
+  const centerVectorOverlay = useCallback(
+    (id: string) => {
+      const applyBounds = (bounds: MapBounds) => {
+        const centerLat = (bounds.north + bounds.south) / 2;
+        const centerLon = (bounds.east + bounds.west) / 2;
+        setMapView((prev) => ({
+          center_lat: centerLat,
+          center_lon: centerLon,
+          zoom: prev?.zoom ?? 16,
+        }));
+      };
+
+      const cached = vectorOverlayDataById[id];
+      if (cached) {
+        applyBounds(cached.bounds);
+        return;
+      }
+
+      const target = vectorOverlays.find((overlay) => overlay.id === id);
+      if (!target || !missionRootPath) return;
+
+      void (async () => {
+        try {
+          const overlayKey = `${missionRootPath}/${target.file}::${resolveVectorOverlayCacheFilePath(target)}`;
+          const cacheFilePath = resolveVectorOverlayCacheFilePath(target);
+          const sourceMeta = toVectorOverlayCacheSourceMeta(target);
+          const cacheRaw = await platform.fileStore.readText(`${missionRootPath}/${cacheFilePath}`);
+          const cacheData = cacheRaw ? parseVectorOverlayCache(cacheRaw, sourceMeta) : null;
+
+          const data = cacheData ?? (await parseVectorOverlayFromSourceFile(missionRootPath, target));
+          if (!cacheData) {
+            const cachePayload = serializeVectorOverlayCache(sourceMeta, data);
+            await platform.fileStore.writeText(`${missionRootPath}/${cacheFilePath}`, cachePayload).catch(() => {
+              // cache write is best effort
+            });
+          }
+
+          vectorOverlayCacheRef.current.set(id, {
+            key: overlayKey,
+            data,
+          });
+          setVectorOverlayDataById((prev) => ({ ...prev, [id]: data }));
+          applyBounds(data.bounds);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Не удалось прочитать слой.';
+          toast({
+            title: `Не удалось загрузить слой: ${target.name}`,
+            description: message,
+          });
+        }
+      })();
+    },
+    [missionRootPath, vectorOverlayDataById, vectorOverlays],
+  );
 
   useEffect(() => {
     setMissionDivers((prev) => {
@@ -1455,6 +1915,8 @@ const MapWorkspace = () => {
       nextSegmentLengthsMode: SegmentLengthsMode,
       nextStyles: AppUiDefaults['styles'],
       rasterOverlaysState: RasterOverlayUi[],
+      vectorOverlaysState: VectorOverlayUi[],
+      nextLeftPanelSectionsCollapsed: LeftPanelSectionsCollapsedState,
     ): MissionBundle => {
       const geo = mapObjectsToGeoJson(missionObjects);
       const nextMission: MissionDocument = {
@@ -1473,6 +1935,7 @@ const MapWorkspace = () => {
             grid: layersState.grid,
             scale_bar: layersState.scaleBar,
           },
+          left_panel_sections: nextLeftPanelSectionsCollapsed,
           base_station: {
             navigation_source: baseStationSourceState,
             track_color: baseStationTrackColorState,
@@ -1494,6 +1957,7 @@ const MapWorkspace = () => {
             segment_lengths_mode: nextSegmentLengthsMode,
           },
           raster_overlays: rasterOverlaysState,
+          vector_overlays: vectorOverlaysState,
           styles: {
             track: { ...nextStyles.track },
             route: { ...nextStyles.route },
@@ -1553,6 +2017,8 @@ const MapWorkspace = () => {
         snapshot.segmentLengthsMode,
         snapshot.styles,
         snapshot.rasterOverlays,
+        snapshot.vectorOverlays,
+        snapshot.leftPanelSectionsCollapsed,
       );
       await repository.saveMission(bundle);
 
@@ -1610,6 +2076,14 @@ const MapWorkspace = () => {
       scaleBar: effective.layers.scale_bar,
       diver: true,
     });
+    const sections = bundle.mission.ui?.left_panel_sections;
+    setLeftPanelSectionsCollapsed({
+      layers: typeof sections?.layers === 'boolean' ? sections.layers : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.layers,
+      agents: typeof sections?.agents === 'boolean' ? sections.agents : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.agents,
+      rasters: typeof sections?.rasters === 'boolean' ? sections.rasters : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.rasters,
+      vectors: typeof sections?.vectors === 'boolean' ? sections.vectors : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.vectors,
+      objects: typeof sections?.objects === 'boolean' ? sections.objects : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.objects,
+    });
     const baseStationUi = bundle.mission.ui?.base_station;
     const nextBaseStationSource = normalizeNavigationSourceId(
       baseStationUi?.navigation_source ?? baseStationUi?.source_id ?? null,
@@ -1644,6 +2118,35 @@ const MapWorkspace = () => {
           )
         : [],
     );
+    setVectorOverlays(
+      Array.isArray(bundle.mission.ui?.vector_overlays)
+        ? bundle.mission.ui.vector_overlays.filter(
+            (item): item is VectorOverlayUi =>
+              typeof item?.id === 'string' &&
+              typeof item?.name === 'string' &&
+              typeof item?.file === 'string' &&
+              (typeof item?.cache_file === 'undefined' || typeof item?.cache_file === 'string') &&
+              (typeof item?.color === 'undefined' || typeof item?.color === 'string') &&
+              (item?.type === 'dxf' || item?.type === 'dwg') &&
+              (typeof item?.file_encoding === 'undefined' ||
+                item?.file_encoding === 'utf8' ||
+                item?.file_encoding === 'base64') &&
+              Number.isInteger(item?.utm_zone) &&
+              item.utm_zone >= 1 &&
+              item.utm_zone <= 60 &&
+              (item?.utm_hemisphere === 'N' || item?.utm_hemisphere === 'S') &&
+              typeof item?.opacity === 'number' &&
+              typeof item?.visible === 'boolean' &&
+              typeof item?.z_index === 'number',
+          ).map((item) => ({
+            ...item,
+            cache_file: resolveVectorOverlayCacheFilePath(item),
+          }))
+        : [],
+    );
+    vectorOverlayCacheRef.current.clear();
+    vectorOverlayErrorShownRef.current.clear();
+    setVectorOverlayDataById({});
     const baseLat = typeof baseStationUi?.lat === 'number' ? baseStationUi.lat : null;
     const baseLon = typeof baseStationUi?.lon === 'number' ? baseStationUi.lon : null;
     const baseHeadingRaw = baseStationUi?.heading_deg;
@@ -1840,6 +2343,8 @@ const MapWorkspace = () => {
         segmentLengthsMode,
         styles,
         rasterOverlays,
+        vectorOverlays,
+        leftPanelSectionsCollapsed,
       );
 
     walStageTimerRef.current = window.setTimeout(async () => {
@@ -1894,6 +2399,8 @@ const MapWorkspace = () => {
     segmentLengthsMode,
     styles,
     rasterOverlays,
+    vectorOverlays,
+    leftPanelSectionsCollapsed,
   ]);
 
   const applyPrimaryConnectionState = useCallback((nextState: TelemetryConnectionState) => {
@@ -3192,6 +3699,7 @@ const MapWorkspace = () => {
             onOpenOfflineMaps={openOfflineMapsDialog}
             onOpenCoordinateBuilder={setCoordinateBuilderType}
             onImportRasterFiles={importRasterFiles}
+            onImportDxfFiles={importDxfFiles}
             onFinishMission={handleFinishMission}
             onGoToStart={handleGoToStart}
           />
@@ -3220,6 +3728,14 @@ const MapWorkspace = () => {
               opacity: overlay.opacity,
               zIndex: overlay.z_index,
             }))}
+            vectorOverlays={vectorOverlays.map((overlay) => ({
+              id: overlay.id,
+              name: overlay.name,
+              color: overlay.color ?? DEFAULT_VECTOR_OVERLAY_COLOR,
+              visible: overlay.visible,
+              opacity: overlay.opacity,
+              zIndex: overlay.z_index,
+            }))}
             selectedObjectId={selectedObjectId}
             onObjectSelect={handleObjectSelect}
             onObjectCenter={handleObjectCenter}
@@ -3230,6 +3746,15 @@ const MapWorkspace = () => {
             onRasterOverlayDelete={deleteRasterOverlay}
             onRasterOverlayCenter={centerRasterOverlay}
             onRasterOverlayToggleAll={toggleAllRasterOverlaysVisible}
+            onVectorOverlayToggle={toggleVectorOverlayVisible}
+            onVectorOverlayOpacityChange={setVectorOverlayOpacity}
+            onVectorOverlayColorChange={setVectorOverlayColor}
+            onVectorOverlayMove={moveVectorOverlay}
+            onVectorOverlayDelete={deleteVectorOverlay}
+            onVectorOverlayCenter={centerVectorOverlay}
+            onVectorOverlayToggleAll={toggleAllVectorOverlaysVisible}
+            sectionsCollapsed={leftPanelSectionsCollapsed}
+            onSectionsCollapsedChange={setLeftPanelSectionsCollapsed}
           />
         }
         center={
@@ -3263,6 +3788,7 @@ const MapWorkspace = () => {
             diverPositionsById={diverTelemetryById}
             trackSegments={visibleTrackSegments}
             rasterOverlays={rasterOverlaysForMap}
+            vectorOverlays={vectorOverlaysForMap}
             followAgentId={pinnedAgentId}
             connectionStatus={connectionStatus}
             connectionLostSeconds={connectionLostSeconds}

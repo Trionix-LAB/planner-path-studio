@@ -7,6 +7,11 @@ const openImportTifSubmenu = async () => {
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Импорт TIF' }));
 };
 
+const openImportDwgDxfSubmenu = async () => {
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Импорт' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Импортировать DWG/DXF' }));
+};
+
 describe('top toolbar mission menu', () => {
   it('calls onGoToStart when user clicks "На старт"', async () => {
     window.PointerEvent = MouseEvent as unknown as typeof PointerEvent;
@@ -235,6 +240,66 @@ describe('top toolbar mission menu', () => {
       metersProjection: 'utm',
       utmZone: 37,
       utmHemisphere: 'north',
+    });
+  });
+
+  it('opens DWG/DXF + UTM picker and forwards UTM params', async () => {
+    window.PointerEvent = MouseEvent as unknown as typeof PointerEvent;
+    const onImportDxfFiles = vi.fn();
+
+    render(
+      <TopToolbar
+        missionName="Тестовая миссия"
+        isDraft={false}
+        autoSaveStatus="saved"
+        activeTool="select"
+        trackStatus="recording"
+        showSimulationControls={false}
+        isRecordingEnabled={true}
+        onToolChange={vi.fn()}
+        onTrackAction={vi.fn()}
+        onOpenCreate={vi.fn()}
+        onOpenOpen={vi.fn()}
+        onOpenExport={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenOfflineMaps={vi.fn()}
+        onImportDxfFiles={onImportDxfFiles}
+        onFinishMission={vi.fn()}
+        onGoToStart={vi.fn()}
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Тестовая миссия/i }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    await openImportDwgDxfSubmenu();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'DWG/DXF + UTM' }));
+
+    const zoneInput = await screen.findByLabelText('UTM зона (1..60)');
+    const chooseButton = await screen.findByRole('button', { name: 'Выбрать DWG/DXF' });
+    const hemisphereSelect = await screen.findByLabelText('Полушарие');
+
+    fireEvent.change(zoneInput, { target: { value: '61' } });
+    expect(await screen.findByText('Некорректная UTM зона: ожидается число от 1 до 60.')).toBeInTheDocument();
+    expect(chooseButton).toBeDisabled();
+
+    fireEvent.change(zoneInput, { target: { value: '36' } });
+    fireEvent.change(hemisphereSelect, { target: { value: 'south' } });
+    expect(chooseButton).not.toBeDisabled();
+
+    fireEvent.click(chooseButton);
+
+    const input = document.querySelector('input[accept=".dxf,.dwg"]') as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+    const dxfFile = new File(['x'], 'test.dxf', { type: 'application/dxf' });
+    fireEvent.change(input!, { target: { files: [dxfFile] } });
+
+    expect(onImportDxfFiles).toHaveBeenCalledTimes(1);
+    expect(onImportDxfFiles).toHaveBeenCalledWith(expect.anything(), {
+      utmZone: 36,
+      utmHemisphere: 'south',
     });
   });
 

@@ -40,6 +40,20 @@ export type MissionUiState = {
     z_index: number;
     source: 'geotiff' | 'tif+tfw';
   }>;
+  vector_overlays?: Array<{
+    id: string;
+    name: string;
+    file: string;
+    cache_file?: string;
+    color?: string;
+    type: 'dxf' | 'dwg';
+    file_encoding?: 'utf8' | 'base64';
+    utm_zone: number;
+    utm_hemisphere: 'N' | 'S';
+    opacity: number;
+    visible: boolean;
+    z_index: number;
+  }>;
   divers?: DiverUiConfig[];
   layers?: {
     track?: boolean;
@@ -49,6 +63,13 @@ export type MissionUiState = {
     grid?: boolean;
     scale_bar?: boolean;
     basemap?: boolean;
+  };
+  left_panel_sections?: {
+    layers?: boolean;
+    agents?: boolean;
+    rasters?: boolean;
+    vectors?: boolean;
+    objects?: boolean;
   };
   coordinates?: {
     precision?: number;

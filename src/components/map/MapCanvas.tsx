@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ImageOverlay, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GeoJSON, ImageOverlay, MapContainer, Marker, Pane, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { AlertTriangle } from "lucide-react";
@@ -19,6 +19,7 @@ import {
 } from "@/features/mission/model/diverMarkerSize";
 import type { AppUiDefaults } from "@/features/settings";
 import type { DiverUiConfig } from "@/features/mission";
+import type { DxfOverlayFeatureCollection } from '@/features/map/dxfOverlay/parseDxf';
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
@@ -101,6 +102,15 @@ interface MapCanvasProps {
     visible: boolean;
     zIndex: number;
   }>;
+  vectorOverlays?: Array<{
+    id: string;
+    name: string;
+    color: string;
+    opacity: number;
+    visible: boolean;
+    zIndex: number;
+    features: DxfOverlayFeatureCollection['features'];
+  }>;
   followAgentId: string | null;
   connectionStatus: 'ok' | 'timeout' | 'error';
   connectionLostSeconds?: number;
@@ -125,6 +135,156 @@ interface MapCanvasProps {
   onMapBoundsChange?: (bounds: { north: number; south: number; east: number; west: number }) => void;
   onMapDrag: () => void;
 }
+
+type RasterOverlayLayer = NonNullable<MapCanvasProps["rasterOverlays"]>[number];
+type VectorOverlayLayer = NonNullable<MapCanvasProps["vectorOverlays"]>[number];
+type VectorOverlayGeoJsonFeature = {
+  type: "Feature";
+  geometry:
+    | {
+        type: "LineString";
+        coordinates: Array<[number, number]>;
+      }
+    | {
+        type: "Polygon";
+        coordinates: Array<Array<[number, number]>>;
+      }
+    | {
+        type: "Point";
+        coordinates: [number, number];
+      };
+  properties: { kind: "polyline" | "polygon" | "point" };
+};
+type VectorOverlayGeoJsonCollection = {
+  type: "FeatureCollection";
+  features: VectorOverlayGeoJsonFeature[];
+};
+
+const isClosedPolyline = (points: Array<{ lat: number; lon: number }>): boolean => {
+  if (points.length < 4) return false;
+  const first = points[0];
+  const last = points[points.length - 1];
+  return Math.abs(first.lat - last.lat) < 1e-10 && Math.abs(first.lon - last.lon) < 1e-10;
+};
+
+const toVectorOverlayGeoJson = (
+  features: DxfOverlayFeatureCollection["features"],
+): VectorOverlayGeoJsonCollection => ({
+  type: "FeatureCollection",
+  features: features.map((feature) => {
+    if (feature.type === "point") {
+      return {
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [feature.point.lon, feature.point.lat],
+        },
+        properties: { kind: "point" },
+      };
+    }
+
+    const coordinates = feature.points.map((point) => [point.lon, point.lat] as [number, number]);
+    if (isClosedPolyline(feature.points)) {
+      return {
+        type: "Feature",
+        geometry: {
+          type: "Polygon",
+          coordinates: [coordinates],
+        },
+        properties: { kind: "polygon" },
+      };
+    }
+
+    return {
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates,
+      },
+      properties: { kind: "polyline" },
+    };
+  }),
+});
+
+const OverlayLayers = memo(
+  ({
+    rasterOverlays,
+    vectorOverlays,
+  }: {
+    rasterOverlays: RasterOverlayLayer[];
+    vectorOverlays: VectorOverlayLayer[];
+  }) => {
+    const visibleRasterOverlays = useMemo(
+      () =>
+        rasterOverlays
+          .filter((overlay) => overlay.visible && overlay.url)
+          .sort((a, b) => a.zIndex - b.zIndex),
+      [rasterOverlays],
+    );
+
+    const visibleVectorOverlays = useMemo(
+      () =>
+        vectorOverlays
+          .filter((overlay) => overlay.visible)
+          .sort((a, b) => a.zIndex - b.zIndex)
+          .map((overlay) => ({
+            ...overlay,
+            geoJson: toVectorOverlayGeoJson(overlay.features),
+          })),
+      [vectorOverlays],
+    );
+
+    return (
+      <>
+        {visibleRasterOverlays.map((overlay) => (
+          <ImageOverlay
+            key={`raster-overlay-${overlay.id}`}
+            url={overlay.url}
+            opacity={overlay.opacity}
+            zIndex={overlay.zIndex}
+            bounds={[
+              [overlay.bounds.south, overlay.bounds.west],
+              [overlay.bounds.north, overlay.bounds.east],
+            ]}
+          />
+        ))}
+
+        {visibleVectorOverlays.map((overlay) => (
+          <Pane key={`vector-pane-${overlay.id}`} name={`vector-pane-${overlay.id}`} style={{ zIndex: 450 + overlay.zIndex }}>
+            <GeoJSON
+              key={`vector-geojson-${overlay.id}-${overlay.geoJson.features.length}`}
+              data={overlay.geoJson as unknown as GeoJSON.GeoJsonObject}
+              style={(feature) => {
+                const isPolygon = feature?.geometry?.type === "Polygon";
+                return {
+                  color: overlay.color,
+                  weight: 2,
+                  opacity: overlay.opacity,
+                  fillColor: overlay.color,
+                  fillOpacity: isPolygon ? Math.max(0.08, overlay.opacity * 0.2) : 0,
+                };
+              }}
+              pointToLayer={(_, latlng) =>
+                L.circleMarker(latlng, {
+                  radius: 3,
+                  color: overlay.color,
+                  fillColor: overlay.color,
+                  fillOpacity: overlay.opacity,
+                  opacity: overlay.opacity,
+                  weight: 1,
+                  interactive: false,
+                })
+              }
+              interactive={false}
+            />
+          </Pane>
+        ))}
+      </>
+    );
+  },
+);
+
+OverlayLayers.displayName = "OverlayLayers";
 
 // Custom diver icon
 const createDiverIcon = (course: number, isFollowing: boolean, color: string, sizePx: number) => {
@@ -487,6 +647,7 @@ const MapCanvas = ({
   diverPositionsById = {},
   trackSegments,
   rasterOverlays = [],
+  vectorOverlays = [],
   followAgentId,
   connectionStatus,
   connectionLostSeconds,
@@ -1312,6 +1473,7 @@ const MapCanvas = ({
         center={mapView ? [mapView.center_lat, mapView.center_lon] : followPosition}
         zoom={normalizedInitialZoom}
         maxZoom={platform.map.maxZoom()}
+        preferCanvas={true}
         zoomSnap={zoomSnap}
         zoomDelta={platform.map.zoomDelta()}
         wheelPxPerZoomLevel={platform.map.wheelPxPerZoomLevel()}
@@ -1387,21 +1549,7 @@ const MapCanvas = ({
             />
           ))}
 
-        {rasterOverlays
-          .filter((overlay) => overlay.visible && overlay.url)
-          .sort((a, b) => a.zIndex - b.zIndex)
-          .map((overlay) => (
-            <ImageOverlay
-              key={`raster-overlay-${overlay.id}`}
-              url={overlay.url}
-              opacity={overlay.opacity}
-              zIndex={overlay.zIndex}
-              bounds={[
-                [overlay.bounds.south, overlay.bounds.west],
-                [overlay.bounds.north, overlay.bounds.east],
-              ]}
-            />
-          ))}
+        <OverlayLayers rasterOverlays={rasterOverlays} vectorOverlays={vectorOverlays} />
 
         {/* Routes */}
         {layers.routes &&

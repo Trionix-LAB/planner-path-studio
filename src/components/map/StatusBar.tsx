@@ -30,17 +30,7 @@ const StatusBar = ({ cursorPosition, scale, activeTool, coordPrecision }: Status
       </div>
       
       <div className="flex-1" />
-      
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground">Инструмент:</span>
-        <span className="text-primary font-medium">{toolNames[activeTool]}</span>
-      </div>
-      
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <span>Esc - отмена</span>
-        <span>•</span>
-        <span>Delete - удалить</span>
-      </div>
+     
     </div>
   );
 };

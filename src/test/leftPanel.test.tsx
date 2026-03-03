@@ -142,4 +142,104 @@ describe('LeftPanel base station controls (T-99)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Скрыть растр Raster 1/i }));
     expect(onRasterOverlayToggle).toHaveBeenCalledWith('raster-1');
   });
+
+  it('opens vector color change on right click', () => {
+    const onVectorOverlayColorChange = vi.fn();
+
+    render(
+      <LeftPanel
+        layers={{
+          basemap: true,
+          track: true,
+          routes: true,
+          markers: true,
+          baseStation: true,
+          grid: false,
+          scaleBar: true,
+          diver: true,
+        }}
+        onLayerToggle={vi.fn()}
+        divers={[diver]}
+        trackStatusByAgentId={{}}
+        baseStationTrackStatus="stopped"
+        selectedAgentId={null}
+        pinnedAgentId={null}
+        onAgentSelect={vi.fn()}
+        onAgentToggleRecording={vi.fn()}
+        onBaseStationTrackAction={vi.fn()}
+        isDraft={false}
+        isRecordingEnabled={true}
+        objects={[]}
+        vectorOverlays={[
+          {
+            id: 'vector-1',
+            name: 'Vector 1',
+            color: '#0f766e',
+            visible: true,
+            opacity: 1,
+            zIndex: 1,
+          },
+        ]}
+        selectedObjectId={null}
+        onObjectSelect={vi.fn()}
+        onVectorOverlayColorChange={onVectorOverlayColorChange}
+      />,
+    );
+
+    const vectorName = screen.getByText('Vector 1');
+    fireEvent.contextMenu(vectorName.closest('div')!);
+    const colorInput = screen.getByLabelText('Цвет слоя Vector 1');
+    fireEvent.change(colorInput, { target: { value: '#ff0000' } });
+    expect(onVectorOverlayColorChange).toHaveBeenCalledWith('vector-1', '#ff0000');
+  });
+
+  it('emits section collapsed state changes', () => {
+    const onSectionsCollapsedChange = vi.fn();
+
+    render(
+      <LeftPanel
+        layers={{
+          basemap: true,
+          track: true,
+          routes: true,
+          markers: true,
+          baseStation: true,
+          grid: false,
+          scaleBar: true,
+          diver: true,
+        }}
+        onLayerToggle={vi.fn()}
+        divers={[diver]}
+        trackStatusByAgentId={{}}
+        baseStationTrackStatus="stopped"
+        selectedAgentId={null}
+        pinnedAgentId={null}
+        onAgentSelect={vi.fn()}
+        onAgentToggleRecording={vi.fn()}
+        onBaseStationTrackAction={vi.fn()}
+        isDraft={false}
+        isRecordingEnabled={true}
+        objects={[]}
+        selectedObjectId={null}
+        onObjectSelect={vi.fn()}
+        sectionsCollapsed={{
+          layers: false,
+          agents: false,
+          rasters: false,
+          vectors: false,
+          objects: false,
+        }}
+        onSectionsCollapsedChange={onSectionsCollapsedChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Свернуть секцию Векторные слои' }));
+    expect(onSectionsCollapsedChange).toHaveBeenCalledWith({
+      layers: false,
+      agents: false,
+      rasters: false,
+      vectors: true,
+      objects: false,
+    });
+  });
 });
