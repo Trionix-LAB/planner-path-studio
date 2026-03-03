@@ -1325,6 +1325,13 @@ const MapWorkspace = () => {
     setRasterOverlays((prev) => prev.map((overlay) => (overlay.id === id ? { ...overlay, visible: !overlay.visible } : overlay)));
   }, []);
 
+  const toggleAllRasterOverlaysVisible = useCallback(() => {
+    setRasterOverlays((prev) => {
+      const allHidden = prev.length > 0 && prev.every((o) => !o.visible);
+      return prev.map((o) => ({ ...o, visible: allHidden }));
+    });
+  }, []);
+
   const setRasterOverlayOpacity = useCallback((id: string, opacity: number) => {
     const nextOpacity = Math.max(0, Math.min(1, opacity));
     setRasterOverlays((prev) => prev.map((overlay) => (overlay.id === id ? { ...overlay, opacity: nextOpacity } : overlay)));
@@ -3155,6 +3162,7 @@ const MapWorkspace = () => {
             onRasterOverlayMove={moveRasterOverlay}
             onRasterOverlayDelete={deleteRasterOverlay}
             onRasterOverlayCenter={centerRasterOverlay}
+            onRasterOverlayToggleAll={toggleAllRasterOverlaysVisible}
           />
         }
         center={

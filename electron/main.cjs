@@ -8,6 +8,29 @@ const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
 
+let sharpCached = undefined;
+
+const getSharp = () => {
+  if (sharpCached !== undefined) return sharpCached;
+  try {
+    sharpCached = require('sharp');
+  } catch {
+    sharpCached = null;
+  }
+  return sharpCached;
+};
+
+const convertTiffBufferToPngBufferViaSharp = async (inputBuffer) => {
+  const sharp = getSharp();
+  if (!sharp) return null;
+  try {
+    const pngBuffer = await sharp(inputBuffer).png().toBuffer();
+    return pngBuffer && pngBuffer.length > 0 ? pngBuffer : null;
+  } catch {
+    return null;
+  }
+};
+
 const CHANNELS = {
   pickDirectory: 'planner:pickDirectory',
   fileStore: {
@@ -144,7 +167,7 @@ const DEFAULT_GNSS_COM_CONFIG = {
   scanTimeoutMs: 1500,
 };
 
-const GNSS_COM_SIM_REGISTRY_PATH = '/tmp/planner-gnss-com-sim.json';
+const GNSS_COM_SIM_REGISTRY_PATH = path.join(os.tmpdir(), 'planner-gnss-com-sim.json');
 
 const normalizeInputPath = (value) => {
   if (typeof value !== 'string') throw new Error('Invalid path');
@@ -245,11 +268,19 @@ const convertTiffBufferToPngBufferViaImageMagick = async (inputBuffer) => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'planner-tiff-'));
   const inputPath = path.join(tempRoot, 'input.tif');
   const outputPath = path.join(tempRoot, 'output.png');
-  const variants = [
-    ['magick', [inputPath, outputPath]],
-    ['magick', ['convert', inputPath, outputPath]],
-    ['convert', [inputPath, outputPath]],
-  ];
+  // On Windows, bare 'convert' resolves to C:\Windows\System32\convert.exe
+  // (FAT→NTFS volume converter), not ImageMagick — exclude it on win32.
+  const variants =
+    process.platform === 'win32'
+      ? [
+          ['magick', [inputPath, outputPath]],
+          ['magick', ['convert', inputPath, outputPath]],
+        ]
+      : [
+          ['magick', [inputPath, outputPath]],
+          ['magick', ['convert', inputPath, outputPath]],
+          ['convert', [inputPath, outputPath]],
+        ];
   try {
     await fs.writeFile(inputPath, inputBuffer);
     for (const [command, args] of variants) {
@@ -498,11 +529,12 @@ const listSerialPorts = async () => {
 
   const simulatorTmpPorts = (async () => {
     try {
-      const entries = await fs.readdir('/tmp', { withFileTypes: true });
+      const tmpDir = os.tmpdir();
+      const entries = await fs.readdir(tmpDir, { withFileTypes: true });
       const candidates = entries
         .map((entry) => entry.name)
         .filter((name) => name.startsWith('gnss-com') && !name.endsWith('.sim'))
-        .map((name) => `/tmp/${name}`);
+        .map((name) => path.join(tmpDir, name));
       if (candidates.length === 0) return [];
 
       const valid = (
@@ -1205,6 +1237,12 @@ const registerIpcHandlers = () => {
     try {
       const inputBuffer = Buffer.from(tiffBase64.trim(), 'base64');
       if (!inputBuffer.length) return null;
+
+      const sharpPng = await convertTiffBufferToPngBufferViaSharp(inputBuffer);
+      if (sharpPng) {
+        return sharpPng.toString('base64');
+      }
+
       const directPngBuffer = toPngBuffer(nativeImage.createFromBuffer(inputBuffer));
       if (directPngBuffer) {
         return directPngBuffer.toString('base64');

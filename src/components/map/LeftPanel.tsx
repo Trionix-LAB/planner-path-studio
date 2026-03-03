@@ -45,6 +45,7 @@ interface LeftPanelProps {
   onRasterOverlayMove?: (id: string, delta: -1 | 1) => void;
   onRasterOverlayDelete?: (id: string) => void;
   onRasterOverlayCenter?: (id: string) => void;
+  onRasterOverlayToggleAll?: () => void;
 }
 
 const BASE_STATION_AGENT_ID = 'base-station';
@@ -82,8 +83,10 @@ const LeftPanel = ({
   onRasterOverlayMove,
   onRasterOverlayDelete,
   onRasterOverlayCenter,
+  onRasterOverlayToggleAll,
 }: LeftPanelProps) => {
   const isBaseStationSelected = selectedAgentId === BASE_STATION_AGENT_ID;
+  const isAllRastersHidden = rasterOverlays.length > 0 && rasterOverlays.every((o) => !o.visible);
   const layerItems = [
     { key: 'diver' as const, icon: Waves, label: 'Водолаз', locked: true },
     { key: 'basemap' as const, icon: Circle, label: 'Тайловая подложка', locked: false },
@@ -376,7 +379,20 @@ const LeftPanel = ({
 
       <div className="border-t border-sidebar-border mt-1" />
 
-      <div className="panel-header">Растры</div>
+      <div className="panel-header">
+        Растры
+        {rasterOverlays.length > 0 && onRasterOverlayToggleAll && (
+          <button
+            type="button"
+            className="ml-auto h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+            aria-label={isAllRastersHidden ? 'Показать все растры' : 'Скрыть все растры'}
+            title={isAllRastersHidden ? 'Показать все растры' : 'Скрыть все растры'}
+            onClick={onRasterOverlayToggleAll}
+          >
+            {isAllRastersHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </button>
+        )}
+      </div>
       <div className="p-1.5 space-y-1.5">
         {rasterOverlays.length > 0 ? (
           <div className="space-y-1 max-h-36 overflow-y-auto">
