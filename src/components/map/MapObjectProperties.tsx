@@ -52,6 +52,8 @@ const getDefaultColor = (type: MapObject['type'], styles: AppUiDefaults['styles'
   return styles.route.color;
 };
 
+const getDefaultLaneColor = (styles: AppUiDefaults['styles']): string => styles.lane.color;
+
 const normalizeHexColor = (value: string, fallback: string): string => {
   const trimmed = value.trim();
   if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
@@ -206,6 +208,7 @@ const MapObjectProperties = ({
   const [laneWidth, setLaneWidth] = useState('5');
   const [zoneVisible, setZoneVisible] = useState(true);
   const [color, setColor] = useState('#0ea5e9');
+  const [laneColor, setLaneColor] = useState('#22c55e');
   const [pointRows, setPointRows] = useState<EditablePointRow[]>([]);
   const [pointCellErrors, setPointCellErrors] = useState<PointCellErrors>({});
   const [pointTableError, setPointTableError] = useState<string | null>(null);
@@ -219,12 +222,14 @@ const MapObjectProperties = ({
 
   useEffect(() => {
     const fallbackColor = getDefaultColor(object.type, styles);
+    const fallbackLaneColor = getDefaultLaneColor(styles);
     setName(object.name);
     setNote(object.note ?? '');
     setLaneAngle(String(object.laneAngle ?? 0));
     setLaneWidth(String(object.laneWidth ?? 5));
     setZoneVisible(object.visible);
     setColor(normalizeHexColor(object.color ?? fallbackColor, fallbackColor));
+    setLaneColor(normalizeHexColor(object.laneColor ?? fallbackLaneColor, fallbackLaneColor));
     setPointRows(toEditableRowsFromObject(object));
     setPointCellErrors({});
     setPointTableError(null);
@@ -236,6 +241,7 @@ const MapObjectProperties = ({
 
   const handleSave = () => {
     const fallbackColor = getDefaultColor(object.type, styles);
+    const fallbackLaneColor = getDefaultLaneColor(styles);
     const updates: Partial<MapObject> = {
       name: name.trim() || object.name,
       color: normalizeHexColor(color, fallbackColor),
@@ -259,9 +265,17 @@ const MapObjectProperties = ({
     }
 
     if (object.type === 'zone') {
+      const normalizedLaneColor = normalizeHexColor(laneColor, fallbackLaneColor);
       updates.laneAngle = parseLaneAngleInput(laneAngle, object.laneAngle ?? 0);
       updates.laneWidth = Number.isFinite(Number(laneWidth)) ? Number(laneWidth) : object.laneWidth;
       updates.visible = zoneVisible;
+      if (typeof object.laneColor === 'string') {
+        updates.laneColor = normalizedLaneColor;
+      } else if (normalizedLaneColor !== fallbackLaneColor) {
+        updates.laneColor = normalizedLaneColor;
+      } else {
+        updates.laneColor = undefined;
+      }
 
       if (object.geometry?.type === 'zone') {
         const validation = validatePointRows(pointRows, minPoints);
@@ -377,24 +391,67 @@ const MapObjectProperties = ({
           />
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="obj-color" className="text-xs text-muted-foreground">Цвет</Label>
-          <div className="flex items-center gap-2">
-            <Input
-              id="obj-color"
-              type="color"
-              value={normalizeHexColor(color, getDefaultColor(object.type, styles))}
-              onChange={(e) => handleFieldChange(setColor, e.target.value)}
-              className="h-9 w-14 p-1"
-            />
-            <Input
-              className="h-9 text-sm font-mono"
-              value={color}
-              onChange={(e) => handleFieldChange(setColor, e.target.value)}
-              placeholder="#0ea5e9"
-            />
+        {object.type !== 'zone' && (
+          <div className="space-y-1.5">
+            <Label htmlFor="obj-color" className="text-xs text-muted-foreground">Цвет</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="obj-color"
+                type="color"
+                value={normalizeHexColor(color, getDefaultColor(object.type, styles))}
+                onChange={(e) => handleFieldChange(setColor, e.target.value)}
+                className="h-9 w-14 p-1"
+              />
+              <Input
+                className="h-9 text-sm font-mono"
+                value={color}
+                onChange={(e) => handleFieldChange(setColor, e.target.value)}
+                placeholder="#0ea5e9"
+              />
+            </div>
           </div>
-        </div>
+        )}
+
+        {object.type === 'zone' && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="obj-zone-color" className="text-xs text-muted-foreground">Цвет зоны</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="obj-zone-color"
+                  type="color"
+                  value={normalizeHexColor(color, styles.survey_area.stroke_color)}
+                  onChange={(e) => handleFieldChange(setColor, e.target.value)}
+                  className="h-9 w-14 p-1"
+                />
+                <Input
+                  className="h-9 text-sm font-mono"
+                  value={color}
+                  onChange={(e) => handleFieldChange(setColor, e.target.value)}
+                  placeholder="#0ea5e9"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="obj-zone-lane-color" className="text-xs text-muted-foreground">Цвет галсов</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="obj-zone-lane-color"
+                  type="color"
+                  value={normalizeHexColor(laneColor, styles.lane.color)}
+                  onChange={(e) => handleFieldChange(setLaneColor, e.target.value)}
+                  className="h-9 w-14 p-1"
+                />
+                <Input
+                  className="h-9 text-sm font-mono"
+                  value={laneColor}
+                  onChange={(e) => handleFieldChange(setLaneColor, e.target.value)}
+                  placeholder="#22c55e"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {(object.type === 'route' || object.type === 'marker') && (
           <div className="space-y-1.5">

@@ -24,6 +24,12 @@ const getColorFromStyle = (style?: Record<string, unknown>): string | undefined 
   return undefined;
 };
 
+const getLaneColorFromStyle = (style?: Record<string, unknown>): string | undefined => {
+  if (!style) return undefined;
+  if (typeof style.lane_color === 'string') return style.lane_color;
+  return undefined;
+};
+
 export const bundleToMapObjects = (bundle: MissionBundle): MapObject[] => {
   const objects: MapObject[] = [];
 
@@ -54,6 +60,7 @@ export const bundleToMapObjects = (bundle: MissionBundle): MapObject[] => {
         name: feature.properties.name,
         visible: true,
         color: getColorFromStyle(feature.properties.style),
+        laneColor: getLaneColorFromStyle(feature.properties.style),
         note: feature.properties.note ?? undefined,
         laneAngle: normalizeLaneAngleDeg(feature.properties.lane_angle_deg),
         laneWidth: feature.properties.lane_width_m,
@@ -132,6 +139,9 @@ export const mapObjectsToGeoJson = (
         (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1])
           ? [...ring, ring[0]]
           : ring;
+      const surveyStyle: Record<string, unknown> = {};
+      if (object.color) surveyStyle.color = object.color;
+      if (object.laneColor) surveyStyle.lane_color = object.laneColor;
 
       routesFeatures.push({
         type: 'Feature',
@@ -154,7 +164,7 @@ export const mapObjectsToGeoJson = (
           ...(object.laneStart && Number.isFinite(object.laneStart.lat) && Number.isFinite(object.laneStart.lon)
             ? { lane_start_lat: object.laneStart.lat, lane_start_lon: object.laneStart.lon }
             : {}),
-          ...(object.color ? { style: { color: object.color } } : {}),
+          ...(Object.keys(surveyStyle).length > 0 ? { style: surveyStyle } : {}),
         },
       });
       continue;

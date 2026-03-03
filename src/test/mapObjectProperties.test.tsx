@@ -226,4 +226,27 @@ describe('MapObjectProperties regeneration logic (T-61)', () => {
     // But the main button should still be there
     expect(screen.getByText('Перегенерировать галсы')).toBeInTheDocument();
   });
+
+  it('saves zone lane color independently from zone color', () => {
+    const onSave = vi.fn();
+
+    render(
+      <MapObjectProperties
+        object={mockZone}
+        styles={mockStyles}
+        onSave={onSave}
+        onClose={() => {}}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Цвет галсов'), { target: { value: '#ff0000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить изменения' }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      'zone-1',
+      expect.objectContaining({
+        laneColor: '#ff0000',
+      }),
+    );
+  });
 });

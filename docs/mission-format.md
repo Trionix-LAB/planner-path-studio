@@ -237,6 +237,9 @@
 - `properties` (минимум):
   - `lane_angle_deg`: number (0 или 90)
   - `lane_width_m`: number
+- `properties.style` (опционально):
+  - `color`: string (`#RRGGBB`) — цвет зоны;
+  - `lane_color`: string (`#RRGGBB`) — цвет линий галсов для этой зоны.
 
 Правило для `lane_angle_deg` (MVP):
 
