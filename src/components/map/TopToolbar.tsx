@@ -55,6 +55,7 @@ interface TopToolbarProps {
   simulateConnectionError?: boolean;
   onToolChange: (tool: Tool) => void;
   onTrackAction: (action: 'pause' | 'resume') => void;
+  onOpenCoordinateBuilder?: (type: 'route' | 'zone' | 'marker') => void;
   onSimulationToggle?: () => void;
   onSimulationErrorToggle?: () => void;
   onOpenCreate: () => void;
@@ -88,6 +89,7 @@ const TopToolbar = ({
   simulateConnectionError = false,
   onToolChange,
   onTrackAction,
+  onOpenCoordinateBuilder,
   onSimulationToggle,
   onSimulationErrorToggle,
   onOpenCreate,
@@ -379,6 +381,11 @@ const TopToolbar = ({
               activeTool === tool.id && 'bg-primary/20 text-primary'
             )}
             onClick={() => onToolChange(tool.id)}
+            onContextMenu={(event) => {
+              if (tool.id === 'select') return;
+              event.preventDefault();
+              onOpenCoordinateBuilder?.(tool.id);
+            }}
             title={tool.label}
           >
             <tool.icon className="w-4 h-4" />

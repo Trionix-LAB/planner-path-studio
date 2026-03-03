@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
@@ -34,6 +35,11 @@ import {
   DIVER_MARKER_SIZE_MAX_PX,
   DIVER_MARKER_SIZE_MIN_PX,
 } from '@/features/mission/model/diverMarkerSize';
+import {
+  coordinateInputFormats,
+  getCoordinateInputFormatLabel,
+  getCoordinateInputMaskLabel,
+} from '@/features/geo/coordinateInputFormat';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -357,7 +363,10 @@ const SettingsDialog = ({
                   onValueChange={(v) =>
                     update({
                       ...draft,
-                      coordinates: { precision: clampNumber(v, 6, 0, 12) },
+                      coordinates: {
+                        ...draft.coordinates,
+                        precision: clampNumber(v, 6, 0, 12),
+                      },
                     })
                   }
                 >
@@ -372,6 +381,36 @@ const SettingsDialog = ({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Формат ввода координат (по умолчанию)</Label>
+                <RadioGroup
+                  value={draft.coordinates.input_format}
+                  onValueChange={(value) =>
+                    update({
+                      ...draft,
+                      coordinates: {
+                        ...draft.coordinates,
+                        input_format: value as typeof draft.coordinates.input_format,
+                      },
+                    })
+                  }
+                  className="gap-2"
+                >
+                  {coordinateInputFormats.map((format) => (
+                    <label
+                      key={format}
+                      className="flex items-start gap-2 rounded border border-border px-3 py-2 cursor-pointer"
+                    >
+                      <RadioGroupItem value={format} id={`coord-format-${format}`} />
+                      <span className="flex flex-col leading-5">
+                        <span>{getCoordinateInputFormatLabel(format)}</span>
+                        <span className="text-xs text-muted-foreground">{getCoordinateInputMaskLabel(format)}</span>
+                      </span>
+                    </label>
+                  ))}
+                </RadioGroup>
               </div>
             </TabsContent>
 

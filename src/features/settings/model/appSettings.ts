@@ -1,4 +1,6 @@
 import type { MissionUiState, SegmentLengthsMode } from '@/features/mission';
+import type { CrsId } from '@/features/geo/crs';
+import type { CoordinateInputFormat } from '@/features/geo/coordinateInputFormat';
 
 export const APP_SETTINGS_SCHEMA_VERSION = 1 as const;
 export const APP_SETTINGS_STORAGE_KEY = 'planner.appSettings.v1';
@@ -24,6 +26,8 @@ export type AppUiDefaults = {
   };
   coordinates: {
     precision: number;
+    input_crs: CrsId;
+    input_format: CoordinateInputFormat;
   };
   measurements: {
     grid: {
@@ -90,6 +94,16 @@ const normalizeGridLineStyle = (value: unknown, fallback: 'solid' | 'dashed' | '
   return fallback;
 };
 
+const normalizeInputCrs = (value: unknown, fallback: CrsId): CrsId => {
+  if (value === 'wgs84' || value === 'sk42' || value === 'gsk2011') return value;
+  return fallback;
+};
+
+const normalizeInputFormat = (value: unknown, fallback: CoordinateInputFormat): CoordinateInputFormat => {
+  if (value === 'dd' || value === 'dm' || value === 'dms') return value;
+  return fallback;
+};
+
 export const createDefaultAppSettings = (): AppSettingsV1 => ({
   schema_version: APP_SETTINGS_SCHEMA_VERSION,
   defaults: {
@@ -109,7 +123,7 @@ export const createDefaultAppSettings = (): AppSettingsV1 => ({
       grid: false,
       scale_bar: true,
     },
-    coordinates: { precision: 6 },
+    coordinates: { precision: 6, input_crs: 'wgs84', input_format: 'dd' },
     measurements: {
       grid: { mode: 'auto', color: '#64748b', width_px: 1, line_style: 'dashed' },
       segment_lengths_mode: 'on-select',
@@ -182,6 +196,8 @@ export const normalizeAppSettings = (raw: unknown): AppSettingsV1 => {
       },
       coordinates: {
         precision: clampInt(coordsRaw.precision, base.defaults.coordinates.precision, 0, 12),
+        input_crs: normalizeInputCrs(coordsRaw.input_crs, base.defaults.coordinates.input_crs),
+        input_format: normalizeInputFormat(coordsRaw.input_format, base.defaults.coordinates.input_format),
       },
       measurements: {
         grid: {
@@ -282,6 +298,8 @@ export const mergeDefaultsWithMissionUi = (defaults: AppUiDefaults, ui: MissionU
     },
     coordinates: {
       precision: clampInt(coords?.precision, defaults.coordinates.precision, 0, 12),
+      input_crs: defaults.coordinates.input_crs,
+      input_format: defaults.coordinates.input_format,
     },
     measurements: {
       grid: {

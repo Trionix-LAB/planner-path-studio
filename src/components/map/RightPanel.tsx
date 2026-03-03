@@ -1,4 +1,6 @@
 import type { MapObject } from "@/features/map/model/types";
+import type { CrsId } from '@/features/geo/crs';
+import type { CoordinateInputFormat } from '@/features/geo/coordinateInputFormat';
 import { Wifi, WifiOff, Radio, Trash2, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MapObjectProperties from './MapObjectProperties';
@@ -17,6 +19,8 @@ interface RightPanelProps {
   hasTelemetryData: boolean;
   hasTelemetryHistory: boolean;
   coordPrecision: number;
+  coordinateInputCrs?: CrsId;
+  coordinateInputFormat?: CoordinateInputFormat;
   styles: AppUiDefaults['styles'];
   connectionStatus: 'ok' | 'timeout' | 'error';
   isConnectionEnabled: boolean;
@@ -34,6 +38,8 @@ interface RightPanelProps {
   selectedZoneLaneFeatures?: LaneFeature[];
   onObjectSelect: (id: string | null) => void;
   onObjectUpdate?: (id: string, updates: Partial<MapObject>) => void;
+  onCoordinateInputCrsChange?: (crs: CrsId) => void;
+  onCoordinateInputFormatChange?: (format: CoordinateInputFormat) => void;
   onObjectDelete?: (id: string) => void;
   onRegenerateLanes?: (id: string, updates?: Partial<MapObject>) => void;
   onPickLaneEdge?: (id: string) => void;
@@ -60,6 +66,8 @@ const RightPanel = ({
   hasTelemetryData,
   hasTelemetryHistory,
   coordPrecision,
+  coordinateInputCrs = 'wgs84',
+  coordinateInputFormat = 'dd',
   styles,
   connectionStatus,
   isConnectionEnabled,
@@ -75,6 +83,8 @@ const RightPanel = ({
   selectedZoneLaneFeatures,
   onObjectSelect,
   onObjectUpdate,
+  onCoordinateInputCrsChange,
+  onCoordinateInputFormatChange,
   onObjectDelete,
   onRegenerateLanes,
   onPickLaneEdge,
@@ -327,6 +337,10 @@ const RightPanel = ({
           <MapObjectProperties
             object={selectedObject}
             styles={styles}
+            coordinateInputCrs={coordinateInputCrs}
+            coordinateInputFormat={coordinateInputFormat}
+            onCoordinateInputCrsChange={onCoordinateInputCrsChange}
+            onCoordinateInputFormatChange={onCoordinateInputFormatChange}
             onSave={onObjectUpdate}
             onClose={() => onObjectSelect(null)}
             onDelete={onObjectDelete}

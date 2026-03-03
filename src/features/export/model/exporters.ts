@@ -1,5 +1,8 @@
 import type { MapObject } from '@/features/map/model/types';
 import type { LaneFeature, TrackPoint } from '@/features/mission';
+import { formatCoordinateForInput } from '@/features/geo/coordinateInputFormat';
+import { convertPoint } from '@/features/geo/crs';
+import type { ExportCsvCoordinateOptions } from './types';
 
 const normalizePath = (path: string): string => path.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '');
 export const joinPath = (base: string, part: string): string =>
@@ -59,6 +62,34 @@ const ensureClosedRing = (points: Array<{ lat: number; lon: number }>): Array<{ 
   return [...points, first];
 };
 
+const fmtCsvField = (value: string): string => JSON.stringify(value);
+
+const toCsvPoint = (
+  point: { lat: number; lon: number },
+  precision: number,
+  coordinateOptions?: ExportCsvCoordinateOptions,
+): { lat: string; lon: string } => {
+  if (!coordinateOptions) {
+    return {
+      lat: fmtNumber(point.lat, precision),
+      lon: fmtNumber(point.lon, precision),
+    };
+  }
+
+  const converted = convertPoint(point, 'wgs84', coordinateOptions.crs);
+  if (coordinateOptions.format === 'dd') {
+    return {
+      lat: `${converted.lat.toFixed(precision)}°`,
+      lon: `${converted.lon.toFixed(precision)}°`,
+    };
+  }
+
+  return {
+    lat: formatCoordinateForInput(converted.lat, coordinateOptions.format),
+    lon: formatCoordinateForInput(converted.lon, coordinateOptions.format),
+  };
+};
+
 export const tracksToGpx = (tracks: Array<{ name: string; id: string; points: TrackPoint[] }>, precision: number): string => {
   const time = new Date().toISOString();
   const trkXml = tracks
@@ -109,6 +140,33 @@ export const tracksToKml = (tracks: Array<{ name: string; id: string; points: Tr
     `<name>${escapeXml('Tracks')}</name>` +
     placemarks.join('') +
     `</Document></kml>`;
+};
+
+export const tracksToCsv = (
+  tracks: Array<{ name: string; id: string; points: TrackPoint[] }>,
+  precision: number,
+  coordinateOptions?: ExportCsvCoordinateOptions,
+): string => {
+  const rows: string[] = [];
+  rows.push('track_id,track_name,segment_id,timestamp,lat,lon');
+
+  for (const track of tracks) {
+    for (const point of track.points) {
+      const coords = toCsvPoint({ lat: point.lat, lon: point.lon }, precision, coordinateOptions);
+      rows.push(
+        [
+          fmtCsvField(track.id),
+          fmtCsvField(track.name),
+          fmtCsvField(String(point.segment_id)),
+          fmtCsvField(point.timestamp),
+          fmtCsvField(coords.lat),
+          fmtCsvField(coords.lon),
+        ].join(','),
+      );
+    }
+  }
+
+  return rows.join('\n');
 };
 
 export const routesToGpx = (
@@ -205,16 +263,69 @@ export const routesToKml = (
     `</Document></kml>`;
 };
 
-export const markersToCsv = (markers: MapObject[], precision: number): string => {
+export const routesToCsv = (
+  objects: MapObject[],
+  lanes: LaneFeature[],
+  precision: number,
+  coordinateOptions?: ExportCsvCoordinateOptions,
+): string => {
+  const rows: string[] = [];
+  rows.push('object_id,object_type,object_name,parent_zone_id,lane_index,point_index,lat,lon');
+
+  for (const obj of objects) {
+    if (!obj.geometry) continue;
+    if (obj.geometry.type !== 'route' && obj.geometry.type !== 'zone') continue;
+    obj.geometry.points.forEach((point, index) => {
+      const coords = toCsvPoint(point, precision, coordinateOptions);
+      rows.push(
+        [
+          fmtCsvField(obj.id),
+          fmtCsvField(obj.type),
+          fmtCsvField(obj.name),
+          fmtCsvField(''),
+          fmtCsvField(''),
+          fmtCsvField(String(index + 1)),
+          fmtCsvField(coords.lat),
+          fmtCsvField(coords.lon),
+        ].join(','),
+      );
+    });
+  }
+
+  for (const lane of lanes) {
+    lane.geometry.coordinates.forEach(([lon, lat], index) => {
+      const coords = toCsvPoint({ lat, lon }, precision, coordinateOptions);
+      rows.push(
+        [
+          fmtCsvField(lane.properties.id),
+          fmtCsvField('lane'),
+          fmtCsvField(`Галс ${lane.properties.lane_index}`),
+          fmtCsvField(lane.properties.parent_area_id),
+          fmtCsvField(String(lane.properties.lane_index)),
+          fmtCsvField(String(index + 1)),
+          fmtCsvField(coords.lat),
+          fmtCsvField(coords.lon),
+        ].join(','),
+      );
+    });
+  }
+
+  return rows.join('\n');
+};
+
+export const markersToCsv = (
+  markers: MapObject[],
+  precision: number,
+  coordinateOptions?: ExportCsvCoordinateOptions,
+): string => {
   const rows: string[] = [];
   rows.push('name,description,lat,lon');
   for (const m of markers) {
     if (m.type !== 'marker' || m.geometry?.type !== 'marker') continue;
-    const name = JSON.stringify(m.name ?? '');
-    const desc = JSON.stringify(m.note ?? '');
-    const lat = fmtNumber(m.geometry.point.lat, precision);
-    const lon = fmtNumber(m.geometry.point.lon, precision);
-    rows.push(`${name},${desc},${lat},${lon}`);
+    const name = fmtCsvField(m.name ?? '');
+    const desc = fmtCsvField(m.note ?? '');
+    const coords = toCsvPoint(m.geometry.point, precision, coordinateOptions);
+    rows.push(`${name},${desc},${fmtCsvField(coords.lat)},${fmtCsvField(coords.lon)}`);
   }
   return rows.join('\n');
 };

@@ -237,4 +237,39 @@ describe('top toolbar mission menu', () => {
       utmHemisphere: 'north',
     });
   });
+
+  it('opens coordinate builder by right click on route/zone/marker tools', () => {
+    const onOpenCoordinateBuilder = vi.fn();
+
+    render(
+      <TopToolbar
+        missionName="Тестовая миссия"
+        isDraft={false}
+        autoSaveStatus="saved"
+        activeTool="select"
+        trackStatus="recording"
+        showSimulationControls={false}
+        isRecordingEnabled={true}
+        onToolChange={vi.fn()}
+        onTrackAction={vi.fn()}
+        onOpenCoordinateBuilder={onOpenCoordinateBuilder}
+        onOpenCreate={vi.fn()}
+        onOpenOpen={vi.fn()}
+        onOpenExport={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenOfflineMaps={vi.fn()}
+        onFinishMission={vi.fn()}
+        onGoToStart={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Маршрут' }));
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Зона (галсы)' }));
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Маркер' }));
+
+    expect(onOpenCoordinateBuilder).toHaveBeenCalledTimes(3);
+    expect(onOpenCoordinateBuilder).toHaveBeenNthCalledWith(1, 'route');
+    expect(onOpenCoordinateBuilder).toHaveBeenNthCalledWith(2, 'zone');
+    expect(onOpenCoordinateBuilder).toHaveBeenNthCalledWith(3, 'marker');
+  });
 });

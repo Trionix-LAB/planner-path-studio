@@ -11,7 +11,10 @@ import OpenMissionDialog from '@/components/dialogs/OpenMissionDialog';
 import ExportDialog from '@/components/dialogs/ExportDialog';
 import SettingsDialog from '@/components/dialogs/SettingsDialog';
 import OfflineMapsDialog from '@/components/dialogs/OfflineMapsDialog';
-import type { MapObject, Tool } from '@/features/map/model/types';
+import CoordinateBuilderDialog from '@/components/dialogs/CoordinateBuilderDialog';
+import type { MapObject, MapObjectGeometry, Tool } from '@/features/map/model/types';
+import type { CrsId } from '@/features/geo/crs';
+import type { CoordinateInputFormat } from '@/features/geo/coordinateInputFormat';
 
 import {
   buildEquipmentRuntime,
@@ -71,9 +74,11 @@ import {
   joinPath as joinExportPath,
   markersToCsv,
   markersToGpx,
+  routesToCsv,
   routesToGpx,
   routesToKml,
   safeFilename,
+  tracksToCsv,
   tracksToGpx,
   tracksToKml,
   type ExportRequest,
@@ -598,6 +603,7 @@ const MapWorkspace = () => {
   const [showExport, setShowExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showOfflineMaps, setShowOfflineMaps] = useState(false);
+  const [coordinateBuilderType, setCoordinateBuilderType] = useState<'route' | 'zone' | 'marker' | null>(null);
   const [cursorPosition, setCursorPosition] = useState({ lat: 59.934, lon: 30.335 });
   const [mapScale, setMapScale] = useState('1:--');
   const [mapPanelsCollapsed, setMapPanelsCollapsed] = useState<MapPanelsCollapsedState>(
@@ -606,6 +612,12 @@ const MapWorkspace = () => {
   const [mapView, setMapView] = useState<MissionUiState['map_view'] | null>(null);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
   const [coordPrecision, setCoordPrecision] = useState(DEFAULT_APP_SETTINGS.defaults.coordinates.precision);
+  const [coordinateInputCrs, setCoordinateInputCrs] = useState<CrsId>(
+    DEFAULT_APP_SETTINGS.defaults.coordinates.input_crs,
+  );
+  const [coordinateInputFormat, setCoordinateInputFormat] = useState<CoordinateInputFormat>(
+    DEFAULT_APP_SETTINGS.defaults.coordinates.input_format,
+  );
   const [gridSettings, setGridSettings] = useState<AppUiDefaults['measurements']['grid']>(
     DEFAULT_APP_SETTINGS.defaults.measurements.grid,
   );
@@ -933,7 +945,11 @@ const MapWorkspace = () => {
         grid: layers.grid,
         scale_bar: layers.scaleBar,
       },
-      coordinates: { precision: coordPrecision },
+      coordinates: {
+        precision: coordPrecision,
+        input_crs: coordinateInputCrs,
+        input_format: coordinateInputFormat,
+      },
       measurements: {
         grid: { ...gridSettings },
         segment_lengths_mode: segmentLengthsMode,
@@ -944,6 +960,8 @@ const MapWorkspace = () => {
       centerOnObjectSelect,
       connectionSettings,
       coordPrecision,
+      coordinateInputCrs,
+      coordinateInputFormat,
       gridSettings,
       isFollowing,
       layers.grid,
@@ -1647,6 +1665,8 @@ const MapWorkspace = () => {
       setBaseStationTelemetry(null);
     }
     setCoordPrecision(effective.coordinates.precision);
+    setCoordinateInputCrs(effective.coordinates.input_crs);
+    setCoordinateInputFormat(effective.coordinates.input_format);
     setGridSettings(effective.measurements.grid);
     setSegmentLengthsMode(effective.measurements.segment_lengths_mode);
     setStyles(effective.styles);
@@ -1694,6 +1714,8 @@ const MapWorkspace = () => {
         const normalized = normalizeAppSettings(storedSettings);
         appSettingsRef.current = normalized;
         setCoordPrecision(normalized.defaults.coordinates.precision);
+        setCoordinateInputCrs(normalized.defaults.coordinates.input_crs);
+        setCoordinateInputFormat(normalized.defaults.coordinates.input_format);
         setGridSettings(normalized.defaults.measurements.grid);
         setSegmentLengthsMode(normalized.defaults.measurements.segment_lengths_mode);
         setStyles(normalized.defaults.styles);
@@ -2634,12 +2656,52 @@ const MapWorkspace = () => {
       diver: true,
     }));
     setCoordPrecision(next.coordinates.precision);
+    setCoordinateInputCrs(next.coordinates.input_crs);
+    setCoordinateInputFormat(next.coordinates.input_format);
     setGridSettings(next.measurements.grid);
     setSegmentLengthsMode(next.measurements.segment_lengths_mode);
     setStyles(next.styles);
 
     toast({ title: 'Настройки применены' });
   };
+
+  const handleCoordinateInputCrsChange = useCallback(
+    async (crs: CrsId) => {
+      setCoordinateInputCrs(crs);
+      const nextSettings: AppSettingsV1 = {
+        ...appSettingsRef.current,
+        defaults: {
+          ...appSettingsRef.current.defaults,
+          coordinates: {
+            ...appSettingsRef.current.defaults.coordinates,
+            input_crs: crs,
+          },
+        },
+      };
+      appSettingsRef.current = nextSettings;
+      await platform.settings.writeJson(APP_SETTINGS_STORAGE_KEY, nextSettings);
+    },
+    [],
+  );
+
+  const handleCoordinateInputFormatChange = useCallback(
+    async (format: CoordinateInputFormat) => {
+      setCoordinateInputFormat(format);
+      const nextSettings: AppSettingsV1 = {
+        ...appSettingsRef.current,
+        defaults: {
+          ...appSettingsRef.current.defaults,
+          coordinates: {
+            ...appSettingsRef.current.defaults.coordinates,
+            input_format: format,
+          },
+        },
+      };
+      appSettingsRef.current = nextSettings;
+      await platform.settings.writeJson(APP_SETTINGS_STORAGE_KEY, nextSettings);
+    },
+    [],
+  );
 
   const handleSettingsReset = async () => {
     await handleSettingsApply(DEFAULT_APP_SETTINGS.defaults);
@@ -2779,7 +2841,9 @@ const MapWorkspace = () => {
         const content =
           request.tracks.format === 'kml'
             ? tracksToKml(tracks, coordPrecision)
-            : tracksToGpx(tracks, coordPrecision);
+            : request.tracks.format === 'csv'
+              ? tracksToCsv(tracks, coordPrecision, request.tracks.csv)
+              : tracksToGpx(tracks, coordPrecision);
 
         const filename = `${baseName}-${stamp}-tracks.${request.tracks.format}`;
         const path = joinExportPath(exportRoot, filename);
@@ -2803,7 +2867,9 @@ const MapWorkspace = () => {
         const content =
           request.routes.format === 'kml'
             ? routesToKml(selected, lanesToExport, coordPrecision)
-            : routesToGpx(selected, lanesToExport, coordPrecision);
+            : request.routes.format === 'csv'
+              ? routesToCsv(selected, lanesToExport, coordPrecision, request.routes.csv)
+              : routesToGpx(selected, lanesToExport, coordPrecision);
 
         const filename = `${baseName}-${stamp}-routes.${request.routes.format}`;
         const path = joinExportPath(exportRoot, filename);
@@ -2820,7 +2886,7 @@ const MapWorkspace = () => {
 
         const content =
           request.markers.format === 'csv'
-            ? markersToCsv(selected, coordPrecision)
+            ? markersToCsv(selected, coordPrecision, request.markers.csv)
             : markersToGpx(selected, coordPrecision);
 
         const filename = `${baseName}-${stamp}-markers.${request.markers.format}`;
@@ -3124,6 +3190,7 @@ const MapWorkspace = () => {
             onOpenExport={openExportDialog}
             onOpenSettings={openSettingsDialog}
             onOpenOfflineMaps={openOfflineMapsDialog}
+            onOpenCoordinateBuilder={setCoordinateBuilderType}
             onImportRasterFiles={importRasterFiles}
             onFinishMission={handleFinishMission}
             onGoToStart={handleGoToStart}
@@ -3226,6 +3293,8 @@ const MapWorkspace = () => {
             hasTelemetryData={hasSelectedAgentTelemetry}
             hasTelemetryHistory={hasPrimaryTelemetryHistory}
             coordPrecision={coordPrecision}
+            coordinateInputCrs={coordinateInputCrs}
+            coordinateInputFormat={coordinateInputFormat}
             styles={styles}
             connectionStatus={connectionStatus}
             isConnectionEnabled={isPrimarySourceEnabled}
@@ -3238,6 +3307,8 @@ const MapWorkspace = () => {
             selectedObject={selectedObject}
             onObjectSelect={handleObjectSelect}
             onObjectUpdate={handleObjectUpdate}
+            onCoordinateInputCrsChange={handleCoordinateInputCrsChange}
+            onCoordinateInputFormatChange={handleCoordinateInputFormatChange}
             onObjectDelete={handleObjectDelete}
             onRegenerateLanes={handleRegenerateLanes}
             onPickLaneEdge={beginPickLaneEdge}
@@ -3277,6 +3348,8 @@ const MapWorkspace = () => {
         trackPointsByTrackId={trackPointsByTrackId}
         objects={objects}
         laneFeatures={laneFeatures}
+        defaultCoordinateCrs={coordinateInputCrs}
+        defaultCoordinateFormat={coordinateInputFormat}
         onExport={handleExport}
       />
 
@@ -3331,6 +3404,22 @@ const MapWorkspace = () => {
         }
         onToggleEquipment={isElectronRuntime ? handleToggleEquipmentConnection : undefined}
         onOpenEquipment={handleOpenEquipmentScreen}
+      />
+
+      <CoordinateBuilderDialog
+        open={coordinateBuilderType !== null}
+        objectType={coordinateBuilderType}
+        inputCrs={coordinateInputCrs}
+        inputFormat={coordinateInputFormat}
+        onInputCrsChange={handleCoordinateInputCrsChange}
+        onInputFormatChange={handleCoordinateInputFormatChange}
+        onOpenChange={(open) => {
+          if (!open) setCoordinateBuilderType(null);
+        }}
+        onBuild={(geometry: MapObjectGeometry) => {
+          handleObjectCreate(geometry, { preserveActiveTool: true });
+          setCoordinateBuilderType(null);
+        }}
       />
 
       <OfflineMapsDialog
