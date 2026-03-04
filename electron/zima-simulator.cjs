@@ -11,7 +11,7 @@ const DEFAULT_SIMULATOR_CONFIG = {
   rateHz: 1,
   commandEcho: false,
   waitForOcon: false,
-  beaconIds: [1, 2, 3],
+  beaconIds: [0, 1, 2],
 };
 
 const BEACON_TRAJECTORIES = ['orbit', 'figure8', 'zigzag'];
@@ -69,14 +69,14 @@ const normalizeBeaconIds = (value, fallback) => {
     : typeof value === 'string'
       ? value.split(',')
       : typeof value === 'number'
-        ? Array.from({ length: Math.max(0, Math.trunc(value)) }, (_, index) => index + 1)
+        ? Array.from({ length: Math.max(0, Math.trunc(value)) }, (_, index) => index)
         : [];
 
   const unique = [];
   const seen = new Set();
   for (const item of source) {
     const n = Number(String(item).trim());
-    if (!Number.isInteger(n) || n < 1 || n > 16 || seen.has(n)) continue;
+    if (!Number.isInteger(n) || n < 0 || n > 15 || seen.has(n)) continue;
     seen.add(n);
     unique.push(n);
   }
@@ -153,6 +153,32 @@ const parseScenario = (input) => {
 };
 
 const formatNumber = (value, digits = 6) => Number(value).toFixed(digits);
+const EARTH_RADIUS_M = 6_371_000;
+
+const toRadians = (deg) => (deg * Math.PI) / 180;
+const toDegrees = (rad) => (rad * 180) / Math.PI;
+const normalizeDegrees = (value) => ((value % 360) + 360) % 360;
+
+const haversineDistanceMeters = (fromLat, fromLon, toLat, toLon) => {
+  const lat1 = toRadians(fromLat);
+  const lat2 = toRadians(toLat);
+  const dLat = lat2 - lat1;
+  const dLon = toRadians(toLon - fromLon);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+  const a = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_M * c;
+};
+
+const bearingDeg = (fromLat, fromLon, toLat, toLon) => {
+  const lat1 = toRadians(fromLat);
+  const lat2 = toRadians(toLat);
+  const dLon = toRadians(toLon - fromLon);
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return normalizeDegrees(toDegrees(Math.atan2(y, x)));
+};
 
 const createAzmLocLine = (state) => {
   const lat = formatNumber(state.lat, 6);
@@ -343,11 +369,18 @@ const createZimaSimulator = () => {
   const advanceState = () => {
     tick += 1;
     const phase = tick / 7;
-    state.lat += 0.000025 * Math.sin(phase);
-    state.lon += 0.000025 * Math.cos(phase);
-    state.course = (state.course + 9) % 360;
-    state.heading = (state.heading + 7) % 360;
-    state.speed = Math.max(0.1, 0.7 + 0.2 * Math.sin(phase));
+    const previousLat = state.lat;
+    const previousLon = state.lon;
+    const nextLat = state.lat + 0.000025 * Math.sin(phase);
+    const nextLon = state.lon + 0.000025 * Math.cos(phase);
+    state.lat = nextLat;
+    state.lon = nextLon;
+    state.course = bearingDeg(previousLat, previousLon, nextLat, nextLon);
+    state.heading = state.course;
+    const distance = haversineDistanceMeters(previousLat, previousLon, nextLat, nextLon);
+    const tickSeconds = config.rateHz > 0 ? 1 / config.rateHz : 1;
+    const nextSpeed = tickSeconds > 0 ? distance / tickSeconds : 0;
+    state.speed = Number.isFinite(nextSpeed) && nextSpeed > 0 ? nextSpeed : 0;
     state.depth = Math.max(0, 10.5 + 1.6 * Math.sin(phase / 2));
     state.x += 0.7 * Math.cos(phase);
     state.y += 0.7 * Math.sin(phase);
@@ -515,7 +548,7 @@ const createZimaSimulator = () => {
 
     if (config.mode === 'playback') {
       if (scenario.length === 0) {
-        const beaconId = config.beaconIds[0] ?? 1;
+        const beaconId = config.beaconIds[0] ?? 0;
         scenario = [
           { msg: createAzmLocLine(state), delayMs: 1000 },
           { msg: createAzmRemLine(state, beaconId, beaconStates[beaconId]), delayMs: 1000 },

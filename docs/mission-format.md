@@ -84,6 +84,11 @@
     - `hud`: boolean
     - `status`: boolean
     - `properties`: boolean
+  - `panel_layout` (опционально): object (layout боковых панелей карты)
+    - `left_width_px`: number (ширина левой панели в пикселях)
+    - `right_width_px`: number (ширина правой панели в пикселях)
+    - `left_collapsed`: boolean (свернута ли левая панель)
+    - `right_collapsed`: boolean (свернута ли правая панель)
   - `coordinates` (опционально): object
     - `precision`: number (кол-во знаков после запятой для lat/lon; default 6)
   - `map_view`: object:
@@ -138,6 +143,7 @@
 - Для обратной совместимости, если `cache_file` отсутствует, приложение может вычислить путь к кэшу рядом с `file` (в том же каталоге), что позволяет сразу использовать уже существующий кэш в старых миссиях.
 - `ui.left_panel_sections` хранит состояние свернутых/развернутых секций левой панели и используется как в mission, так и в draft.
 - `ui.right_panel_sections` хранит состояние свернутых/развернутых секций правой панели (`HUD`, `Статус`, `Свойства объекта`) и используется как в mission, так и в draft.
+- `ui.panel_layout` хранит состояние layout боковых панелей (ширина и `collapsed` для left/right) и используется как в mission, так и в draft.
 
 ### 2.2.1 Формат `vector-cache` файла
 
@@ -189,6 +195,12 @@
   },
   "ui": {
     "follow_diver": true,
+    "panel_layout": {
+      "left_width_px": 224,
+      "right_width_px": 256,
+      "left_collapsed": false,
+      "right_collapsed": false
+    },
     "layers": {
       "track": true,
       "routes": true,
@@ -254,6 +266,10 @@
 - `depth_m`: number
 - `sog_mps`: number
 - `cog_deg`: number (0..360)
+
+Политика заполнения `sog_mps/cog_deg` соответствует runtime-контракту `R-066` (`spec/spec.md`):
+- для `Zima2R` базовой станции используются значения `AZMLOC`;
+- для GNSS и `AZMREM` значения формируются как over-ground (`SOG/COG`) по последовательным координатам/времени.
 
 Пример строки заголовков:
 

@@ -107,8 +107,10 @@ type SimulationTelemetryOptions = {
 
 const DEFAULT_INTERVAL_MS = 1000;
 const DEFAULT_TIMEOUT_MS = 5000;
+const HDT_FRESHNESS_TIMEOUT_MS = 5000;
 const MAX_BUFFERED_ZIMA_BYTES = 16 * 1024;
 const MAX_BUFFERED_NMEA_BYTES = 16 * 1024;
+const EARTH_RADIUS_M = 6_371_000;
 
 const isValidLatLon = (lat: number | null, lon: number | null): lat is number =>
   lat !== null &&
@@ -133,6 +135,71 @@ const splitBufferedLines = (
     .filter((line) => line.length > 0);
   const rest = parts[parts.length - 1] ?? '';
   return { lines, rest };
+};
+
+type GroundTrackPoint = {
+  lat: number;
+  lon: number;
+  receivedAt: number;
+};
+
+const normalizeCourseDeg = (value: number): number => {
+  if (!Number.isFinite(value)) return 0;
+  return ((value % 360) + 360) % 360;
+};
+
+const toRadians = (deg: number): number => (deg * Math.PI) / 180;
+const toDegrees = (rad: number): number => (rad * 180) / Math.PI;
+
+const haversineDistanceMeters = (from: GroundTrackPoint, to: GroundTrackPoint): number => {
+  const lat1 = toRadians(from.lat);
+  const lat2 = toRadians(to.lat);
+  const dLat = lat2 - lat1;
+  const dLon = toRadians(to.lon - from.lon);
+
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+  const a = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_M * c;
+};
+
+const initialGroundMotion = () => ({ speed: 0, course: 0 });
+
+const computeGroundMotion = (
+  previous: GroundTrackPoint | null,
+  current: GroundTrackPoint,
+): { speed: number; course: number } => {
+  if (!previous) return initialGroundMotion();
+
+  const dtMs = current.receivedAt - previous.receivedAt;
+  if (!Number.isFinite(dtMs) || dtMs <= 0) {
+    return initialGroundMotion();
+  }
+
+  const distance = haversineDistanceMeters(previous, current);
+  if (!Number.isFinite(distance) || distance <= 0) {
+    return initialGroundMotion();
+  }
+
+  const lat1 = toRadians(previous.lat);
+  const lat2 = toRadians(current.lat);
+  const dLon = toRadians(current.lon - previous.lon);
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  const course = normalizeCourseDeg(toDegrees(Math.atan2(y, x)));
+  const speed = distance / (dtMs / 1000);
+
+  if (!Number.isFinite(speed) || speed < 0) {
+    return { speed: 0, course };
+  }
+  return { speed, course };
+};
+
+const isFreshHeading = (headingAt: number, receivedAt: number): boolean => {
+  if (!Number.isFinite(headingAt) || headingAt <= 0) return false;
+  const ageMs = receivedAt - headingAt;
+  return ageMs >= 0 && ageMs <= HDT_FRESHNESS_TIMEOUT_MS;
 };
 
 export const createNoopTelemetryProvider = (): TelemetryProvider => {
@@ -317,7 +384,7 @@ export const createElectronZimaTelemetryProvider = (
   let connectionState: TelemetryConnectionState = 'timeout';
   let lastFixAt = 0;
   let lineBuffer = '';
-  let latestMotion = { speed: 0, course: 0, depth: 0 };
+  const lastAzmRemPointByBeacon = new Map<string, GroundTrackPoint>();
 
   let timeoutIntervalId: number | null = null;
   let unsubscribeData: (() => void) | null = null;
@@ -373,11 +440,6 @@ export const createElectronZimaTelemetryProvider = (
       const receivedAt = payload.receivedAt ?? Date.now();
 
       if (parsed.kind === 'AZMLOC') {
-        latestMotion = {
-          speed: parsed.speed,
-          course: parsed.course,
-          depth: parsed.depth,
-        };
         lastFixAt = receivedAt;
         emitConnectionState('ok');
         emitFix({
@@ -397,15 +459,28 @@ export const createElectronZimaTelemetryProvider = (
       }
 
       if (parsed.kind === 'AZMREM' && parsed.isTimeout !== true && isValidLatLon(parsed.lat, parsed.lon)) {
+        const beaconKey = parsed.beaconId ?? (parsed.remoteAddress !== null ? String(parsed.remoteAddress) : null);
+        if (!beaconKey) {
+          continue;
+        }
+
+        const currentPoint: GroundTrackPoint = {
+          lat: parsed.lat,
+          lon: parsed.lon,
+          receivedAt,
+        };
+        const groundMotion = computeGroundMotion(lastAzmRemPointByBeacon.get(beaconKey) ?? null, currentPoint);
+        lastAzmRemPointByBeacon.set(beaconKey, currentPoint);
+
         lastFixAt = receivedAt;
         emitConnectionState('ok');
         emitFix({
           lat: parsed.lat,
           lon: parsed.lon,
-          speed: latestMotion.speed,
-          course: latestMotion.course,
-          heading: latestMotion.course,
-          depth: parsed.depth ?? latestMotion.depth,
+          speed: groundMotion.speed,
+          course: groundMotion.course,
+          heading: groundMotion.course,
+          depth: parsed.depth ?? 0,
           received_at: receivedAt,
           remoteAddress: parsed.remoteAddress,
           beaconId: parsed.beaconId,
@@ -436,7 +511,7 @@ export const createElectronZimaTelemetryProvider = (
     activeConfig = null;
     lastFixAt = 0;
     lineBuffer = '';
-    latestMotion = { speed: 0, course: 0, depth: 0 };
+    lastAzmRemPointByBeacon.clear();
     clearIntervals();
     if (api) {
       if (shouldCloseConnections) {
@@ -582,8 +657,9 @@ export const createElectronGnssTelemetryProvider = (
   let connectionState: TelemetryConnectionState = 'timeout';
   let lastFixAt = 0;
   let lineBuffer = '';
-  let latestMotion = { speed: 0, course: 0 };
+  let lastGroundPoint: GroundTrackPoint | null = null;
   let latestHeading: number | null = null;
+  let latestHeadingAt = 0;
 
   let timeoutIntervalId: number | null = null;
   let unsubscribeData: (() => void) | null = null;
@@ -629,6 +705,7 @@ export const createElectronGnssTelemetryProvider = (
 
       if (parsed.kind === 'HDT' && parsed.headingDeg !== null) {
         latestHeading = parsed.headingDeg;
+        latestHeadingAt = receivedAt;
         continue;
       }
 
@@ -640,23 +717,25 @@ export const createElectronGnssTelemetryProvider = (
         continue;
       }
 
-      if (parsed.speedMps !== null) {
-        latestMotion.speed = Math.max(0, parsed.speedMps);
-      }
-      if (parsed.courseDeg !== null) {
-        latestMotion.course = parsed.courseDeg;
-      } else if (latestHeading !== null) {
-        latestMotion.course = latestHeading;
-      }
+      const currentPoint: GroundTrackPoint = {
+        lat: parsed.lat,
+        lon: parsed.lon,
+        receivedAt,
+      };
+      const groundMotion = computeGroundMotion(lastGroundPoint, currentPoint);
+      lastGroundPoint = currentPoint;
+      const headingIsFresh = latestHeading !== null && isFreshHeading(latestHeadingAt, receivedAt);
+      const course = headingIsFresh && latestHeading !== null ? latestHeading : groundMotion.course;
+      const heading = headingIsFresh ? latestHeading : null;
 
       lastFixAt = receivedAt;
       emitConnectionState('ok');
       emitFix({
         lat: parsed.lat,
         lon: parsed.lon,
-        speed: latestMotion.speed,
-        course: latestMotion.course,
-        heading: latestHeading,
+        speed: groundMotion.speed,
+        course,
+        heading,
         depth: 0,
         received_at: receivedAt,
         source: 'GNSS',
@@ -683,8 +762,9 @@ export const createElectronGnssTelemetryProvider = (
     connected = false;
     lastFixAt = 0;
     lineBuffer = '';
-    latestMotion = { speed: 0, course: 0 };
+    lastGroundPoint = null;
     latestHeading = null;
+    latestHeadingAt = 0;
     clearIntervals();
     if (api) {
       void api.stop().catch(() => {
@@ -812,8 +892,9 @@ export const createElectronGnssComTelemetryProvider = (
   let connectionState: TelemetryConnectionState = 'timeout';
   let lastFixAt = 0;
   let lineBuffer = '';
-  let latestMotion = { speed: 0, course: 0 };
+  let lastGroundPoint: GroundTrackPoint | null = null;
   let latestHeading: number | null = null;
+  let latestHeadingAt = 0;
   let activeNavigationSourceId = 'gnss-com';
 
   let timeoutIntervalId: number | null = null;
@@ -860,6 +941,7 @@ export const createElectronGnssComTelemetryProvider = (
 
       if (parsed.kind === 'HDT' && parsed.headingDeg !== null) {
         latestHeading = parsed.headingDeg;
+        latestHeadingAt = receivedAt;
         continue;
       }
 
@@ -871,23 +953,25 @@ export const createElectronGnssComTelemetryProvider = (
         continue;
       }
 
-      if (parsed.speedMps !== null) {
-        latestMotion.speed = Math.max(0, parsed.speedMps);
-      }
-      if (parsed.courseDeg !== null) {
-        latestMotion.course = parsed.courseDeg;
-      } else if (latestHeading !== null) {
-        latestMotion.course = latestHeading;
-      }
+      const currentPoint: GroundTrackPoint = {
+        lat: parsed.lat,
+        lon: parsed.lon,
+        receivedAt,
+      };
+      const groundMotion = computeGroundMotion(lastGroundPoint, currentPoint);
+      lastGroundPoint = currentPoint;
+      const headingIsFresh = latestHeading !== null && isFreshHeading(latestHeadingAt, receivedAt);
+      const course = headingIsFresh && latestHeading !== null ? latestHeading : groundMotion.course;
+      const heading = headingIsFresh ? latestHeading : null;
 
       lastFixAt = receivedAt;
       emitConnectionState('ok');
       emitFix({
         lat: parsed.lat,
         lon: parsed.lon,
-        speed: latestMotion.speed,
-        course: latestMotion.course,
-        heading: latestHeading,
+        speed: groundMotion.speed,
+        course,
+        heading,
         depth: 0,
         received_at: receivedAt,
         source: 'GNSS',
@@ -914,8 +998,9 @@ export const createElectronGnssComTelemetryProvider = (
     connected = false;
     lastFixAt = 0;
     lineBuffer = '';
-    latestMotion = { speed: 0, course: 0 };
+    lastGroundPoint = null;
     latestHeading = null;
+    latestHeadingAt = 0;
     activeNavigationSourceId = 'gnss-com';
     clearIntervals();
     if (api) {

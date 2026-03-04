@@ -2,7 +2,7 @@
 
 ## README (short)
 - Назначение: CLI-симулятор Zima2R, отправляет UDP сообщения `@AZMLOC` и `@AZMREM` в приложение.
-- Быстрый старт: `npm run zima:sim -- --to 127.0.0.1:28127 --rate 1 --beacon-ids 1,2,3`
+- Быстрый старт: `npm run zima:sim -- --to 127.0.0.1:28127 --rate 1 --beacon-ids 0,1,2`
 - Режим playback: `npm run zima:sim -- --mode playback --replay ./scenario.json --to 127.0.0.1:28127`
 - Готовый сценарий: `scenario.json` в корне проекта.
 - Полезно для проверки: парсинга протокола, привязки `rem_addr` к агентам и поведения при потере/ошибках данных.
@@ -17,6 +17,7 @@
 - Опционально: Docker image для запуска в CI
 - Формат `@AZMLOC` в актуальном протоколе отправляется с завершающей запятой в конце строки.
 - Для `@AZMREM` основной формат: `...,Message,age,IsTimeout,`; legacy-совместимость: варианты с `X_m,Y_m` или `X_m,Y_m,Z_m` перед `IsTimeout`.
+- Диапазон адресов маяков (`rem_addr`/`beacon_id`) — `0..15`.
 
 ## Требования
 - Конфигурируемые параметры: dataPort (куда симулятор шлёт телеметрию), bindInterface
@@ -39,6 +40,7 @@
 ## Режимы и поведение
 - single — отправить одно сообщение и выйти
 - stream — генерировать сообщения с указанной частотой (rate)
+  - в stream-режиме `AZMLOC.course` синхронизирован с фактическим направлением движения по координатам (COG), `heading` по умолчанию равен `course`.
 - playback — проиграть сценарий из файла (YAML/JSON)
 - command-echo — слушать commandPort и логировать/ответить на команды (`OCON`, `CCON`, `LHOV`)
 
@@ -49,7 +51,7 @@
 ## Локальный запуск (реализация)
 - В репозитории доступен CLI-скрипт: `npm run zima:sim -- --to 127.0.0.1:28127 --rate 1 --command-port 28128 --command-echo true`
 - Проигрывание сценария: `npm run zima:sim -- --mode playback --replay ./path/to/scenario.json --to 127.0.0.1:28127`
-- Несколько маяков: `npm run zima:sim -- --to 127.0.0.1:28127 --beacon-ids 1,2,3`
+- Несколько маяков: `npm run zima:sim -- --to 127.0.0.1:28127 --beacon-ids 0,1,2`
 - Авто-генерация N маяков: `npm run zima:sim -- --to 127.0.0.1:28127 --beacons 4`
 
 ## Критерии приёмки

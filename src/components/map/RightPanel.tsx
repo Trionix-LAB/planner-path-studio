@@ -162,7 +162,7 @@ const RightPanel = ({
   const trackId = selectedAgentActiveTrackNumber;
 
   return (
-    <div className="w-64 bg-sidebar border-l border-sidebar-border flex flex-col h-full text-[13px]">
+    <div className="w-full h-full min-w-0 bg-sidebar border-l border-sidebar-border flex flex-col text-[13px]">
       {/* HUD */}
       <div className="panel-header flex items-center gap-2">
         <span className="flex-1">

@@ -77,6 +77,12 @@ describe('mission repository', () => {
           follow_diver: false,
           layers: { track: false, routes: true, markers: true, base_station: false, grid: true, scale_bar: false },
           right_panel_sections: { hud: true, status: false, properties: true },
+          panel_layout: {
+            left_width_px: 232,
+            right_width_px: 288,
+            left_collapsed: true,
+            right_collapsed: false,
+          },
           coordinates: { precision: 7 },
           measurements: { grid: { mode: 'manual', step_m: 100 }, segment_lengths_mode: 'always' },
           base_station: { navigation_source: null },
@@ -92,6 +98,10 @@ describe('mission repository', () => {
     expect(opened.mission.ui?.layers?.grid).toBe(true);
     expect(opened.mission.ui?.right_panel_sections?.hud).toBe(true);
     expect(opened.mission.ui?.right_panel_sections?.properties).toBe(true);
+    expect(opened.mission.ui?.panel_layout?.left_width_px).toBe(232);
+    expect(opened.mission.ui?.panel_layout?.right_width_px).toBe(288);
+    expect(opened.mission.ui?.panel_layout?.left_collapsed).toBe(true);
+    expect(opened.mission.ui?.panel_layout?.right_collapsed).toBe(false);
     expect(opened.mission.ui?.coordinates?.precision).toBe(7);
     expect(opened.mission.ui?.measurements?.grid?.mode).toBe('manual');
     expect(opened.mission.ui?.measurements?.grid?.step_m).toBe(100);

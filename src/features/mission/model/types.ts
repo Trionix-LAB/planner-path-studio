@@ -76,6 +76,12 @@ export type MissionUiState = {
     status?: boolean;
     properties?: boolean;
   };
+  panel_layout?: {
+    left_width_px?: number;
+    right_width_px?: number;
+    left_collapsed?: boolean;
+    right_collapsed?: boolean;
+  };
   coordinates?: {
     precision?: number;
   };

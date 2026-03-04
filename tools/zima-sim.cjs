@@ -40,7 +40,7 @@ const parseBeaconIds = (value) => {
   const parsed = value
     .split(',')
     .map((item) => Number(item.trim()))
-    .filter((item) => Number.isInteger(item) && item >= 1 && item <= 16);
+    .filter((item) => Number.isInteger(item) && item >= 0 && item <= 15);
   return parsed.length > 0 ? parsed : undefined;
 };
 

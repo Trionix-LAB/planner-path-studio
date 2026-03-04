@@ -260,6 +260,58 @@ describe('electron zima telemetry provider', () => {
     setElectronApi(undefined);
   });
 
+  it('computes AZMREM course/speed over-ground per beacon and does not inherit AZMLOC motion', async () => {
+    const api = createMockZimaApi();
+    setElectronApi({ zima: api });
+
+    const provider = createElectronZimaTelemetryProvider({
+      readConfig: async () => ({
+        ipAddress: '127.0.0.1',
+        dataPort: 28127,
+        commandPort: 28128,
+        useCommandPort: false,
+        useExternalGnss: true,
+        latitude: null,
+        longitude: null,
+        azimuth: null,
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    api.emitData({
+      message: '@AZMLOC,1013.2,10.5,12.3,0.1,-0.2,0,59.937500,30.308600,270.0,2.5,0,130.0,0,\r\n',
+      receivedAt: 1739318400000,
+    });
+    api.emitData({
+      message:
+        '@AZMREM,1,120.3,45.2,0.7,24.5,0,5.2,0,120.3,0,30.1,0,80.4,0,20.0,0,9.9,0,14.3,0,59.9301,30.3002,0,100.5,0,msg,0,1,2,false\r\n',
+      receivedAt: 1739318401000,
+    });
+    api.emitData({
+      message:
+        '@AZMREM,1,120.3,45.2,0.7,24.5,0,5.2,0,120.3,0,30.1,0,80.4,0,20.0,0,9.9,0,14.3,0,59.9302,30.3002,0,100.5,0,msg,0,1,2,false\r\n',
+      receivedAt: 1739318402000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(3);
+    const secondAzmRemFix = onFix.mock.calls[2]?.[0];
+    expect(secondAzmRemFix.source).toBe('AZMREM');
+    expect(secondAzmRemFix.speed).toBeGreaterThan(11);
+    expect(secondAzmRemFix.speed).toBeLessThan(11.3);
+    expect(secondAzmRemFix.course).toBeCloseTo(0, 0);
+    expect(secondAzmRemFix.heading).toBeCloseTo(0, 0);
+    expect(secondAzmRemFix.course).not.toBe(270);
+
+    provider.stop();
+    setElectronApi(undefined);
+  });
+
   it('emits fixes for compact real-world AZMLOC/AZMREM messages', async () => {
     const api = createMockZimaApi();
     setElectronApi({ zima: api });
@@ -406,7 +458,7 @@ describe('electron zima telemetry provider', () => {
 });
 
 describe('electron gnss telemetry provider', () => {
-  it('starts bridge and emits fix from RMC line', async () => {
+  it('starts bridge and emits over-ground motion from sequential RMC lines', async () => {
     const api = createMockGnssApi();
     setElectronApi({ gnss: api });
 
@@ -427,18 +479,23 @@ describe('electron gnss telemetry provider', () => {
     expect(api.start).toHaveBeenCalledTimes(1);
 
     api.emitData({
-      message: '$GPRMC,123519,A,5956.2500,N,03018.5160,E,1.94,84.4,230394,,*1B\r\n',
+      message: '$GPRMC,123519,A,5956.2500,N,03018.5160,E,1.94,84.4,230394,,\r\n',
       receivedAt: 1739318403000,
     });
+    api.emitData({
+      message: '$GPRMC,123520,A,5956.2560,N,03018.5160,E,1.94,84.4,230394,,\r\n',
+      receivedAt: 1739318404000,
+    });
 
-    expect(onFix).toHaveBeenCalledTimes(1);
-    const payload = onFix.mock.calls[0]?.[0];
+    expect(onFix).toHaveBeenCalledTimes(2);
+    const payload = onFix.mock.calls[1]?.[0];
     expect(payload.source).toBe('GNSS');
-    expect(payload.received_at).toBe(1739318403000);
-    expect(payload.lat).toBeCloseTo(59.9375, 5);
+    expect(payload.received_at).toBe(1739318404000);
+    expect(payload.lat).toBeCloseTo(59.9376, 5);
     expect(payload.lon).toBeCloseTo(30.3086, 5);
-    expect(payload.speed).toBeCloseTo(0.998, 3);
-    expect(payload.course).toBeCloseTo(84.4, 3);
+    expect(payload.speed).toBeGreaterThan(11);
+    expect(payload.speed).toBeLessThan(11.3);
+    expect(payload.course).toBeCloseTo(0, 0);
     expect(payload.heading).toBeNull();
     expect(payload.depth).toBe(0);
     expect(payload.entity_type).toBe('base_station');
@@ -448,6 +505,61 @@ describe('electron gnss telemetry provider', () => {
     provider.stop();
     await flushMicrotasks();
     expect(api.stop).toHaveBeenCalledTimes(1);
+    setElectronApi(undefined);
+  });
+
+  it('prioritizes fresh HDT heading for course and falls back to COG after 5 seconds', async () => {
+    const api = createMockGnssApi();
+    setElectronApi({ gnss: api });
+
+    const provider = createElectronGnssTelemetryProvider({
+      readConfig: async () => ({
+        ipAddress: '127.0.0.1',
+        dataPort: 28128,
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    api.emitData({
+      message: '$HEHDT,120.0,T*2C\r\n',
+      receivedAt: 1739318400000,
+    });
+
+    api.emitData({
+      message: '$GPRMC,123519,A,5956.2500,N,03018.5160,E,0.00,0.0,230394,,\r\n',
+      receivedAt: 1739318401000,
+    });
+    api.emitData({
+      message: '$GPRMC,123520,A,5956.2560,N,03018.5160,E,0.00,0.0,230394,,\r\n',
+      receivedAt: 1739318402000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(2);
+    const freshHeadingFix = onFix.mock.calls[1]?.[0];
+    expect(freshHeadingFix.course).toBe(120);
+    expect(freshHeadingFix.heading).toBe(120);
+    expect(freshHeadingFix.speed).toBeGreaterThan(11);
+
+    api.emitData({
+      message: '$GPRMC,123526,A,5956.2620,N,03018.5160,E,0.00,0.0,230394,,\r\n',
+      receivedAt: 1739318407000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(3);
+    const staleHeadingFix = onFix.mock.calls[2]?.[0];
+    expect(staleHeadingFix.heading).toBeNull();
+    expect(staleHeadingFix.course).toBeCloseTo(0, 0);
+    expect(staleHeadingFix.speed).toBeGreaterThan(2);
+    expect(staleHeadingFix.speed).toBeLessThan(2.4);
+
+    provider.stop();
+    await flushMicrotasks();
     setElectronApi(undefined);
   });
 });

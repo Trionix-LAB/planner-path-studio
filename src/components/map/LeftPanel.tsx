@@ -179,7 +179,7 @@ const LeftPanel = ({
   ];
 
   return (
-    <div className="w-56 bg-sidebar border-r border-sidebar-border flex flex-col text-[13px]">
+    <div className="w-full h-full min-w-0 bg-sidebar border-r border-sidebar-border flex flex-col text-[13px]">
       {/* Layers */}
       <div className="panel-header flex items-center gap-2">
         <Eye className="w-4 h-4 inline mr-2" />

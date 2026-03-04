@@ -211,6 +211,16 @@ const canRenderBlob = async (blob: Blob): Promise<boolean> => {
 const DEFAULT_APP_SETTINGS = createDefaultAppSettings();
 const DEFAULT_BASE_STATION_TRACK_COLOR = DEFAULT_APP_SETTINGS.defaults.styles.track.color;
 const DEFAULT_BASE_STATION_MARKER_SIZE_PX = 34;
+const DEFAULT_LEFT_PANEL_WIDTH_PX = 224;
+const DEFAULT_RIGHT_PANEL_WIDTH_PX = 256;
+const MIN_SIDE_PANEL_WIDTH_PX = 180;
+const MAX_SIDE_PANEL_WIDTH_PX = 520;
+
+const clampSidePanelWidthPx = (value: unknown, fallback: number): number => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(MIN_SIDE_PANEL_WIDTH_PX, Math.min(MAX_SIDE_PANEL_WIDTH_PX, Math.round(n)));
+};
 
 type LayersState = {
   basemap: boolean;
@@ -256,6 +266,9 @@ type WorkspaceSnapshot = {
   vectorOverlays: NonNullable<MissionUiState['vector_overlays']>;
   leftPanelSectionsCollapsed: LeftPanelSectionsCollapsedState;
   rightPanelSectionsCollapsed: RightPanelSectionsCollapsedState;
+  leftPanelWidthPx: number;
+  rightPanelWidthPx: number;
+  mapPanelsCollapsed: MapPanelsCollapsedState;
   isLoaded: boolean;
 };
 
@@ -406,6 +419,12 @@ const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   layers: { ...defaults.layers, basemap: true },
   left_panel_sections: { ...DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED },
   right_panel_sections: { ...DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED },
+  panel_layout: {
+    left_width_px: DEFAULT_LEFT_PANEL_WIDTH_PX,
+    right_width_px: DEFAULT_RIGHT_PANEL_WIDTH_PX,
+    left_collapsed: false,
+    right_collapsed: false,
+  },
   base_station: {
     navigation_source: null,
     track_color: defaults.styles.track.color,
@@ -745,6 +764,8 @@ const MapWorkspace = () => {
   const [mapPanelsCollapsed, setMapPanelsCollapsed] = useState<MapPanelsCollapsedState>(
     DEFAULT_MAP_PANELS_COLLAPSED,
   );
+  const [leftPanelWidthPx, setLeftPanelWidthPx] = useState<number>(DEFAULT_LEFT_PANEL_WIDTH_PX);
+  const [rightPanelWidthPx, setRightPanelWidthPx] = useState<number>(DEFAULT_RIGHT_PANEL_WIDTH_PX);
   const [leftPanelSectionsCollapsed, setLeftPanelSectionsCollapsed] = useState<LeftPanelSectionsCollapsedState>(
     DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED,
   );
@@ -843,6 +864,9 @@ const MapWorkspace = () => {
     vectorOverlays: [],
     leftPanelSectionsCollapsed: DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED,
     rightPanelSectionsCollapsed: DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED,
+    leftPanelWidthPx: DEFAULT_LEFT_PANEL_WIDTH_PX,
+    rightPanelWidthPx: DEFAULT_RIGHT_PANEL_WIDTH_PX,
+    mapPanelsCollapsed: DEFAULT_MAP_PANELS_COLLAPSED,
     baseStationTelemetry: null,
     mapView: null,
     coordPrecision: DEFAULT_APP_SETTINGS.defaults.coordinates.precision,
@@ -1177,6 +1201,9 @@ const MapWorkspace = () => {
       vectorOverlays,
       leftPanelSectionsCollapsed,
       rightPanelSectionsCollapsed,
+      leftPanelWidthPx,
+      rightPanelWidthPx,
+      mapPanelsCollapsed,
       isLoaded,
     };
   }, [
@@ -1201,6 +1228,9 @@ const MapWorkspace = () => {
     vectorOverlays,
     leftPanelSectionsCollapsed,
     rightPanelSectionsCollapsed,
+    leftPanelWidthPx,
+    rightPanelWidthPx,
+    mapPanelsCollapsed,
     isLoaded,
   ]);
 
@@ -1950,6 +1980,9 @@ const MapWorkspace = () => {
       vectorOverlaysState: VectorOverlayUi[],
       nextLeftPanelSectionsCollapsed: LeftPanelSectionsCollapsedState,
       nextRightPanelSectionsCollapsed: RightPanelSectionsCollapsedState,
+      nextLeftPanelWidthPx: number,
+      nextRightPanelWidthPx: number,
+      nextMapPanelsCollapsed: MapPanelsCollapsedState,
     ): MissionBundle => {
       const geo = mapObjectsToGeoJson(missionObjects);
       const nextMission: MissionDocument = {
@@ -1970,6 +2003,12 @@ const MapWorkspace = () => {
           },
           left_panel_sections: nextLeftPanelSectionsCollapsed,
           right_panel_sections: nextRightPanelSectionsCollapsed,
+          panel_layout: {
+            left_width_px: nextLeftPanelWidthPx,
+            right_width_px: nextRightPanelWidthPx,
+            left_collapsed: nextMapPanelsCollapsed.left,
+            right_collapsed: nextMapPanelsCollapsed.right,
+          },
           base_station: {
             navigation_source: baseStationSourceState,
             track_color: baseStationTrackColorState,
@@ -2056,6 +2095,9 @@ const MapWorkspace = () => {
         snapshot.vectorOverlays,
         snapshot.leftPanelSectionsCollapsed,
         snapshot.rightPanelSectionsCollapsed,
+        snapshot.leftPanelWidthPx,
+        snapshot.rightPanelWidthPx,
+        snapshot.mapPanelsCollapsed,
       );
       await repository.saveMission(bundle);
 
@@ -2130,6 +2172,14 @@ const MapWorkspace = () => {
           ? rightSections.properties
           : DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED.properties,
     });
+    const panelLayout = bundle.mission.ui?.panel_layout;
+    setLeftPanelWidthPx(clampSidePanelWidthPx(panelLayout?.left_width_px, DEFAULT_LEFT_PANEL_WIDTH_PX));
+    setRightPanelWidthPx(clampSidePanelWidthPx(panelLayout?.right_width_px, DEFAULT_RIGHT_PANEL_WIDTH_PX));
+    setMapPanelsCollapsed((prev) => ({
+      top: prev.top,
+      left: typeof panelLayout?.left_collapsed === 'boolean' ? panelLayout.left_collapsed : prev.left,
+      right: typeof panelLayout?.right_collapsed === 'boolean' ? panelLayout.right_collapsed : prev.right,
+    }));
     const baseStationUi = bundle.mission.ui?.base_station;
     const nextBaseStationSource = normalizeNavigationSourceId(
       baseStationUi?.navigation_source ?? baseStationUi?.source_id ?? null,
@@ -2398,6 +2448,9 @@ const MapWorkspace = () => {
         vectorOverlays,
         leftPanelSectionsCollapsed,
         rightPanelSectionsCollapsed,
+        leftPanelWidthPx,
+        rightPanelWidthPx,
+        mapPanelsCollapsed,
       );
 
     walStageTimerRef.current = window.setTimeout(async () => {
@@ -2456,6 +2509,9 @@ const MapWorkspace = () => {
     vectorOverlays,
     leftPanelSectionsCollapsed,
     rightPanelSectionsCollapsed,
+    leftPanelWidthPx,
+    rightPanelWidthPx,
+    mapPanelsCollapsed,
   ]);
 
   const applyPrimaryConnectionState = useCallback((nextState: TelemetryConnectionState) => {
@@ -2484,7 +2540,7 @@ const MapWorkspace = () => {
     const divers = missionDiversRef.current;
     const nextById: Record<string, DiverTelemetryState> = {};
 
-    divers.forEach((diver, index) => {
+    divers.forEach((diver) => {
       const source = diver.navigation_source;
       if (!isSourceEnabled(source)) {
         return;
@@ -2503,9 +2559,6 @@ const MapWorkspace = () => {
         const beaconKey = normalizeBeaconBindingKey(diver.beacon_id ?? diver.id);
         if (beaconKey) {
           telemetry = zimaRemFixByBeaconRef.current[beaconKey] ?? null;
-        }
-        if (!telemetry && index === 0) {
-          telemetry = zimaAzmLocFixRef.current;
         }
       }
 
@@ -3776,6 +3829,13 @@ const MapWorkspace = () => {
       <MapWorkspaceFrame
         collapsed={mapPanelsCollapsed}
         onCollapsedChange={setMapPanelsCollapsed}
+        sideWidths={{ left: leftPanelWidthPx, right: rightPanelWidthPx }}
+        onSideWidthsChange={(next) => {
+          setLeftPanelWidthPx(next.left);
+          setRightPanelWidthPx(next.right);
+        }}
+        minSideWidthPx={MIN_SIDE_PANEL_WIDTH_PX}
+        maxSideWidthPx={MAX_SIDE_PANEL_WIDTH_PX}
         top={
           <TopToolbar
             missionName={missionName}
@@ -3880,7 +3940,7 @@ const MapWorkspace = () => {
                 ? {
                     lat: baseStationTelemetry.lat,
                     lon: baseStationTelemetry.lon,
-                    heading: baseStationTelemetry.heading,
+                    course: baseStationTelemetry.course,
                     sourceId: baseStationTelemetry.sourceId,
                   }
                 : null
