@@ -13,10 +13,6 @@ import {
   type SegmentLengthsMode,
 } from "@/features/mission";
 import { parseLaneAngleInput } from "@/features/mission/model/laneAngle";
-import {
-  clampDiverMarkerSizePx,
-  DIVER_MARKER_SIZE_DEFAULT_PX,
-} from "@/features/mission/model/diverMarkerSize";
 import type { AppUiDefaults } from "@/features/settings";
 import type { DiverUiConfig } from "@/features/mission";
 import type { DxfOverlayFeatureCollection } from '@/features/map/dxfOverlay/parseDxf';
@@ -33,6 +29,7 @@ import { getDefaultZoneLanePanelIconPosition, getDefaultZoneLanePanelPosition } 
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import CachedTileLayer from './CachedTileLayer';
+import { createBaseStationIcon, createDiverIcon } from './telemetryMarkerIcons';
 
 const TRANSPARENT_TILE =
   'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
@@ -79,7 +76,7 @@ interface MapCanvasProps {
   baseStationData: {
     lat: number;
     lon: number;
-    heading: number | null;
+    course: number;
     sourceId: string | null;
   } | null;
   isBaseStationSourceAssigned: boolean;
@@ -286,62 +283,6 @@ const OverlayLayers = memo(
 );
 
 OverlayLayers.displayName = "OverlayLayers";
-
-// Custom diver icon
-const createDiverIcon = (course: number, isFollowing: boolean, color: string, sizePx: number) => {
-  const size = clampDiverMarkerSizePx(sizePx, DIVER_MARKER_SIZE_DEFAULT_PX);
-  const iconSize = Math.max(10, Math.round(size * 0.5));
-  return L.divIcon({
-    className: "diver-marker",
-    html: `
-      <div class="relative flex items-center justify-center" style="width:${size}px;height:${size}px;">
-        <div class="rounded-full border-2 border-white flex items-center justify-center ${isFollowing ? "animate-pulse" : ""}" style="width:${size}px;height:${size}px;background:${color};">
-          <svg class="text-white" style="width:${iconSize}px;height:${iconSize}px;" viewBox="0 0 24 24" fill="currentColor" transform="rotate(${course} 12 12)">
-            <path d="M12 2L8 12H16L12 2Z"/>
-          </svg>
-        </div>
-      </div>
-    `,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-  });
-};
-
-const BASE_STATION_MARKER_COLOR = '#0f172a';
-
-const createBaseStationIcon = (headingDeg: number | null, size = 34): L.DivIcon => {
-  const normalizedHeading =
-    typeof headingDeg === "number" && Number.isFinite(headingDeg)
-      ? ((headingDeg % 360) + 360) % 360
-      : null;
-  const innerSize = Math.round(size * 0.76);
-  const svgSize = Math.round(size * 0.41);
-  const arrowOffset = Math.round(size * 0.53);
-  return L.divIcon({
-    className: "base-station-marker",
-    html: `
-      <div style="position: relative; width: ${size}px; height: ${size}px; display: flex; align-items: center; justify-content: center;">
-        ${
-          normalizedHeading === null
-            ? ""
-            : `<div style="position:absolute; top:-2px; left:50%; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:9px solid ${BASE_STATION_MARKER_COLOR}; transform: translateX(-50%) rotate(${normalizedHeading}deg); transform-origin: 50% ${arrowOffset}px; opacity:0.9;"></div>`
-        }
-        <div style="width: ${innerSize}px; height: ${innerSize}px; border-radius: 9999px; background: #f8fafc; border: 2px solid ${BASE_STATION_MARKER_COLOR}; display:flex; align-items:center; justify-content:center; box-shadow: 0 1px 6px rgba(15,23,42,0.35);">
-          <svg width="${svgSize}" height="${svgSize}" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M12 2V9" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" stroke-linecap="round"/>
-            <circle cx="12" cy="10" r="2.1" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" fill="none"/>
-            <path d="M5 13C5 16.3 7.7 19 11 19" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" stroke-linecap="round"/>
-            <path d="M19 13C19 16.3 16.3 19 13 19" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" stroke-linecap="round"/>
-            <path d="M12 12V22" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" stroke-linecap="round"/>
-            <path d="M9 19L12 22L15 19" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-      </div>
-    `,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-  });
-};
 
 // Custom marker icon
 const createMarkerIcon = (color: string, isSelected: boolean) => {
@@ -730,14 +671,15 @@ const MapCanvas = ({
     const sign = index % 2 === 0 ? -1 : 1;
     return [diverPosition[0] + ring * offsetStep * sign, diverPosition[1] + ring * offsetStep * sign];
   };
+  const normalizeCourse = (value: number): number => ((value % 360) + 360) % 360;
   const getDiverCourse = (diver: DiverUiConfig, index: number): number => {
     const diverId = diver.id.trim();
     const telemetry = diverId ? normalizedDiverPositions[diverId] : undefined;
     if (telemetry && typeof telemetry.course === 'number' && Number.isFinite(telemetry.course)) {
-      return telemetry.course;
+      return normalizeCourse(telemetry.course);
     }
     if (index === 0) {
-      return diverData.course;
+      return normalizeCourse(diverData.course);
     }
     return 0;
   };
@@ -752,9 +694,13 @@ const MapCanvas = ({
   const baseStationPosition: [number, number] | null = baseStationData
     ? [baseStationData.lat, baseStationData.lon]
     : null;
+  const baseStationCourse =
+    typeof baseStationData?.course === 'number' && Number.isFinite(baseStationData.course)
+      ? normalizeCourse(baseStationData.course)
+      : null;
   const baseStationIcon = useMemo(
-    () => createBaseStationIcon(baseStationData?.heading ?? null, baseStationMarkerSizePx),
-    [baseStationData?.heading, baseStationMarkerSizePx],
+    () => createBaseStationIcon(baseStationCourse, baseStationMarkerSizePx),
+    [baseStationCourse, baseStationMarkerSizePx],
   );
   const { toast } = useToast();
 
