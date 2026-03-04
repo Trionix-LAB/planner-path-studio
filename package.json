@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "main": "electron/main.cjs",
+  "author": "Trionix LAB",
+  "email": "info@trionixlab.com",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -115,6 +117,7 @@
   "build": {
     "appId": "com.planner-path-studio.app",
     "productName": "Planner Path Studio",
+    "publish": null,
     "directories": {
       "output": "release"
     },
