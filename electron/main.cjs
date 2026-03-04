@@ -264,23 +264,31 @@ const convertTiffBufferToPngBufferViaNativeImagePath = async (inputBuffer) => {
   }
 };
 
-const convertTiffBufferToPngBufferViaImageMagick = async (inputBuffer) => {
+const convertTiffBufferToPngBufferViaExternalTool = async (inputBuffer) => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'planner-tiff-'));
   const inputPath = path.join(tempRoot, 'input.tif');
   const outputPath = path.join(tempRoot, 'output.png');
   // On Windows, bare 'convert' resolves to C:\Windows\System32\convert.exe
   // (FAT→NTFS volume converter), not ImageMagick — exclude it on win32.
+  // On macOS, 'sips' is a built-in image conversion tool (no install needed).
   const variants =
     process.platform === 'win32'
       ? [
           ['magick', [inputPath, outputPath]],
           ['magick', ['convert', inputPath, outputPath]],
         ]
-      : [
-          ['magick', [inputPath, outputPath]],
-          ['magick', ['convert', inputPath, outputPath]],
-          ['convert', [inputPath, outputPath]],
-        ];
+      : process.platform === 'darwin'
+        ? [
+            ['sips', ['-s', 'format', 'png', inputPath, '--out', outputPath]],
+            ['magick', [inputPath, outputPath]],
+            ['magick', ['convert', inputPath, outputPath]],
+            ['convert', [inputPath, outputPath]],
+          ]
+        : [
+            ['magick', [inputPath, outputPath]],
+            ['magick', ['convert', inputPath, outputPath]],
+            ['convert', [inputPath, outputPath]],
+          ];
   try {
     await fs.writeFile(inputPath, inputBuffer);
     for (const [command, args] of variants) {
@@ -1253,7 +1261,7 @@ const registerIpcHandlers = () => {
         return pathDecoderPngBuffer.toString('base64');
       }
 
-      const fallbackPng = await convertTiffBufferToPngBufferViaImageMagick(inputBuffer);
+      const fallbackPng = await convertTiffBufferToPngBufferViaExternalTool(inputBuffer);
       if (fallbackPng && fallbackPng.length > 0) {
         return fallbackPng.toString('base64');
       }

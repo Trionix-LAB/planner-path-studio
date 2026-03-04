@@ -35,7 +35,20 @@ const isNodeRuntime = (): boolean => {
   return typeof candidate?.versions?.node === 'string' && candidate.versions.node.length > 0;
 };
 
-const getNodeWasmDir = (): string => `${process.cwd().replace(/\\/g, '/')}/node_modules/@mlightcad/libredwg-web/wasm`;
+const getNodeWasmDir = (): string => {
+  try {
+    // In Node/Electron main process, resolve relative to this module's location
+    const mod = (globalThis as unknown as { require?: { resolve?: (id: string) => string } }).require;
+    if (mod?.resolve) {
+      const resolved = mod.resolve('@mlightcad/libredwg-web');
+      const dir = resolved.replace(/\\/g, '/').replace(/\/[^/]+$/, '');
+      return `${dir}/wasm`;
+    }
+  } catch {
+    // fallback
+  }
+  return `${process.cwd().replace(/\\/g, '/')}/node_modules/@mlightcad/libredwg-web/wasm`;
+};
 
 const getLibreDwg = async (): Promise<LibreDwgEx> => {
   if (!libredwgPromise) {

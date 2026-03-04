@@ -27,8 +27,19 @@ const rememberPath = (key: string, value: string) => {
   }
 };
 
-const DEFAULT_MISSIONS_DIR = 'C:/Missions';
-const DEFAULT_EXPORTS_DIR = 'C:/Exports';
+const getDefaultDir = (name: string): string => {
+  const nav = globalThis.navigator as { platform?: string } | undefined;
+  const platform = nav?.platform ?? '';
+  if (/win/i.test(platform) && !/darwin/i.test(platform)) {
+    return `C:/${name}`;
+  }
+  const home =
+    (globalThis as unknown as { process?: { env?: { HOME?: string } } }).process?.env?.HOME ?? '';
+  return home ? `${home}/${name}` : `/${name}`;
+};
+
+const DEFAULT_MISSIONS_DIR = getDefaultDir('Missions');
+const DEFAULT_EXPORTS_DIR = getDefaultDir('Exports');
 
 type ElectronApi = {
   pickDirectory: (options?: { title?: string; defaultPath?: string }) => Promise<string | null>;
