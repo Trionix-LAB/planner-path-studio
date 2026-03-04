@@ -84,7 +84,7 @@ jobs:
             echo "::error::release/ directory not found"
             exit 1
           fi
-          find release -type f | head -50
+          find release -type f | head -50 || true
 
       - name: Optional Windows code signing
         if: matrix.platform == 'win' && env.PFX_B64 != '' && env.PFX_PASSWORD != ''
@@ -130,7 +130,7 @@ jobs:
           merge-multiple: true
 
       - name: List all release files
-        run: find artifacts -type f | sort
+        run: find artifacts -type f | sort || true
 
       - name: Create/update draft GitHub Release (tag push)
         if: github.event_name == 'push'
