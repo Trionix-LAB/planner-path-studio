@@ -71,6 +71,11 @@ export type MissionUiState = {
     vectors?: boolean;
     objects?: boolean;
   };
+  right_panel_sections?: {
+    hud?: boolean;
+    status?: boolean;
+    properties?: boolean;
+  };
   coordinates?: {
     precision?: number;
   };

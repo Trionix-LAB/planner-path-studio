@@ -286,4 +286,88 @@ describe('RightPanel HUD defaults (includes agent track UI — R-015)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Скрыть все треки' }));
     expect(onTracksVisibilitySet).toHaveBeenCalledWith(['track-1', 'track-2'], false);
   });
+
+  it('hides HUD, status and object properties content when right sections are collapsed', () => {
+    render(
+      <RightPanel
+        diverData={{ lat: 59.93428, lon: 30.335099, speed: 0.8, course: 45, depth: 12.5 }}
+        hasTelemetryData={true}
+        hasTelemetryHistory={true}
+        coordPrecision={6}
+        styles={{
+          track: { color: '#22c55e', width_px: 3 },
+          route: { color: '#0ea5e9', width_px: 3 },
+          survey_area: {
+            stroke_color: '#f59e0b',
+            stroke_width_px: 2,
+            fill_color: '#f59e0b',
+            fill_opacity: 0.2,
+          },
+          lane: { color: '#22c55e', width_px: 2 },
+          marker: { color: '#22c55e' },
+        }}
+        connectionStatus="ok"
+        isConnectionEnabled={true}
+        selectedAgent={testAgent}
+        selectedAgentTrackStatus="recording"
+        selectedAgentActiveTrackNumber={1}
+        missionDocument={null}
+        trackStatusByAgentId={{ 'agent-1': 'recording' }}
+        selectedObject={null}
+        selectedZoneLanesOutdated={false}
+        selectedZoneLaneCount={null}
+        onObjectSelect={() => {}}
+        sectionsCollapsed={{ hud: true, status: true, properties: true }}
+      />,
+    );
+
+    expect(screen.queryByText('Широта')).toBeNull();
+    expect(screen.queryByText('Связь')).toBeNull();
+    expect(screen.queryByText('Выберите объект на карте или в левой панели.')).toBeNull();
+  });
+
+  it('emits right section collapsed state changes', () => {
+    const onSectionsCollapsedChange = vi.fn();
+
+    render(
+      <RightPanel
+        diverData={{ lat: 59.93428, lon: 30.335099, speed: 0.8, course: 45, depth: 12.5 }}
+        hasTelemetryData={true}
+        hasTelemetryHistory={true}
+        coordPrecision={6}
+        styles={{
+          track: { color: '#22c55e', width_px: 3 },
+          route: { color: '#0ea5e9', width_px: 3 },
+          survey_area: {
+            stroke_color: '#f59e0b',
+            stroke_width_px: 2,
+            fill_color: '#f59e0b',
+            fill_opacity: 0.2,
+          },
+          lane: { color: '#22c55e', width_px: 2 },
+          marker: { color: '#22c55e' },
+        }}
+        connectionStatus="ok"
+        isConnectionEnabled={true}
+        selectedAgent={testAgent}
+        selectedAgentTrackStatus="recording"
+        selectedAgentActiveTrackNumber={1}
+        missionDocument={null}
+        trackStatusByAgentId={{ 'agent-1': 'recording' }}
+        selectedObject={null}
+        selectedZoneLanesOutdated={false}
+        selectedZoneLaneCount={null}
+        onObjectSelect={() => {}}
+        sectionsCollapsed={{ hud: false, status: false, properties: false }}
+        onSectionsCollapsedChange={onSectionsCollapsedChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Свернуть секцию Статус' }));
+    expect(onSectionsCollapsedChange).toHaveBeenCalledWith({
+      hud: false,
+      status: true,
+      properties: false,
+    });
+  });
 });

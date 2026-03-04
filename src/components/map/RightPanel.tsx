@@ -1,11 +1,24 @@
+import { useState } from 'react';
 import type { MapObject } from "@/features/map/model/types";
 import type { CrsId } from '@/features/geo/crs';
 import type { CoordinateInputFormat } from '@/features/geo/coordinateInputFormat';
-import { Wifi, WifiOff, Radio, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Wifi, WifiOff, Radio, Trash2, Eye, EyeOff, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MapObjectProperties from './MapObjectProperties';
 import type { AppUiDefaults } from '@/features/settings';
 import type { DiverUiConfig, LaneFeature, MissionDocument, TrackRecorderStatus } from '@/features/mission';
+
+export type RightPanelSectionsCollapsedState = {
+  hud: boolean;
+  status: boolean;
+  properties: boolean;
+};
+
+const DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED: RightPanelSectionsCollapsedState = {
+  hud: false,
+  status: false,
+  properties: false,
+};
 
 interface RightPanelProps {
   /** HUD data for the selected agent (or primary if none selected) */
@@ -47,6 +60,8 @@ interface RightPanelProps {
   onTrackDelete?: (trackId: string) => void;
   onTrackVisibilityToggle?: (trackId: string) => void;
   onTracksVisibilitySet?: (trackIds: string[], visible: boolean) => void;
+  sectionsCollapsed?: RightPanelSectionsCollapsedState;
+  onSectionsCollapsedChange?: (next: RightPanelSectionsCollapsedState) => void;
 }
 
 type ConnectionUiState = 'off' | 'ok' | 'timeout' | 'error' | 'waiting';
@@ -92,7 +107,26 @@ const RightPanel = ({
   onTrackDelete,
   onTrackVisibilityToggle,
   onTracksVisibilitySet,
+  sectionsCollapsed,
+  onSectionsCollapsedChange,
 }: RightPanelProps) => {
+  const [localSectionCollapsed, setLocalSectionCollapsed] = useState<RightPanelSectionsCollapsedState>(
+    DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED,
+  );
+  const sectionCollapsed = sectionsCollapsed ?? localSectionCollapsed;
+
+  const toggleSection = (section: keyof RightPanelSectionsCollapsedState) => {
+    const next: RightPanelSectionsCollapsedState = {
+      ...sectionCollapsed,
+      [section]: !sectionCollapsed[section],
+    };
+    if (onSectionsCollapsedChange) {
+      onSectionsCollapsedChange(next);
+      return;
+    }
+    setLocalSectionCollapsed(next);
+  };
+
   const noTelemetry = !hasTelemetryData;
   const connectionState: ConnectionUiState = !isConnectionEnabled
     ? 'off'
@@ -130,120 +164,146 @@ const RightPanel = ({
   return (
     <div className="w-64 bg-sidebar border-l border-sidebar-border flex flex-col h-full text-[13px]">
       {/* HUD */}
-      <div className="panel-header">
-        HUD
-        {selectedAgent && (
-          <span className="ml-1 text-muted-foreground font-normal">
-            — {selectedAgent.title}
-          </span>
-        )}
+      <div className="panel-header flex items-center gap-2">
+        <span className="flex-1">
+          HUD
+          {selectedAgent && (
+            <span className="ml-1 text-muted-foreground font-normal">
+              — {selectedAgent.title}
+            </span>
+          )}
+        </span>
+        <button
+          type="button"
+          className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
+          aria-label={sectionCollapsed.hud ? 'Развернуть секцию HUD' : 'Свернуть секцию HUD'}
+          title={sectionCollapsed.hud ? 'Развернуть' : 'Свернуть'}
+          onClick={() => toggleSection('hud')}
+        >
+          {sectionCollapsed.hud ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
       </div>
-      <div className="p-2.5 space-y-2">
-        {showNoTelemetryLabel ? (
-          <div className="text-xs text-muted-foreground">нет данных</div>
-        ) : null}
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">Широта</div>
-            <div className="data-value text-foreground">
-              {noTelemetry ? 'нет данных' : `${diverData.lat.toFixed(coordPrecision)}°`}
+      {!sectionCollapsed.hud ? (
+        <div className="p-2.5 space-y-2">
+          {showNoTelemetryLabel ? (
+            <div className="text-xs text-muted-foreground">нет данных</div>
+          ) : null}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Широта</div>
+              <div className="data-value text-foreground">
+                {noTelemetry ? 'нет данных' : `${diverData.lat.toFixed(coordPrecision)}°`}
+              </div>
             </div>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">Долгота</div>
-            <div className="data-value text-foreground">
-              {noTelemetry ? 'нет данных' : `${diverData.lon.toFixed(coordPrecision)}°`}
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Долгота</div>
+              <div className="data-value text-foreground">
+                {noTelemetry ? 'нет данных' : `${diverData.lon.toFixed(coordPrecision)}°`}
+              </div>
             </div>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">Скорость</div>
-            <div className="data-value text-foreground">
-              {noTelemetry ? 'нет данных' : `${diverData.speed.toFixed(1)} м/с`}
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Скорость</div>
+              <div className="data-value text-foreground">
+                {noTelemetry ? 'нет данных' : `${diverData.speed.toFixed(1)} м/с`}
+              </div>
             </div>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">Курс</div>
-            <div className="data-value text-foreground">
-              {noTelemetry ? 'нет данных' : `${diverData.course}°`}
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Курс</div>
+              <div className="data-value text-foreground">
+                {noTelemetry ? 'нет данных' : `${diverData.course}°`}
+              </div>
             </div>
-          </div>
-          <div className="col-span-2">
-            <div className="text-xs text-muted-foreground mb-1">Глубина</div>
-            <div className="data-value text-base text-primary font-semibold leading-5">
-              {noTelemetry ? 'нет данных' : `${diverData.depth.toFixed(1)} м`}
+            <div className="col-span-2">
+              <div className="text-xs text-muted-foreground mb-1">Глубина</div>
+              <div className="data-value text-base text-primary font-semibold leading-5">
+                {noTelemetry ? 'нет данных' : `${diverData.depth.toFixed(1)} м`}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="border-t border-sidebar-border" />
 
       {/* Status */}
-      <div className="panel-header">Статус</div>
-      <div className="p-2.5 space-y-1.5">
-        {/* Connection */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {isConnected ? (
-              <Wifi className="w-4 h-4 text-success" />
-            ) : (
-              <WifiOff className="w-4 h-4 text-destructive" />
-            )}
-            <span className="text-[13px] leading-5">Связь</span>
-          </div>
-          <span
-            className={cn(
-              'text-xs font-medium',
-              isConnected ? 'text-success' : 'text-destructive'
-            )}
-          >
-            {connectionLabel}
-          </span>
-        </div>
-
-        {/* Track Recording for selected agent */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Radio
+      <div className="panel-header flex items-center gap-2">
+        <span className="flex-1">Статус</span>
+        <button
+          type="button"
+          className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
+          aria-label={sectionCollapsed.status ? 'Развернуть секцию Статус' : 'Свернуть секцию Статус'}
+          title={sectionCollapsed.status ? 'Развернуть' : 'Свернуть'}
+          onClick={() => toggleSection('status')}
+        >
+          {sectionCollapsed.status ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+      {!sectionCollapsed.status ? (
+        <div className="p-2.5 space-y-1.5">
+          {/* Connection */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {isConnected ? (
+                <Wifi className="w-4 h-4 text-success" />
+              ) : (
+                <WifiOff className="w-4 h-4 text-destructive" />
+              )}
+              <span className="text-[13px] leading-5">Связь</span>
+            </div>
+            <span
               className={cn(
-                'w-4 h-4',
+                'text-xs font-medium',
+                isConnected ? 'text-success' : 'text-destructive'
+              )}
+            >
+              {connectionLabel}
+            </span>
+          </div>
+
+          {/* Track Recording for selected agent */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Radio
+                className={cn(
+                  'w-4 h-4',
+                  trackStatus === 'recording' && 'text-success',
+                  trackStatus === 'paused' && 'text-warning',
+                  trackStatus === 'stopped' && 'text-muted-foreground'
+                )}
+              />
+              <span className="text-[13px] leading-5">Запись</span>
+            </div>
+            <span
+              className={cn(
+                'text-xs font-medium',
                 trackStatus === 'recording' && 'text-success',
                 trackStatus === 'paused' && 'text-warning',
                 trackStatus === 'stopped' && 'text-muted-foreground'
               )}
-            />
-            <span className="text-[13px] leading-5">Запись</span>
-          </div>
-          <span
-            className={cn(
-              'text-xs font-medium',
-              trackStatus === 'recording' && 'text-success',
-              trackStatus === 'paused' && 'text-warning',
-              trackStatus === 'stopped' && 'text-muted-foreground'
-            )}
-          >
-            {trackStatus === 'recording' && 'Идёт'}
-            {trackStatus === 'paused' && 'Пауза'}
-            {trackStatus === 'stopped' && 'Остановлена'}
-          </span>
-        </div>
-
-        {/* Active Track */}
-        <div className="flex items-center justify-between">
-          <span className="text-[13px] text-muted-foreground leading-5">Активный трек</span>
-          <span className="text-[13px] font-mono leading-5">{trackId > 0 ? `#${trackId}` : '—'}</span>
-        </div>
-
-        {/* Count of agents recording */}
-        {missionDocument && (
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground leading-5">Агентов пишут</span>
-            <span className="text-[13px] font-mono leading-5">
-              {Object.values(trackStatusByAgentId).filter((s) => s === 'recording').length}
+            >
+              {trackStatus === 'recording' && 'Идёт'}
+              {trackStatus === 'paused' && 'Пауза'}
+              {trackStatus === 'stopped' && 'Остановлена'}
             </span>
           </div>
-        )}
-      </div>
+
+          {/* Active Track */}
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] text-muted-foreground leading-5">Активный трек</span>
+            <span className="text-[13px] font-mono leading-5">{trackId > 0 ? `#${trackId}` : '—'}</span>
+          </div>
+
+          {/* Count of agents recording */}
+          {missionDocument && (
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground leading-5">Агентов пишут</span>
+              <span className="text-[13px] font-mono leading-5">
+                {Object.values(trackStatusByAgentId).filter((s) => s === 'recording').length}
+              </span>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       <div className="border-t border-sidebar-border" />
 
@@ -331,32 +391,45 @@ const RightPanel = ({
         </>
       )}
 
-      <div className="panel-header">Свойства объекта</div>
-      <div className="flex-1 min-h-0">
-        {selectedObject && onObjectUpdate ? (
-          <MapObjectProperties
-            object={selectedObject}
-            styles={styles}
-            coordinateInputCrs={coordinateInputCrs}
-            coordinateInputFormat={coordinateInputFormat}
-            onCoordinateInputCrsChange={onCoordinateInputCrsChange}
-            onCoordinateInputFormatChange={onCoordinateInputFormatChange}
-            onSave={onObjectUpdate}
-            onClose={() => onObjectSelect(null)}
-            onDelete={onObjectDelete}
-            onRegenerateLanes={onRegenerateLanes}
-            onPickLaneEdge={onPickLaneEdge}
-            onPickLaneStart={onPickLaneStart}
-            zoneLanesOutdated={selectedObject.type === 'zone' ? selectedZoneLanesOutdated : undefined}
-            zoneLaneCount={selectedObject.type === 'zone' ? selectedZoneLaneCount : undefined}
-            zoneLaneFeatures={selectedObject.type === 'zone' ? selectedZoneLaneFeatures : undefined}
-          />
-        ) : (
-          <div className="h-full flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
-            Выберите объект на карте или в левой панели.
-          </div>
-        )}
+      <div className="panel-header flex items-center gap-2">
+        <span className="flex-1">Свойства объекта</span>
+        <button
+          type="button"
+          className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
+          aria-label={sectionCollapsed.properties ? 'Развернуть секцию Свойства объекта' : 'Свернуть секцию Свойства объекта'}
+          title={sectionCollapsed.properties ? 'Развернуть' : 'Свернуть'}
+          onClick={() => toggleSection('properties')}
+        >
+          {sectionCollapsed.properties ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
       </div>
+      {!sectionCollapsed.properties ? (
+        <div className="flex-1 min-h-0">
+          {selectedObject && onObjectUpdate ? (
+            <MapObjectProperties
+              object={selectedObject}
+              styles={styles}
+              coordinateInputCrs={coordinateInputCrs}
+              coordinateInputFormat={coordinateInputFormat}
+              onCoordinateInputCrsChange={onCoordinateInputCrsChange}
+              onCoordinateInputFormatChange={onCoordinateInputFormatChange}
+              onSave={onObjectUpdate}
+              onClose={() => onObjectSelect(null)}
+              onDelete={onObjectDelete}
+              onRegenerateLanes={onRegenerateLanes}
+              onPickLaneEdge={onPickLaneEdge}
+              onPickLaneStart={onPickLaneStart}
+              zoneLanesOutdated={selectedObject.type === 'zone' ? selectedZoneLanesOutdated : undefined}
+              zoneLaneCount={selectedObject.type === 'zone' ? selectedZoneLaneCount : undefined}
+              zoneLaneFeatures={selectedObject.type === 'zone' ? selectedZoneLaneFeatures : undefined}
+            />
+          ) : (
+            <div className="h-full flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
+              Выберите объект на карте или в левой панели.
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 };

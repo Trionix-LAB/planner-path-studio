@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import TopToolbar from '@/components/map/TopToolbar';
-import RightPanel from '@/components/map/RightPanel';
+import RightPanel, { type RightPanelSectionsCollapsedState } from '@/components/map/RightPanel';
 import LeftPanel, { type LeftPanelSectionsCollapsedState } from '@/components/map/LeftPanel';
 import StatusBar from '@/components/map/StatusBar';
 import MapCanvas from '@/components/map/MapCanvas';
@@ -255,6 +255,7 @@ type WorkspaceSnapshot = {
   rasterOverlays: NonNullable<MissionUiState['raster_overlays']>;
   vectorOverlays: NonNullable<MissionUiState['vector_overlays']>;
   leftPanelSectionsCollapsed: LeftPanelSectionsCollapsedState;
+  rightPanelSectionsCollapsed: RightPanelSectionsCollapsedState;
   isLoaded: boolean;
 };
 
@@ -390,6 +391,12 @@ const DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED: LeftPanelSectionsCollapsedState = {
   objects: false,
 };
 
+const DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED: RightPanelSectionsCollapsedState = {
+  hud: false,
+  status: false,
+  properties: false,
+};
+
 const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   follow_diver: defaults.follow_diver,
   hidden_track_ids: [],
@@ -398,6 +405,7 @@ const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
   divers: createDefaultDivers(1),
   layers: { ...defaults.layers, basemap: true },
   left_panel_sections: { ...DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED },
+  right_panel_sections: { ...DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED },
   base_station: {
     navigation_source: null,
     track_color: defaults.styles.track.color,
@@ -740,6 +748,9 @@ const MapWorkspace = () => {
   const [leftPanelSectionsCollapsed, setLeftPanelSectionsCollapsed] = useState<LeftPanelSectionsCollapsedState>(
     DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED,
   );
+  const [rightPanelSectionsCollapsed, setRightPanelSectionsCollapsed] = useState<RightPanelSectionsCollapsedState>(
+    DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED,
+  );
   const [mapView, setMapView] = useState<MissionUiState['map_view'] | null>(null);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
   const [coordPrecision, setCoordPrecision] = useState(DEFAULT_APP_SETTINGS.defaults.coordinates.precision);
@@ -831,6 +842,7 @@ const MapWorkspace = () => {
     rasterOverlays: [],
     vectorOverlays: [],
     leftPanelSectionsCollapsed: DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED,
+    rightPanelSectionsCollapsed: DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED,
     baseStationTelemetry: null,
     mapView: null,
     coordPrecision: DEFAULT_APP_SETTINGS.defaults.coordinates.precision,
@@ -1164,6 +1176,7 @@ const MapWorkspace = () => {
       rasterOverlays,
       vectorOverlays,
       leftPanelSectionsCollapsed,
+      rightPanelSectionsCollapsed,
       isLoaded,
     };
   }, [
@@ -1187,6 +1200,7 @@ const MapWorkspace = () => {
     rasterOverlays,
     vectorOverlays,
     leftPanelSectionsCollapsed,
+    rightPanelSectionsCollapsed,
     isLoaded,
   ]);
 
@@ -1935,6 +1949,7 @@ const MapWorkspace = () => {
       rasterOverlaysState: RasterOverlayUi[],
       vectorOverlaysState: VectorOverlayUi[],
       nextLeftPanelSectionsCollapsed: LeftPanelSectionsCollapsedState,
+      nextRightPanelSectionsCollapsed: RightPanelSectionsCollapsedState,
     ): MissionBundle => {
       const geo = mapObjectsToGeoJson(missionObjects);
       const nextMission: MissionDocument = {
@@ -1954,6 +1969,7 @@ const MapWorkspace = () => {
             scale_bar: layersState.scaleBar,
           },
           left_panel_sections: nextLeftPanelSectionsCollapsed,
+          right_panel_sections: nextRightPanelSectionsCollapsed,
           base_station: {
             navigation_source: baseStationSourceState,
             track_color: baseStationTrackColorState,
@@ -2039,6 +2055,7 @@ const MapWorkspace = () => {
         snapshot.rasterOverlays,
         snapshot.vectorOverlays,
         snapshot.leftPanelSectionsCollapsed,
+        snapshot.rightPanelSectionsCollapsed,
       );
       await repository.saveMission(bundle);
 
@@ -2103,6 +2120,15 @@ const MapWorkspace = () => {
       rasters: typeof sections?.rasters === 'boolean' ? sections.rasters : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.rasters,
       vectors: typeof sections?.vectors === 'boolean' ? sections.vectors : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.vectors,
       objects: typeof sections?.objects === 'boolean' ? sections.objects : DEFAULT_LEFT_PANEL_SECTIONS_COLLAPSED.objects,
+    });
+    const rightSections = bundle.mission.ui?.right_panel_sections;
+    setRightPanelSectionsCollapsed({
+      hud: typeof rightSections?.hud === 'boolean' ? rightSections.hud : DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED.hud,
+      status: typeof rightSections?.status === 'boolean' ? rightSections.status : DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED.status,
+      properties:
+        typeof rightSections?.properties === 'boolean'
+          ? rightSections.properties
+          : DEFAULT_RIGHT_PANEL_SECTIONS_COLLAPSED.properties,
     });
     const baseStationUi = bundle.mission.ui?.base_station;
     const nextBaseStationSource = normalizeNavigationSourceId(
@@ -2371,6 +2397,7 @@ const MapWorkspace = () => {
         rasterOverlays,
         vectorOverlays,
         leftPanelSectionsCollapsed,
+        rightPanelSectionsCollapsed,
       );
 
     walStageTimerRef.current = window.setTimeout(async () => {
@@ -2428,6 +2455,7 @@ const MapWorkspace = () => {
     rasterOverlays,
     vectorOverlays,
     leftPanelSectionsCollapsed,
+    rightPanelSectionsCollapsed,
   ]);
 
   const applyPrimaryConnectionState = useCallback((nextState: TelemetryConnectionState) => {
@@ -3920,6 +3948,8 @@ const MapWorkspace = () => {
             onTrackDelete={handleTrackDelete}
             onTrackVisibilityToggle={toggleTrackHidden}
             onTracksVisibilitySet={setTracksHiddenForSelection}
+            sectionsCollapsed={rightPanelSectionsCollapsed}
+            onSectionsCollapsedChange={setRightPanelSectionsCollapsed}
           />
         }
         status={
