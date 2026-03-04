@@ -132,13 +132,22 @@ Simulates Zima2R acoustic positioning system for underwater tracking.
 
 **Stream telemetry:**
 ```sh
-npm run zima:sim -- --to 127.0.0.1:28127 --rate 1 --beacon-ids 1,2,3
+npm run zima:sim -- --to 127.0.0.1:28127 --rate 1 --beacon-ids 0,1,2
 ```
 
 **Playback scenario** (example: `scenario.json` in project root):
 ```sh
 npm run zima:sim -- --mode playback --replay ./scenario.json --to 127.0.0.1:28127
 ```
+
+**Finsky field survey playback** (2 beacons, real lane routes from Finsky Gulf):
+```sh
+npm run zima:sim -- --mode playback --message-mode valid --replay ./scenarios/finsky-playback.json --to 127.0.0.1:28127
+```
+- Base station: `59.928420, 30.192779`
+- `AZMREM,0` — Beacon 0, Zone 1 (20 lanes, depth 5 m)
+- `AZMREM,1` — Beacon 1, Zone 2 (8 lanes, depth 10 m)
+- Speed: 1 m/s, update rate: 200 ms, total duration: ~83 min
 
 **With command echo** (optional):
 ```sh
