@@ -133,7 +133,7 @@
       "signAndEditExecutable": false
     },
     "portable": {
-      "artifactName": "${productName}-Portable-${version}.exe"
+      "artifactName": "${productName}.exe"
     },
     "linux": {
       "target": [
@@ -150,7 +150,7 @@
           ]
         }
       ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "artifactName": "${productName}-${arch}.${ext}",
       "category": "Utility"
     },
     "mac": {
@@ -170,7 +170,7 @@
           ]
         }
       ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "artifactName": "${productName}-${arch}.${ext}",
       "category": "public.app-category.utilities"
     },
     "dmg": {
