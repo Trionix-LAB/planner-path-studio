@@ -139,7 +139,7 @@ export type TrackPoint = {
 
 type BaseFeatureProperties = {
   id: string;
-  kind: 'route' | 'survey_area' | 'lane' | 'marker';
+  kind: 'route' | 'survey_area' | 'lane' | 'marker' | 'measure';
   name: string;
   note: string | null;
   created_at: IsoUtcString;
@@ -154,6 +154,18 @@ export type RouteFeature = {
   };
   properties: BaseFeatureProperties & {
     kind: 'route';
+    style?: Record<string, unknown>;
+  };
+};
+
+export type MeasureFeature = {
+  type: 'Feature';
+  geometry: {
+    type: 'LineString';
+    coordinates: [number, number][];
+  };
+  properties: BaseFeatureProperties & {
+    kind: 'measure';
     style?: Record<string, unknown>;
   };
 };
@@ -201,7 +213,7 @@ export type MarkerFeature = {
   };
 };
 
-export type RoutesFeature = RouteFeature | SurveyAreaFeature | LaneFeature;
+export type RoutesFeature = RouteFeature | SurveyAreaFeature | LaneFeature | MeasureFeature;
 
 export type FeatureCollection<TFeature> = {
   type: 'FeatureCollection';

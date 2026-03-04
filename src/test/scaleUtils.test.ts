@@ -4,6 +4,7 @@ import {
   computeScaleFromMetersPerPixel,
   computeScaleRatioFromMetersPerPixel,
   formatScaleRatio,
+  haversineDistanceMeters,
 } from '@/components/map/scaleUtils';
 
 describe('scale utils', () => {
@@ -45,5 +46,11 @@ describe('scale utils', () => {
   it('returns null ratio for invalid inputs', () => {
     expect(computeScaleRatioFromMetersPerPixel(0)).toBeNull();
     expect(computeScaleRatioFromMetersPerPixel(Number.NaN)).toBeNull();
+  });
+
+  it('computes expected haversine distance for 1 degree at equator', () => {
+    const distance = haversineDistanceMeters(0, 0, 0, 1);
+    expect(distance).toBeGreaterThan(111300);
+    expect(distance).toBeLessThan(111400);
   });
 });

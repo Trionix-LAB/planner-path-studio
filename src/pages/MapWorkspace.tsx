@@ -12,6 +12,16 @@ import ExportDialog from '@/components/dialogs/ExportDialog';
 import SettingsDialog from '@/components/dialogs/SettingsDialog';
 import OfflineMapsDialog from '@/components/dialogs/OfflineMapsDialog';
 import CoordinateBuilderDialog from '@/components/dialogs/CoordinateBuilderDialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import type { MapObject, MapObjectGeometry, Tool } from '@/features/map/model/types';
 import type { CrsId } from '@/features/geo/crs';
 import type { CoordinateInputFormat } from '@/features/geo/coordinateInputFormat';
@@ -720,6 +730,7 @@ const MapWorkspace = () => {
   const [showExport, setShowExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showOfflineMaps, setShowOfflineMaps] = useState(false);
+  const [showClearMeasuresDialog, setShowClearMeasuresDialog] = useState(false);
   const [coordinateBuilderType, setCoordinateBuilderType] = useState<'route' | 'zone' | 'marker' | null>(null);
   const [cursorPosition, setCursorPosition] = useState({ lat: 59.934, lon: 30.335 });
   const [mapScale, setMapScale] = useState('1:--');
@@ -2921,6 +2932,31 @@ const MapWorkspace = () => {
     setActiveTool(tool);
   };
 
+  const measureObjectsCount = useMemo(
+    () => objects.reduce((count, obj) => (obj.type === 'measure' ? count + 1 : count), 0),
+    [objects],
+  );
+
+  const handleOpenClearMeasuresDialog = useCallback(() => {
+    setShowClearMeasuresDialog(true);
+  }, []);
+
+  const handleClearAllMeasures = useCallback(() => {
+    setObjects((prevObjects) => {
+      const removedIds = new Set(
+        prevObjects.filter((obj) => obj.type === 'measure').map((obj) => obj.id),
+      );
+      if (removedIds.size === 0) return prevObjects;
+      const nextObjects = prevObjects.filter((obj) => obj.type !== 'measure');
+      setSelectedObjectId((currentSelectedId) => {
+        if (!currentSelectedId) return currentSelectedId;
+        return removedIds.has(currentSelectedId) ? null : currentSelectedId;
+      });
+      return nextObjects;
+    });
+    setShowClearMeasuresDialog(false);
+  }, []);
+
   const handleMapViewChange = useCallback((next: { center_lat: number; center_lon: number; zoom: number }) => {
     setMapView((prev) => {
       if (!prev) return next;
@@ -3641,7 +3677,8 @@ const MapWorkspace = () => {
   );
 
   const getNextObjectName = (type: string) => {
-    const prefix = type === 'marker' ? 'Маркер' : type === 'route' ? 'Маршрут' : 'Зона';
+    const prefix =
+      type === 'marker' ? 'Маркер' : type === 'route' ? 'Маршрут' : type === 'measure' ? 'Измерение' : 'Зона';
     const existingNames = objects.filter((o) => o.type === type).map((o) => o.name);
 
     let counter = 1;
@@ -3655,6 +3692,7 @@ const MapWorkspace = () => {
     if (type === 'zone') return styles.survey_area.stroke_color;
     if (type === 'marker') return styles.marker.color;
     if (type === 'lane') return styles.lane.color;
+    if (type === 'measure') return '#f97316';
     if (type === 'route') return styles.route.color;
     return '#0ea5e9';
   };
@@ -3733,6 +3771,7 @@ const MapWorkspace = () => {
             onOpenSettings={openSettingsDialog}
             onOpenOfflineMaps={openOfflineMapsDialog}
             onOpenCoordinateBuilder={setCoordinateBuilderType}
+            onMeasureClearAll={handleOpenClearMeasuresDialog}
             onImportRasterFiles={importRasterFiles}
             onImportDxfFiles={importDxfFiles}
             onFinishMission={handleFinishMission}
@@ -3997,6 +4036,25 @@ const MapWorkspace = () => {
         viewBounds={mapBounds}
         currentZoom={mapView?.zoom ?? 12}
       />
+
+      <AlertDialog open={showClearMeasuresDialog} onOpenChange={setShowClearMeasuresDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить все измерения?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {measureObjectsCount > 0
+                ? `Будут удалены все объекты типа «Измерение» (${measureObjectsCount} шт.) без возможности восстановления.`
+                : 'Измерений пока нет. Подтвердите, чтобы закрыть диалог.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction onClick={handleClearAllMeasures} disabled={measureObjectsCount === 0}>
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

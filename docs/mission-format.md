@@ -8,7 +8,7 @@
 
 - `mission.json` - метаданные миссии, список треков, ссылки на файлы объектов, UI-настройки.
 - `tracks/` - треки (CSV).
-- `routes/` - маршруты, зоны обследования и галсы (GeoJSON).
+- `routes/` - маршруты, измерения, зоны обследования и галсы (GeoJSON).
 - `markers/` - точки-маркеры (GeoJSON).
 - `overlays/` - импортированные пользовательские наложения:
   - `overlays/rasters/` - растры (`*.tif.b64`, `*.tfw`);
@@ -303,6 +303,13 @@
 - `properties` (минимум):
   - `parent_area_id`: string (UUID зоны обследования)
   - `lane_index`: integer (1..N)
+
+4) `kind=measure` (измерение расстояния)
+
+- `geometry`: `LineString` из двух точек.
+- `properties`:
+  - `style` (опционально, например `{"color":"#f97316"}`)
+  - `note` используется как пользовательское описание измерения.
 
 ### 4.3 `markers/markers.geojson`
 

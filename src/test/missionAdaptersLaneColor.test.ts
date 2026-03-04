@@ -107,4 +107,73 @@ describe('mission adapters lane color', () => {
     expect(style?.color).toBe('#f59e0b');
     expect(style?.lane_color).toBe('#22c55e');
   });
+
+  it('serializes and restores measure objects via routes geojson', () => {
+    const objects: MapObject[] = [
+      {
+        id: 'measure-1',
+        type: 'measure',
+        name: 'Измерение 1',
+        visible: true,
+        color: '#f97316',
+        note: 'Тестовое измерение',
+        geometry: {
+          type: 'measure',
+          points: [
+            { lat: 59.1, lon: 30.1 },
+            { lat: 59.2, lon: 30.2 },
+          ],
+        },
+      },
+    ];
+
+    const geoJson = mapObjectsToGeoJson(objects);
+    const measureFeature = geoJson.routes.features.find((feature) => feature.properties.kind === 'measure');
+    expect(measureFeature).toBeDefined();
+
+    const bundle: MissionBundle = {
+      rootPath: '/tmp/mission',
+      mission: {
+        schema_version: 1,
+        mission_id: 'mission-1',
+        name: 'Mission',
+        created_at: now,
+        updated_at: now,
+        active_track_id: null,
+        active_tracks: {},
+        tracks: [],
+        files: {
+          routes: 'routes/routes.geojson',
+          markers: 'markers/markers.geojson',
+        },
+        ui: {},
+      },
+      routes: {
+        type: 'FeatureCollection',
+        features: measureFeature ? [measureFeature] : [],
+      },
+      markers: {
+        type: 'FeatureCollection',
+        features: [],
+      },
+      trackPointsByTrackId: {},
+    };
+
+    const restored = bundleToMapObjects(bundle);
+    expect(restored).toHaveLength(1);
+    expect(restored[0]).toMatchObject({
+      id: 'measure-1',
+      type: 'measure',
+      name: 'Измерение 1',
+      color: '#f97316',
+      note: 'Тестовое измерение',
+      geometry: {
+        type: 'measure',
+        points: [
+          { lat: 59.1, lon: 30.1 },
+          { lat: 59.2, lon: 30.2 },
+        ],
+      },
+    });
+  });
 });

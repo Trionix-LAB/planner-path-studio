@@ -677,6 +677,8 @@ const MapCanvas = ({
   onMapDrag,
 }: MapCanvasProps) => {
   const [drawingPoints, setDrawingPoints] = useState<L.LatLng[]>([]);
+  const [measurePoints, setMeasurePoints] = useState<L.LatLng[]>([]);
+  const [measureCursor, setMeasureCursor] = useState<L.LatLng | null>(null);
   const [objectMenuState, setObjectMenuState] = useState<{
     position: { x: number; y: number };
     objectId?: string;
@@ -773,6 +775,11 @@ const MapCanvas = ({
     setDraftZoneBearingDeg(null);
     setDraftZoneStart(null);
     setDraftLanePickMode('none');
+  }, []);
+
+  const clearMeasureDraft = useCallback(() => {
+    setMeasurePoints([]);
+    setMeasureCursor(null);
   }, []);
 
   const normalizeBearing180 = (bearingDeg: number): number => {
@@ -977,6 +984,24 @@ const MapCanvas = ({
         if (onObjectCreate) {
           onObjectCreate({ type: "marker", point: { lat: latlng.lat, lon: latlng.lng } });
         }
+      } else if (activeTool === 'measure') {
+        if (measurePoints.length === 0) {
+          setMeasurePoints([latlng]);
+          setMeasureCursor(latlng);
+        } else {
+          if (onObjectCreate) {
+            const start = measurePoints[0];
+            const end = latlng;
+            onObjectCreate({
+              type: 'measure',
+              points: [
+                { lat: start.lat, lon: start.lng },
+                { lat: end.lat, lon: end.lng },
+              ],
+            });
+          }
+          clearMeasureDraft();
+        }
       } else if (activeTool === "select") {
         onObjectSelect(null);
         setDrawingMenuState(null);
@@ -988,7 +1013,9 @@ const MapCanvas = ({
       drawingPoints,
       lanePickMode,
       lanePickZoneId,
+      measurePoints,
       objects,
+      clearMeasureDraft,
       onLanePickStart,
       onObjectCreate,
       onObjectSelect,
@@ -1004,10 +1031,14 @@ const MapCanvas = ({
 
       cursorRaf.current = window.requestAnimationFrame(() => {
         cursorRaf.current = null;
-        if (pendingCursor.current) onCursorMove(pendingCursor.current);
+        if (!pendingCursor.current) return;
+        onCursorMove(pendingCursor.current);
+        if (activeTool === 'measure' && measurePoints.length > 0) {
+          setMeasureCursor(L.latLng(pendingCursor.current.lat, pendingCursor.current.lon));
+        }
       });
     },
-    [onCursorMove],
+    [activeTool, measurePoints.length, onCursorMove],
   );
 
   useEffect(() => {
@@ -1044,8 +1075,12 @@ const MapCanvas = ({
       }
     }
 
+    if (previousTool === 'measure' && measurePoints.length > 0) {
+      clearMeasureDraft();
+    }
+
     previousToolRef.current = activeTool;
-  }, [activeTool, clearDrawing, completeDrawing, drawingPoints.length, toast]);
+  }, [activeTool, clearDrawing, clearMeasureDraft, completeDrawing, drawingPoints.length, measurePoints.length, toast]);
 
   // Keyboard shortcut handler
   useEffect(() => {
@@ -1079,6 +1114,8 @@ const MapCanvas = ({
         }
         if (drawingPoints.length > 0) {
           clearDrawing();
+        } else if (activeTool === 'measure' && measurePoints.length > 0) {
+          clearMeasureDraft();
         } else if (selectedObjectId) {
           onObjectSelect(null);
         }
@@ -1096,9 +1133,11 @@ const MapCanvas = ({
   }, [
     activeTool,
     clearDrawing,
+    clearMeasureDraft,
     draftLanePickMode,
     drawingPoints.length,
     lanePickMode,
+    measurePoints.length,
     onLanePickCancel,
     onObjectDelete,
     onObjectSelect,
@@ -1126,6 +1165,12 @@ const MapCanvas = ({
     const routes: Array<{ obj: MapObject; points: [number, number][] }> = [];
     const zones: Array<{ obj: MapObject; points: [number, number][] }> = [];
     const markers: Array<{ obj: MapObject; point: [number, number] }> = [];
+    const measures: Array<{
+      obj: MapObject;
+      points: [number, number][];
+      midpoint: [number, number];
+      distanceLabel: string;
+    }> = [];
 
     for (const obj of objects) {
       if (!obj.visible || !obj.geometry) continue;
@@ -1136,10 +1181,19 @@ const MapCanvas = ({
         zones.push({ obj, points: obj.geometry.points.map(toTuple) });
       } else if (obj.geometry.type === "marker") {
         markers.push({ obj, point: toTuple(obj.geometry.point) });
+      } else if (obj.geometry.type === 'measure') {
+        const [a, b] = obj.geometry.points;
+        const distance = haversineDistanceMeters(a.lat, a.lon, b.lat, b.lon);
+        measures.push({
+          obj,
+          points: [toTuple(a), toTuple(b)],
+          midpoint: [(a.lat + b.lat) / 2, (a.lon + b.lon) / 2],
+          distanceLabel: `${distance.toFixed(2)} м`,
+        });
       }
     }
 
-    return { routes, zones, markers };
+    return { routes, zones, markers, measures };
   }, [objects]);
 
   const zoneLaneColorById = useMemo(() => {
@@ -1359,6 +1413,8 @@ const MapCanvas = ({
     const geo = selectedObject.geometry;
     if (geo.type === 'marker') {
       onObjectUpdate(selectedObject.id, { geometry: { ...geo, point: { lat: latlng.lat, lon: latlng.lng } } });
+    } else if (geo.type === 'measure') {
+      return;
     } else {
       const newPoints = [...geo.points];
       newPoints[index] = { lat: latlng.lat, lon: latlng.lng };
@@ -1473,7 +1529,7 @@ const MapCanvas = ({
       "w-full h-full relative",
       activeTool === 'select' && hoveredObjectId && "cursor-pointer",
       activeTool === 'select' && !hoveredObjectId && "cursor-default",
-      (activeTool === 'route' || activeTool === 'zone') && "cursor-crosshair",
+      (activeTool === 'route' || activeTool === 'zone' || activeTool === 'measure') && "cursor-crosshair",
       activeTool === 'marker' && "cursor-crosshair"
     )}>
       <MapContainer
@@ -1585,6 +1641,42 @@ const MapCanvas = ({
               <Tooltip sticky>{obj.name}</Tooltip>
             </Polyline>
           ))}
+
+        {/* Measures */}
+        {layers.routes &&
+          renderObjects.measures.flatMap(({ obj, points, midpoint, distanceLabel }) => [
+            <Polyline
+              key={`measure-line-${obj.id}`}
+              positions={points}
+              pathOptions={{
+                color: getObjectColor(obj, styles),
+                weight: selectedObjectId === obj.id ? 3 : 2,
+                dashArray: '6 6',
+              }}
+              eventHandlers={{
+                click: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  onObjectSelect(obj.id);
+                },
+                dblclick: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  onObjectDoubleClick(obj.id);
+                },
+                contextmenu: (e) => handleObjectContextMenu(e, obj.id),
+                mouseover: () => setHoveredObjectId(obj.id),
+                mouseout: () => setHoveredObjectId(null),
+              }}
+            >
+              <Tooltip sticky>{obj.name}</Tooltip>
+            </Polyline>,
+            <Marker
+              key={`measure-label-${obj.id}`}
+              position={midpoint}
+              icon={segmentLengthIcon(distanceLabel)}
+              interactive={false}
+              zIndexOffset={850}
+            />,
+          ])}
 
         {/* Lanes (derived from zone) */}
         {layers.routes &&
@@ -1795,6 +1887,20 @@ const MapCanvas = ({
           />
         )}
 
+        {activeTool === 'measure' && measurePoints.length === 1 && measureCursor && (
+          <Polyline
+            positions={[
+              [measurePoints[0].lat, measurePoints[0].lng],
+              [measureCursor.lat, measureCursor.lng],
+            ]}
+            pathOptions={{
+              color: '#f97316',
+              weight: 2,
+              dashArray: '6 6',
+            }}
+          />
+        )}
+
         {drawingPoints.length > 2 && activeTool === "zone" && (
           <Polygon
             positions={draftZonePolygonPoints}
@@ -1854,6 +1960,22 @@ const MapCanvas = ({
             })}
           />
         ))}
+
+        {/* Measure start point marker */}
+        {activeTool === 'measure' &&
+          measurePoints.map((point, index) => (
+            <Marker
+              key={`measure-point-${index}`}
+              position={[point.lat, point.lng]}
+              icon={L.divIcon({
+                className: 'measure-point',
+                html: '<div class="w-2.5 h-2.5 bg-orange-500 rounded-full border border-background"></div>',
+                iconSize: [10, 10],
+                iconAnchor: [5, 5],
+              })}
+              interactive={false}
+            />
+          ))}
 
         {/* Diver */}
         {layers.diver &&
@@ -2009,6 +2131,12 @@ const MapCanvas = ({
       {activeTool === 'marker' && drawingPoints.length === 0 && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] bg-card/90 backdrop-blur-sm border border-border rounded px-4 py-2 text-sm">
           Кликните для установки маркера
+        </div>
+      )}
+
+      {activeTool === 'measure' && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] bg-card/90 backdrop-blur-sm border border-border rounded px-4 py-2 text-sm">
+          {measurePoints.length === 0 ? 'Кликните начальную точку измерения' : 'Кликните конечную точку измерения'}
         </div>
       )}
 

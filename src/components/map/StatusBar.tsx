@@ -12,6 +12,7 @@ const toolNames: Record<Tool, string> = {
   route: 'Маршрут',
   zone: 'Зона (галсы)',
   marker: 'Маркер',
+  measure: 'Измерить',
 };
 
 const StatusBar = ({ cursorPosition, scale, activeTool, coordPrecision }: StatusBarProps) => {

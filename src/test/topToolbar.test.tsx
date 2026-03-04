@@ -337,4 +337,40 @@ describe('top toolbar mission menu', () => {
     expect(onOpenCoordinateBuilder).toHaveBeenNthCalledWith(2, 'zone');
     expect(onOpenCoordinateBuilder).toHaveBeenNthCalledWith(3, 'marker');
   });
+
+  it('activates measure tool by click and clears measurements by right click', () => {
+    const onToolChange = vi.fn();
+    const onOpenCoordinateBuilder = vi.fn();
+    const onMeasureClearAll = vi.fn();
+
+    render(
+      <TopToolbar
+        missionName="Тестовая миссия"
+        isDraft={false}
+        autoSaveStatus="saved"
+        activeTool="select"
+        trackStatus="recording"
+        showSimulationControls={false}
+        isRecordingEnabled={true}
+        onToolChange={onToolChange}
+        onTrackAction={vi.fn()}
+        onOpenCoordinateBuilder={onOpenCoordinateBuilder}
+        onMeasureClearAll={onMeasureClearAll}
+        onOpenCreate={vi.fn()}
+        onOpenOpen={vi.fn()}
+        onOpenExport={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenOfflineMaps={vi.fn()}
+        onFinishMission={vi.fn()}
+        onGoToStart={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Измерить' }));
+    expect(onToolChange).toHaveBeenCalledWith('measure');
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Измерить' }));
+    expect(onMeasureClearAll).toHaveBeenCalledTimes(1);
+    expect(onOpenCoordinateBuilder).not.toHaveBeenCalled();
+  });
 });
