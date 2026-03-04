@@ -1,4 +1,4 @@
-name: Release (Windows portable)
+name: Release (Windows, Linux, macOS)
 
 on:
   push:
@@ -20,8 +20,30 @@ permissions:
   contents: write
 
 jobs:
-  windows_portable:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            build_cmd: npm run electron:build:win
+            artifacts: |
+              release/*.exe
+          - os: ubuntu-latest
+            platform: linux
+            build_cmd: npm run electron:build:linux
+            artifacts: |
+              release/*.AppImage
+              release/*.deb
+          - os: macos-latest
+            platform: mac
+            build_cmd: npm run electron:build:mac
+            artifacts: |
+              release/*.dmg
+              release/*.zip
+
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
 
     env:
@@ -41,72 +63,91 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Setup Python (macOS, needed for dmg-license)
+        if: matrix.platform == 'mac'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Electron portable (Windows)
-        run: npm run electron:build
+      - name: Build Electron (${{ matrix.platform }})
+        run: ${{ matrix.build_cmd }}
 
       - name: List build outputs
-        shell: pwsh
+        shell: bash
         run: |
-          if (!(Test-Path "release")) {
-            throw "release/ directory not found"
-          }
-          Get-ChildItem -Path "release" -Recurse | Format-Table -AutoSize
+          if [ ! -d "release" ]; then
+            echo "::error::release/ directory not found"
+            exit 1
+          fi
+          find release -type f | head -50
 
-      - name: Optional code signing (if secrets provided)
-        if: ${{ env.PFX_B64 != '' && env.PFX_PASSWORD != '' }}
+      - name: Optional Windows code signing
+        if: matrix.platform == 'win' && env.PFX_B64 != '' && env.PFX_PASSWORD != ''
         shell: pwsh
         run: |
           $pfxPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_B64))
 
-          $timestamp = if ($env:TIMESTAMP_URL -and $env:TIMESTAMP_URL.Trim() -ne "") { $env:TIMESTAMP_URL } else { "http://timestamp.digicert.com" }
-
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
-            Select-Object -First 1 -ExpandProperty FullName
-          if (!$signtool) {
-            throw "signtool.exe not found on runner"
+          $timestamp = if ($env:TIMESTAMP_URL -and $env:TIMESTAMP_URL.Trim() -ne "") {
+            $env:TIMESTAMP_URL
+          } else {
+            "http://timestamp.digicert.com"
           }
+
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (!$signtool) { throw "signtool.exe not found on runner" }
 
           $targets = Get-ChildItem -Path "release" -Filter "*.exe" -File
-          if (!$targets) {
-            throw "No .exe found in release/"
-          }
+          if (!$targets) { throw "No .exe found in release/" }
 
           foreach ($t in $targets) {
-            & $signtool sign /f $pfxPath /p $env:PFX_PASSWORD /fd SHA256 /tr $timestamp /td SHA256 /v $t.FullName
+            & $signtool sign /f $pfxPath /p $env:PFX_PASSWORD `
+              /fd SHA256 /tr $timestamp /td SHA256 /v $t.FullName
           }
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-portable-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
-          path: |
-            release/*.exe
+          name: ${{ matrix.platform }}-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          path: ${{ matrix.artifacts }}
           if-no-files-found: error
 
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List all release files
+        run: find artifacts -type f | sort
+
       - name: Create/update draft GitHub Release (tag push)
-        if: ${{ github.event_name == 'push' }}
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref_name }}
           draft: true
-          files: |
-            release/*.exe
-          fail_on_unmatched_files: true
+          files: artifacts/*
+          fail_on_unmatched_files: false
 
       - name: Create/update GitHub Release (manual)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ inputs.tag }}
           draft: ${{ !inputs.publish }}
-          files: |
-            release/*.exe
-          fail_on_unmatched_files: true
+          files: artifacts/*
+          fail_on_unmatched_files: false
