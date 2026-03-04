@@ -5,6 +5,7 @@ const dgram = require('dgram');
 const os = require('os');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const { decodeTiffToPngAsync } = require('./tiff-decoder.cjs');
 
 const execFileAsync = promisify(execFile);
 
@@ -1117,11 +1118,12 @@ const registerIpcHandlers = () => {
   const gnssComBridge = createGnssComBridge();
   registerPrepareCloseResult(ipcMain);
 
-  ipcMain.handle(CHANNELS.pickDirectory, async (_event, options) => {
+  ipcMain.handle(CHANNELS.pickDirectory, async (event, options) => {
     const title = options?.title;
     const defaultPath = options?.defaultPath;
 
-    const result = await dialog.showOpenDialog({
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const result = await dialog.showOpenDialog(parentWindow, {
       title: typeof title === 'string' ? title : undefined,
       defaultPath: typeof defaultPath === 'string' && defaultPath.trim() ? defaultPath.trim() : undefined,
       properties: ['openDirectory', 'createDirectory'],
@@ -1246,11 +1248,19 @@ const registerIpcHandlers = () => {
       const inputBuffer = Buffer.from(tiffBase64.trim(), 'base64');
       if (!inputBuffer.length) return null;
 
+      // 1. Built-in pure-JS decoder in worker thread (no main-thread blocking)
+      const builtinPng = await decodeTiffToPngAsync(inputBuffer);
+      if (builtinPng && builtinPng.length > 0) {
+        return builtinPng.toString('base64');
+      }
+
+      // 2. Sharp (native addon, may be unavailable in packaged builds)
       const sharpPng = await convertTiffBufferToPngBufferViaSharp(inputBuffer);
       if (sharpPng) {
         return sharpPng.toString('base64');
       }
 
+      // 3. Electron NativeImage (does not support TIFF on Windows, kept as last resort)
       const directPngBuffer = toPngBuffer(nativeImage.createFromBuffer(inputBuffer));
       if (directPngBuffer) {
         return directPngBuffer.toString('base64');
@@ -1261,6 +1271,7 @@ const registerIpcHandlers = () => {
         return pathDecoderPngBuffer.toString('base64');
       }
 
+      // 4. External tools (ImageMagick, sips)
       const fallbackPng = await convertTiffBufferToPngBufferViaExternalTool(inputBuffer);
       if (fallbackPng && fallbackPng.length > 0) {
         return fallbackPng.toString('base64');
