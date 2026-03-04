@@ -3,11 +3,7 @@ const path = require('path');
 const fs = require('fs/promises');
 const dgram = require('dgram');
 const os = require('os');
-const { execFile } = require('child_process');
-const { promisify } = require('util');
 const { decodeTiffToPngAsync } = require('./tiff-decoder.cjs');
-
-const execFileAsync = promisify(execFile);
 
 let sharpCached = undefined;
 
@@ -21,11 +17,54 @@ const getSharp = () => {
   return sharpCached;
 };
 
+const MAX_RASTER_RENDER_DIM_PX = 8192;
+const MAX_RASTER_RENDER_PIXELS = 67_108_864;
+
+const computeRasterRenderResizeTarget = (width, height) => {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+  if (width <= 0 || height <= 0) return null;
+
+  const pixelCount = width * height;
+  const scaleByDim = Math.min(1, MAX_RASTER_RENDER_DIM_PX / Math.max(width, height));
+  const scaleByPixels = Math.min(1, Math.sqrt(MAX_RASTER_RENDER_PIXELS / pixelCount));
+  const scale = Math.min(scaleByDim, scaleByPixels);
+  if (!Number.isFinite(scale) || scale >= 1) return null;
+
+  const resizedWidth = Math.max(1, Math.floor(width * scale));
+  const resizedHeight = Math.max(1, Math.floor(height * scale));
+  return {
+    width: resizedWidth,
+    height: resizedHeight,
+  };
+};
+
 const convertTiffBufferToPngBufferViaSharp = async (inputBuffer) => {
   const sharp = getSharp();
   if (!sharp) return null;
   try {
-    const pngBuffer = await sharp(inputBuffer).png().toBuffer();
+    const pipeline = sharp(inputBuffer, {
+      unlimited: true,
+      limitInputPixels: false,
+      sequentialRead: true,
+    });
+
+    const metadata = await pipeline.metadata();
+    const resizeTarget = computeRasterRenderResizeTarget(metadata.width ?? 0, metadata.height ?? 0);
+
+    let output = pipeline.rotate();
+    if (typeof output.toColorspace === 'function') {
+      output = output.toColorspace('srgb');
+    }
+
+    if (resizeTarget) {
+      output = output.resize(resizeTarget.width, resizeTarget.height, {
+        fit: 'fill',
+        kernel: sharp.kernel.lanczos3,
+        withoutEnlargement: true,
+      });
+    }
+
+    const pngBuffer = await output.png().toBuffer();
     return pngBuffer && pngBuffer.length > 0 ? pngBuffer : null;
   } catch {
     return null;
@@ -254,60 +293,6 @@ const convertTiffBufferToPngBufferViaNativeImagePath = async (inputBuffer) => {
   try {
     await fs.writeFile(inputPath, inputBuffer);
     return toPngBuffer(nativeImage.createFromPath(inputPath));
-  } catch {
-    return null;
-  } finally {
-    try {
-      await fs.rm(tempRoot, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors
-    }
-  }
-};
-
-const convertTiffBufferToPngBufferViaExternalTool = async (inputBuffer) => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'planner-tiff-'));
-  const inputPath = path.join(tempRoot, 'input.tif');
-  const outputPath = path.join(tempRoot, 'output.png');
-  // On Windows, bare 'convert' resolves to C:\Windows\System32\convert.exe
-  // (FAT→NTFS volume converter), not ImageMagick — exclude it on win32.
-  // On macOS, 'sips' is a built-in image conversion tool (no install needed).
-  const variants =
-    process.platform === 'win32'
-      ? [
-          ['magick', [inputPath, outputPath]],
-          ['magick', ['convert', inputPath, outputPath]],
-        ]
-      : process.platform === 'darwin'
-        ? [
-            ['sips', ['-s', 'format', 'png', inputPath, '--out', outputPath]],
-            ['magick', [inputPath, outputPath]],
-            ['magick', ['convert', inputPath, outputPath]],
-            ['convert', [inputPath, outputPath]],
-          ]
-        : [
-            ['magick', [inputPath, outputPath]],
-            ['magick', ['convert', inputPath, outputPath]],
-            ['convert', [inputPath, outputPath]],
-          ];
-  try {
-    await fs.writeFile(inputPath, inputBuffer);
-    for (const [command, args] of variants) {
-      try {
-        await execFileAsync(command, args, { timeout: 15000 });
-      } catch {
-        continue;
-      }
-      try {
-        const pngBuffer = await fs.readFile(outputPath);
-        if (pngBuffer && pngBuffer.length > 0) {
-          return pngBuffer;
-        }
-      } catch {
-        // continue with next converter variant
-      }
-    }
-    return null;
   } catch {
     return null;
   } finally {
@@ -1248,16 +1233,16 @@ const registerIpcHandlers = () => {
       const inputBuffer = Buffer.from(tiffBase64.trim(), 'base64');
       if (!inputBuffer.length) return null;
 
-      // 1. Built-in pure-JS decoder in worker thread (no main-thread blocking)
-      const builtinPng = await decodeTiffToPngAsync(inputBuffer);
-      if (builtinPng && builtinPng.length > 0) {
-        return builtinPng.toString('base64');
-      }
-
-      // 2. Sharp (native addon, may be unavailable in packaged builds)
+      // 1. Sharp (primary path for TIFF decoding across desktop builds)
       const sharpPng = await convertTiffBufferToPngBufferViaSharp(inputBuffer);
       if (sharpPng) {
         return sharpPng.toString('base64');
+      }
+
+      // 2. Built-in pure-JS decoder in worker thread (no main-thread blocking)
+      const builtinPng = await decodeTiffToPngAsync(inputBuffer);
+      if (builtinPng && builtinPng.length > 0) {
+        return builtinPng.toString('base64');
       }
 
       // 3. Electron NativeImage (does not support TIFF on Windows, kept as last resort)
@@ -1269,12 +1254,6 @@ const registerIpcHandlers = () => {
       const pathDecoderPngBuffer = await convertTiffBufferToPngBufferViaNativeImagePath(inputBuffer);
       if (pathDecoderPngBuffer) {
         return pathDecoderPngBuffer.toString('base64');
-      }
-
-      // 4. External tools (ImageMagick, sips)
-      const fallbackPng = await convertTiffBufferToPngBufferViaExternalTool(inputBuffer);
-      if (fallbackPng && fallbackPng.length > 0) {
-        return fallbackPng.toString('base64');
       }
       return null;
     } catch {
@@ -1356,3 +1335,4 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+

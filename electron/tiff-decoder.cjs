@@ -27,6 +27,9 @@ const isMainThread = workerThreads?.isMainThread ?? true;
 const parentPort = workerThreads?.parentPort ?? null;
 const workerData = workerThreads?.workerData;
 const DECODE_TIMEOUT_MS = 30000;
+const DECODE_TIMEOUT_MS_MEDIUM = 60000;
+const DECODE_TIMEOUT_MS_LARGE = 120000;
+const DECODE_TIMEOUT_MS_HUGE = 180000;
 const WORKER_MODE = '__plannerTiffDecodeWorker';
 
 // ---- byte readers -----------------------------------------------------------
@@ -98,6 +101,26 @@ function parseTiff(buf) {
 
 function tv(tags, id, def) { return tags[id]?.[0] ?? def; }
 function ta(tags, id) { return tags[id] ?? []; }
+
+function getDefaultDecodeTimeoutMs(buf) {
+  try {
+    const parsed = parseTiff(buf);
+    if (!parsed) return DECODE_TIMEOUT_MS;
+    const w = tv(parsed.tags, TAG.WIDTH, 0);
+    const h = tv(parsed.tags, TAG.HEIGHT, 0);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+      return DECODE_TIMEOUT_MS;
+    }
+
+    const pixels = w * h;
+    if (pixels >= 500_000_000) return DECODE_TIMEOUT_MS_HUGE;
+    if (pixels >= 200_000_000) return DECODE_TIMEOUT_MS_LARGE;
+    if (pixels >= 80_000_000) return DECODE_TIMEOUT_MS_MEDIUM;
+  } catch {
+    // ignore and fallback to base timeout
+  }
+  return DECODE_TIMEOUT_MS;
+}
 
 // ---- decompression ----------------------------------------------------------
 
@@ -592,15 +615,15 @@ function decodeTiffToPng(buf) {
 
 function decodeTiffToPngAsync(buf, options = {}) {
   if (!buf || buf.length === 0) return Promise.resolve(null);
-  if (!Worker) return Promise.resolve(decodeTiffToPng(buf));
+  const inputBuffer = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  if (!Worker) return Promise.resolve(decodeTiffToPng(inputBuffer));
 
   const timeoutMs =
-    Number.isFinite(options?.timeoutMs) && options.timeoutMs > 0
-      ? Math.trunc(options.timeoutMs)
-      : DECODE_TIMEOUT_MS;
+    Number.isFinite(options?.timeoutMs) && options?.timeoutMs > 0
+      ? Math.trunc(options?.timeoutMs)
+      : getDefaultDecodeTimeoutMs(inputBuffer);
 
   return new Promise((resolve) => {
-    const inputBuffer = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
     let worker = null;
     try {
       worker = new Worker(__filename, {

@@ -1489,6 +1489,9 @@ const MapCanvas = ({
         className="w-full h-full"
         ref={mapRef}
         doubleClickZoom={false}
+        zoomAnimation={false}
+        fadeAnimation={false}
+        markerZoomAnimation={false}
         attributionControl={false}
       >
         {layers.basemap ? (

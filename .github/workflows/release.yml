@@ -70,7 +70,11 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --include=optional
+
+      - name: Verify sharp runtime (${{ matrix.platform }})
+        run: |
+          node -e "const sharp = require('sharp'); console.log('sharp', sharp.versions?.sharp || 'loaded'); console.log('platform', process.platform, process.arch);"
 
       - name: Build Electron (${{ matrix.platform }})
         run: ${{ matrix.build_cmd }}

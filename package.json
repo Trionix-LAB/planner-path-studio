@@ -186,6 +186,10 @@
           "path": "/Applications"
         }
       ]
-    }
+    },
+    "asarUnpack": [
+      "**/node_modules/sharp/**/*",
+      "**/node_modules/@img/**/*"
+    ]
   }
 }

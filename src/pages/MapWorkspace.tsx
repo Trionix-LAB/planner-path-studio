@@ -208,6 +208,118 @@ const canRenderBlob = async (blob: Blob): Promise<boolean> => {
   }
 };
 
+const MAX_RASTER_INPUT_FILE_BYTES = 180 * 1024 * 1024;
+const MAX_RASTER_INPUT_PIXEL_COUNT = 900_000_000;
+const RASTER_RENDER_PROGRESS_TOAST_DURATION_MS = 2_147_483_647;
+const SUPPORTED_TIFF_COMPRESSION_CODES = new Set([1, 5, 8, 32946, 32773]);
+
+type RasterDecodeHints = {
+  width: number;
+  height: number;
+  pixelCount: number;
+  compression: number | null;
+};
+
+const estimateBase64ByteLength = (base64: string): number => {
+  const value = base64.trim();
+  if (!value) return 0;
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((value.length * 3) / 4) - padding);
+};
+
+const readTiffCompressionTag = (buffer: ArrayBuffer): number | null => {
+  if (buffer.byteLength < 8) return null;
+  const view = new DataView(buffer);
+  const byteOrderMark = String.fromCharCode(view.getUint8(0)) + String.fromCharCode(view.getUint8(1));
+  const littleEndian = byteOrderMark === 'II' ? true : byteOrderMark === 'MM' ? false : null;
+  if (littleEndian === null) return null;
+
+  const readU16 = (offset: number): number => view.getUint16(offset, littleEndian);
+  const readU32 = (offset: number): number => view.getUint32(offset, littleEndian);
+
+  if (readU16(2) !== 42) return null;
+  const ifdOffset = readU32(4);
+  if (ifdOffset + 2 > buffer.byteLength) return null;
+  const entriesCount = readU16(ifdOffset);
+
+  let cursor = ifdOffset + 2;
+  for (let i = 0; i < entriesCount; i += 1) {
+    if (cursor + 12 > buffer.byteLength) break;
+    const tag = readU16(cursor);
+    const type = readU16(cursor + 2);
+    const count = readU32(cursor + 4);
+    const valueOffset = cursor + 8;
+
+    if (tag === 259 && count >= 1) {
+      if (type === 3) {
+        if (count * 2 <= 4) {
+          return readU16(valueOffset);
+        }
+        const pointer = readU32(valueOffset);
+        if (pointer + 2 > buffer.byteLength) return null;
+        return readU16(pointer);
+      }
+      if (type === 4) {
+        if (count * 4 <= 4) {
+          return readU32(valueOffset);
+        }
+        const pointer = readU32(valueOffset);
+        if (pointer + 4 > buffer.byteLength) return null;
+        return readU32(pointer);
+      }
+      return null;
+    }
+
+    cursor += 12;
+  }
+
+  return null;
+};
+
+const extractRasterDecodeHints = (rawBase64: string): RasterDecodeHints | null => {
+  try {
+    const bytes = base64ToUint8Array(rawBase64);
+    const buffer = toPlainArrayBuffer(bytes);
+    const core = parseTiffCoreMetadata(buffer);
+    const pixelCount = core.width * core.height;
+    return {
+      width: core.width,
+      height: core.height,
+      pixelCount,
+      compression: readTiffCompressionTag(buffer),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const classifyRasterDecodeFailure = (
+  rawBase64: string,
+  hints: RasterDecodeHints | null,
+  stage: 'missing-file' | 'decode-failed',
+): string => {
+  if (stage === 'missing-file') {
+    return 'Файл растра не найден в папке миссии.';
+  }
+
+  const sizeBytes = estimateBase64ByteLength(rawBase64);
+  if (sizeBytes > MAX_RASTER_INPUT_FILE_BYTES) {
+    const sizeMb = (sizeBytes / (1024 * 1024)).toFixed(1);
+    const limitMb = (MAX_RASTER_INPUT_FILE_BYTES / (1024 * 1024)).toFixed(0);
+    return `Слишком большой файл TIFF (${sizeMb} MB). Лимит отображения: ${limitMb} MB.`;
+  }
+
+  if (hints && hints.pixelCount > MAX_RASTER_INPUT_PIXEL_COUNT) {
+    return `Слишком большое разрешение TIFF (${hints.width}x${hints.height}).`;
+  }
+
+  if (hints?.compression !== null && !SUPPORTED_TIFF_COMPRESSION_CODES.has(hints.compression)) {
+    return `Неподдерживаемый тип сжатия TIFF (Compression=${hints.compression}).`;
+  }
+
+  return 'Не удалось декодировать TIFF для отображения (профиль/данные не поддержаны).';
+};
+
 const DEFAULT_APP_SETTINGS = createDefaultAppSettings();
 const DEFAULT_BASE_STATION_TRACK_COLOR = DEFAULT_APP_SETTINGS.defaults.styles.track.color;
 const DEFAULT_BASE_STATION_MARKER_SIZE_PX = 34;
@@ -1160,6 +1272,10 @@ const MapWorkspace = () => {
 
   const rasterDecodeErrorShownRef = useRef<Set<string>>(new Set());
   const rasterBoundsErrorShownRef = useRef<Set<string>>(new Set());
+  const rasterDecodeFailedRef = useRef<Set<string>>(new Set());
+  const rasterRenderNotificationPendingRef = useRef<Set<string>>(new Set());
+  const rasterRenderProgressToastRef = useRef<Map<string, ReturnType<typeof toast>>>(new Map());
+  const rasterOverlayDecodeInFlightRef = useRef<Set<string>>(new Set());
   const rasterOverlayUrlCacheRef = useRef<Map<string, { key: string; url: string }>>(new Map());
   const vectorOverlayErrorShownRef = useRef<Set<string>>(new Set());
   const vectorOverlayCacheRef = useRef<Map<string, { key: string; data: VectorOverlayMapData }>>(new Map());
@@ -1284,12 +1400,48 @@ const MapWorkspace = () => {
       );
     };
 
+    const dismissRasterRenderProgressToast = (overlayId: string) => {
+      const activeProgressToast = rasterRenderProgressToastRef.current.get(overlayId);
+      if (!activeProgressToast) return;
+      activeProgressToast.dismiss();
+      rasterRenderProgressToastRef.current.delete(overlayId);
+    };
+
+    const notifyRasterRenderFailure = (overlay: RasterOverlayUi, description: string) => {
+      dismissRasterRenderProgressToast(overlay.id);
+      if (!rasterDecodeErrorShownRef.current.has(overlay.id)) {
+        rasterDecodeErrorShownRef.current.add(overlay.id);
+        toast({
+          title: `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u043e\u0431\u0440\u0430\u0437\u0438\u0442\u044c \u0440\u0430\u0441\u0442\u0440: ${overlay.name}`,
+          description,
+        });
+      }
+      rasterDecodeFailedRef.current.add(overlay.id);
+      rasterRenderNotificationPendingRef.current.delete(overlay.id);
+    };
+
+    const notifyRasterRenderSuccess = (overlay: RasterOverlayUi) => {
+      dismissRasterRenderProgressToast(overlay.id);
+      if (rasterRenderNotificationPendingRef.current.has(overlay.id)) {
+        toast({ title: `\u041e\u0442\u0440\u0438\u0441\u043e\u0432\u043a\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u0430: ${overlay.name}` });
+        rasterRenderNotificationPendingRef.current.delete(overlay.id);
+      }
+      rasterDecodeFailedRef.current.delete(overlay.id);
+    };
+
     const loadOverlayUrls = async () => {
       if (!missionRootPath || rasterOverlays.length === 0) {
         for (const { url } of rasterOverlayUrlCacheRef.current.values()) {
           URL.revokeObjectURL(url);
         }
         rasterOverlayUrlCacheRef.current.clear();
+        rasterOverlayDecodeInFlightRef.current.clear();
+        rasterDecodeFailedRef.current.clear();
+        rasterRenderNotificationPendingRef.current.clear();
+        for (const toastHandle of rasterRenderProgressToastRef.current.values()) {
+          toastHandle.dismiss();
+        }
+        rasterRenderProgressToastRef.current.clear();
         setRasterOverlayUrls({});
         return;
       }
@@ -1302,6 +1454,27 @@ const MapWorkspace = () => {
         }
       }
 
+      for (const overlayId of Array.from(rasterOverlayDecodeInFlightRef.current.values())) {
+        if (!activeIds.has(overlayId)) rasterOverlayDecodeInFlightRef.current.delete(overlayId);
+      }
+      for (const overlayId of Array.from(rasterDecodeFailedRef.current.values())) {
+        if (!activeIds.has(overlayId)) rasterDecodeFailedRef.current.delete(overlayId);
+      }
+      for (const overlayId of Array.from(rasterRenderNotificationPendingRef.current.values())) {
+        if (!activeIds.has(overlayId)) rasterRenderNotificationPendingRef.current.delete(overlayId);
+      }
+      for (const overlayId of Array.from(rasterRenderProgressToastRef.current.keys())) {
+        if (!activeIds.has(overlayId)) {
+          dismissRasterRenderProgressToast(overlayId);
+        }
+      }
+      for (const overlayId of Array.from(rasterDecodeErrorShownRef.current.values())) {
+        if (!activeIds.has(overlayId)) rasterDecodeErrorShownRef.current.delete(overlayId);
+      }
+      for (const overlayId of Array.from(rasterBoundsErrorShownRef.current.values())) {
+        if (!activeIds.has(overlayId)) rasterBoundsErrorShownRef.current.delete(overlayId);
+      }
+
       const pending: RasterOverlayUi[] = [];
       for (const overlay of rasterOverlays) {
         const overlayKey = `${missionRootPath}/${overlay.file}`;
@@ -1309,8 +1482,13 @@ const MapWorkspace = () => {
         if (cached && cached.key !== overlayKey) {
           URL.revokeObjectURL(cached.url);
           rasterOverlayUrlCacheRef.current.delete(overlay.id);
+          rasterDecodeFailedRef.current.delete(overlay.id);
+          rasterDecodeErrorShownRef.current.delete(overlay.id);
+          rasterBoundsErrorShownRef.current.delete(overlay.id);
         }
         if (!overlay.visible) continue;
+        if (rasterOverlayDecodeInFlightRef.current.has(overlay.id)) continue;
+        if (rasterDecodeFailedRef.current.has(overlay.id)) continue;
         if (!rasterOverlayUrlCacheRef.current.has(overlay.id)) {
           pending.push(overlay);
         }
@@ -1319,56 +1497,78 @@ const MapWorkspace = () => {
       syncStateFromCache();
       if (pending.length === 0) return;
 
-      await Promise.all(
-        pending.map(async (overlay) => {
+      for (const overlay of pending) {
+        if (!active) break;
+
+        rasterOverlayDecodeInFlightRef.current.add(overlay.id);
+        const shouldNotifyProgress = rasterRenderNotificationPendingRef.current.has(overlay.id);
+        if (shouldNotifyProgress && !rasterRenderProgressToastRef.current.has(overlay.id)) {
+          const progressToast = toast({
+            title: `\u0418\u0434\u0435\u0442 \u043e\u0442\u0440\u0438\u0441\u043e\u0432\u043a\u0430: ${overlay.name}`,
+            duration: RASTER_RENDER_PROGRESS_TOAST_DURATION_MS,
+          });
+          rasterRenderProgressToastRef.current.set(overlay.id, progressToast);
+        }
+
+        let raw: string | null = null;
+        try {
           if (!isBoundsWithinEpsg4326(overlay.bounds)) {
             if (!rasterBoundsErrorShownRef.current.has(overlay.id)) {
               rasterBoundsErrorShownRef.current.add(overlay.id);
-              toast({
-                title: `Не удалось отобразить растр: ${overlay.name}`,
-                description:
-                  'Координаты слоя выходят за диапазон EPSG:4326. Для MVP поддерживаются только данные в WGS84.',
-              });
             }
-            return;
+            notifyRasterRenderFailure(
+              overlay,
+              'Координаты слоя выходят за диапазон EPSG:4326. Для MVP поддерживаются только данные в WGS84.',
+            );
+            continue;
           }
 
-          const raw = await platform.fileStore.readText(`${missionRootPath}/${overlay.file}`);
-          if (!raw) return;
-          try {
-            const pngBase64 = await platform.raster.convertTiffBase64ToPngBase64(raw);
-            if (pngBase64) {
-              const url = URL.createObjectURL(base64ToBlob(pngBase64, 'image/png'));
-              rasterOverlayUrlCacheRef.current.set(overlay.id, { key: `${missionRootPath}/${overlay.file}`, url });
-              return;
-            }
+          raw = await platform.fileStore.readText(`${missionRootPath}/${overlay.file}`);
+          if (!raw) {
+            notifyRasterRenderFailure(overlay, classifyRasterDecodeFailure('', null, 'missing-file'));
+            continue;
+          }
 
-            const decodedPngBlob = await decodeTiffToPngBlobInRenderer(raw);
-            if (decodedPngBlob) {
-              const url = URL.createObjectURL(decodedPngBlob);
-              rasterOverlayUrlCacheRef.current.set(overlay.id, { key: `${missionRootPath}/${overlay.file}`, url });
-              return;
-            }
+          const inputSizeBytes = estimateBase64ByteLength(raw);
+          if (inputSizeBytes > MAX_RASTER_INPUT_FILE_BYTES) {
+            notifyRasterRenderFailure(overlay, classifyRasterDecodeFailure(raw, null, 'decode-failed'));
+            continue;
+          }
 
-            const tiffBlob = base64ToBlob(raw, 'image/tiff');
-            const isRenderable = await canRenderBlob(tiffBlob);
-            if (!isRenderable) {
-              if (!rasterDecodeErrorShownRef.current.has(overlay.id)) {
-                rasterDecodeErrorShownRef.current.add(overlay.id);
-                toast({
-                  title: `Не удалось отобразить растр: ${overlay.name}`,
-                  description: 'Формат/сжатие TIFF не поддерживается декодером отображения.',
-                });
-              }
-              return;
-            }
-            const url = URL.createObjectURL(tiffBlob);
+          const pngBase64 = await platform.raster.convertTiffBase64ToPngBase64(raw);
+          if (pngBase64) {
+            const url = URL.createObjectURL(base64ToBlob(pngBase64, 'image/png'));
             rasterOverlayUrlCacheRef.current.set(overlay.id, { key: `${missionRootPath}/${overlay.file}`, url });
-          } catch {
-            // keep overlay hidden on decode failure
+            notifyRasterRenderSuccess(overlay);
+            continue;
           }
-        }),
-      );
+
+          const decodedPngBlob = await decodeTiffToPngBlobInRenderer(raw);
+          if (decodedPngBlob) {
+            const url = URL.createObjectURL(decodedPngBlob);
+            rasterOverlayUrlCacheRef.current.set(overlay.id, { key: `${missionRootPath}/${overlay.file}`, url });
+            notifyRasterRenderSuccess(overlay);
+            continue;
+          }
+
+          const tiffBlob = base64ToBlob(raw, 'image/tiff');
+          const isRenderable = await canRenderBlob(tiffBlob);
+          if (!isRenderable) {
+            const hints = extractRasterDecodeHints(raw);
+            notifyRasterRenderFailure(overlay, classifyRasterDecodeFailure(raw, hints, 'decode-failed'));
+            continue;
+          }
+
+          const url = URL.createObjectURL(tiffBlob);
+          rasterOverlayUrlCacheRef.current.set(overlay.id, { key: `${missionRootPath}/${overlay.file}`, url });
+          notifyRasterRenderSuccess(overlay);
+        } catch {
+          const hints = raw ? extractRasterDecodeHints(raw) : null;
+          notifyRasterRenderFailure(overlay, classifyRasterDecodeFailure(raw ?? '', hints, 'decode-failed'));
+        } finally {
+          rasterOverlayDecodeInFlightRef.current.delete(overlay.id);
+        }
+      }
 
       syncStateFromCache();
     };
@@ -1382,11 +1582,16 @@ const MapWorkspace = () => {
 
   useEffect(() => {
     const cache = rasterOverlayUrlCacheRef.current;
+    const progressToasts = rasterRenderProgressToastRef.current;
     return () => {
       for (const { url } of cache.values()) {
         URL.revokeObjectURL(url);
       }
       cache.clear();
+      for (const toastHandle of progressToasts.values()) {
+        toastHandle.dismiss();
+      }
+      progressToasts.clear();
     };
   }, []);
 
@@ -1603,6 +1808,8 @@ const MapWorkspace = () => {
             await platform.fileStore.writeText(`${missionRootPath}/${tfwFilePath}`, tfwTextForStorage);
           }
 
+          rasterRenderNotificationPendingRef.current.add(id);
+
           setRasterOverlays((prev) => {
             const maxZ = prev.reduce((max, item) => Math.max(max, item.z_index), 0);
             return [
@@ -1780,6 +1987,16 @@ const MapWorkspace = () => {
       const target = rasterOverlays.find((overlay) => overlay.id === id);
       if (!target) return;
       setRasterOverlays((prev) => prev.filter((overlay) => overlay.id !== id));
+      rasterOverlayDecodeInFlightRef.current.delete(id);
+      rasterDecodeFailedRef.current.delete(id);
+      rasterDecodeErrorShownRef.current.delete(id);
+      rasterBoundsErrorShownRef.current.delete(id);
+      rasterRenderNotificationPendingRef.current.delete(id);
+      const activeProgressToast = rasterRenderProgressToastRef.current.get(id);
+      if (activeProgressToast) {
+        activeProgressToast.dismiss();
+        rasterRenderProgressToastRef.current.delete(id);
+      }
       if (missionRootPath) {
         void platform.fileStore.remove(`${missionRootPath}/${target.file}`).catch(() => {
           // best effort cleanup
@@ -2200,7 +2417,7 @@ const MapWorkspace = () => {
         ? bundle.mission.ui?.hidden_track_ids.filter((id): id is string => typeof id === 'string')
         : [],
     );
-    setRasterOverlays(
+    const nextRasterOverlays =
       Array.isArray(bundle.mission.ui?.raster_overlays)
         ? bundle.mission.ui.raster_overlays.filter(
             (item): item is RasterOverlayUi =>
@@ -2217,8 +2434,26 @@ const MapWorkspace = () => {
               typeof item?.z_index === 'number' &&
               (item?.source === 'geotiff' || item?.source === 'tif+tfw'),
           )
-        : [],
-    );
+        : [];
+    for (const { url } of rasterOverlayUrlCacheRef.current.values()) {
+      URL.revokeObjectURL(url);
+    }
+    rasterOverlayUrlCacheRef.current.clear();
+    rasterOverlayDecodeInFlightRef.current.clear();
+    rasterDecodeFailedRef.current.clear();
+    rasterDecodeErrorShownRef.current.clear();
+    rasterBoundsErrorShownRef.current.clear();
+    rasterRenderNotificationPendingRef.current.clear();
+    for (const toastHandle of rasterRenderProgressToastRef.current.values()) {
+      toastHandle.dismiss();
+    }
+    rasterRenderProgressToastRef.current.clear();
+    for (const overlay of nextRasterOverlays) {
+      if (overlay.visible) {
+        rasterRenderNotificationPendingRef.current.add(overlay.id);
+      }
+    }
+    setRasterOverlays(nextRasterOverlays);
     setVectorOverlays(
       Array.isArray(bundle.mission.ui?.vector_overlays)
         ? bundle.mission.ui.vector_overlays.filter(
