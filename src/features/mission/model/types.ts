@@ -100,6 +100,7 @@ export type MissionUiState = {
   base_station?: {
     navigation_source?: NavigationSourceId | null;
     track_color?: string;
+    marker_size_px?: number;
     lat?: number;
     lon?: number;
     heading_deg?: number | null;

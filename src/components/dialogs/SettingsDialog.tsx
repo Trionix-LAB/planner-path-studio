@@ -49,10 +49,12 @@ interface SettingsDialogProps {
   isZimaAssignedInProfile: boolean;
   baseStationNavigationSource: NavigationSourceId | null;
   baseStationTrackColor: string;
+  baseStationMarkerSizePx: number;
   onApply: (next: AppUiDefaults) => Promise<void> | void;
   onApplyDivers: (next: DiverUiConfig[]) => Promise<void> | void;
   onApplyBaseStationNavigationSource: (next: NavigationSourceId | null) => Promise<void> | void;
   onApplyBaseStationTrackColor: (next: string) => Promise<void> | void;
+  onApplyBaseStationMarkerSizePx: (next: number) => Promise<void> | void;
   onReset: () => Promise<void> | void;
   onResetDivers: () => Promise<void> | void;
   equipmentItems?: Array<{
@@ -85,10 +87,12 @@ const SettingsDialog = ({
   isZimaAssignedInProfile,
   baseStationNavigationSource,
   baseStationTrackColor,
+  baseStationMarkerSizePx,
   onApply,
   onApplyDivers,
   onApplyBaseStationNavigationSource,
   onApplyBaseStationTrackColor,
+  onApplyBaseStationMarkerSizePx,
   onReset,
   onResetDivers,
   equipmentItems = [],
@@ -103,6 +107,7 @@ const SettingsDialog = ({
     baseStationNavigationSource,
   );
   const [baseStationTrackColorDraft, setBaseStationTrackColorDraft] = useState<string>(baseStationTrackColor);
+  const [baseStationMarkerSizePxDraft, setBaseStationMarkerSizePxDraft] = useState<number>(baseStationMarkerSizePx);
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [themeDraft, setThemeDraft] = useState<AppTheme>(() => readStoredAppTheme());
@@ -120,9 +125,10 @@ const SettingsDialog = ({
     setDiversDraft(missionDivers);
     setBaseStationSourceDraft(baseStationNavigationSource);
     setBaseStationTrackColorDraft(baseStationTrackColor);
+    setBaseStationMarkerSizePxDraft(baseStationMarkerSizePx);
     setThemeDraft(readStoredAppTheme());
     setIsDirty(false);
-  }, [open, value, missionDivers, baseStationNavigationSource, baseStationTrackColor]);
+  }, [open, value, missionDivers, baseStationNavigationSource, baseStationTrackColor, baseStationMarkerSizePx]);
 
   const update = (next: AppUiDefaults) => {
     setDraft(next);
@@ -191,6 +197,7 @@ const SettingsDialog = ({
       await onApplyDivers(diversDraft);
       await onApplyBaseStationNavigationSource(baseStationSourceDraft);
       await onApplyBaseStationTrackColor(baseStationTrackColorDraft);
+      await onApplyBaseStationMarkerSizePx(baseStationMarkerSizePxDraft);
       writeStoredAppTheme(themeDraft);
       applyAppTheme(themeDraft);
       setIsDirty(false);
@@ -207,8 +214,10 @@ const SettingsDialog = ({
       await onResetDivers();
       await onApplyBaseStationNavigationSource(null);
       await onApplyBaseStationTrackColor(draft.styles.track.color);
+      await onApplyBaseStationMarkerSizePx(34);
       setBaseStationSourceDraft(null);
       setBaseStationTrackColorDraft(draft.styles.track.color);
+      setBaseStationMarkerSizePxDraft(34);
       setThemeDraft('dark');
       writeStoredAppTheme('dark');
       applyAppTheme('dark');
@@ -756,14 +765,33 @@ const SettingsDialog = ({
                       Если источник не назначен, метка базовой станции скрывается на карте.
                     </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>Цвет трека</Label>
-                    <Input
-                      type="color"
-                      value={baseStationTrackColorDraft}
-                      onChange={(e) => updateBaseStationTrackColor(e.target.value)}
-                      className="w-12 h-9 p-1"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Размер маркера</Label>
+                      <Input
+                        inputMode="numeric"
+                        type="number"
+                        min={DIVER_MARKER_SIZE_MIN_PX}
+                        max={DIVER_MARKER_SIZE_MAX_PX}
+                        step={1}
+                        value={String(baseStationMarkerSizePxDraft)}
+                        onChange={(e) => {
+                          setBaseStationMarkerSizePxDraft(
+                            clampDiverMarkerSizePx(e.target.value, 34),
+                          );
+                          setIsDirty(true);
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Цвет трека</Label>
+                      <Input
+                        type="color"
+                        value={baseStationTrackColorDraft}
+                        onChange={(e) => updateBaseStationTrackColor(e.target.value)}
+                        className="w-12 h-9 p-1"
+                      />
+                    </div>
                   </div>
                 </div>
 

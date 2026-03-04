@@ -83,6 +83,7 @@ interface MapCanvasProps {
     sourceId: string | null;
   } | null;
   isBaseStationSourceAssigned: boolean;
+  baseStationMarkerSizePx?: number;
   divers: DiverUiConfig[];
   diverPositionsById?: Record<
     string,
@@ -306,34 +307,39 @@ const createDiverIcon = (course: number, isFollowing: boolean, color: string, si
   });
 };
 
-const createBaseStationIcon = (headingDeg: number | null): L.DivIcon => {
+const BASE_STATION_MARKER_COLOR = '#0f172a';
+
+const createBaseStationIcon = (headingDeg: number | null, size = 34): L.DivIcon => {
   const normalizedHeading =
     typeof headingDeg === "number" && Number.isFinite(headingDeg)
       ? ((headingDeg % 360) + 360) % 360
       : null;
+  const innerSize = Math.round(size * 0.76);
+  const svgSize = Math.round(size * 0.41);
+  const arrowOffset = Math.round(size * 0.53);
   return L.divIcon({
     className: "base-station-marker",
     html: `
-      <div style="position: relative; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;">
+      <div style="position: relative; width: ${size}px; height: ${size}px; display: flex; align-items: center; justify-content: center;">
         ${
           normalizedHeading === null
             ? ""
-            : `<div style="position:absolute; top:-2px; left:50%; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:9px solid #0f172a; transform: translateX(-50%) rotate(${normalizedHeading}deg); transform-origin: 50% 18px; opacity:0.9;"></div>`
+            : `<div style="position:absolute; top:-2px; left:50%; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:9px solid ${BASE_STATION_MARKER_COLOR}; transform: translateX(-50%) rotate(${normalizedHeading}deg); transform-origin: 50% ${arrowOffset}px; opacity:0.9;"></div>`
         }
-        <div style="width: 26px; height: 26px; border-radius: 9999px; background: #f8fafc; border: 2px solid #0f172a; display:flex; align-items:center; justify-content:center; box-shadow: 0 1px 6px rgba(15,23,42,0.35);">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M12 2V9" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
-            <circle cx="12" cy="10" r="2.1" stroke="#0f172a" stroke-width="2" fill="none"/>
-            <path d="M5 13C5 16.3 7.7 19 11 19" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
-            <path d="M19 13C19 16.3 16.3 19 13 19" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
-            <path d="M12 12V22" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
-            <path d="M9 19L12 22L15 19" stroke="#0f172a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <div style="width: ${innerSize}px; height: ${innerSize}px; border-radius: 9999px; background: #f8fafc; border: 2px solid ${BASE_STATION_MARKER_COLOR}; display:flex; align-items:center; justify-content:center; box-shadow: 0 1px 6px rgba(15,23,42,0.35);">
+          <svg width="${svgSize}" height="${svgSize}" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 2V9" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="12" cy="10" r="2.1" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" fill="none"/>
+            <path d="M5 13C5 16.3 7.7 19 11 19" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" stroke-linecap="round"/>
+            <path d="M19 13C19 16.3 16.3 19 13 19" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" stroke-linecap="round"/>
+            <path d="M12 12V22" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" stroke-linecap="round"/>
+            <path d="M9 19L12 22L15 19" stroke="${BASE_STATION_MARKER_COLOR}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </div>
       </div>
     `,
-    iconSize: [34, 34],
-    iconAnchor: [17, 17],
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
 };
 
@@ -643,6 +649,7 @@ const MapCanvas = ({
   diverData,
   baseStationData,
   isBaseStationSourceAssigned,
+  baseStationMarkerSizePx,
   divers,
   diverPositionsById = {},
   trackSegments,
@@ -744,8 +751,8 @@ const MapCanvas = ({
     ? [baseStationData.lat, baseStationData.lon]
     : null;
   const baseStationIcon = useMemo(
-    () => createBaseStationIcon(baseStationData?.heading ?? null),
-    [baseStationData?.heading],
+    () => createBaseStationIcon(baseStationData?.heading ?? null, baseStationMarkerSizePx),
+    [baseStationData?.heading, baseStationMarkerSizePx],
   );
   const { toast } = useToast();
 

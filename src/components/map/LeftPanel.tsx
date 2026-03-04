@@ -8,6 +8,7 @@ import {
   Grid3X3,
   Ruler,
   Waves,
+  Map,
   Circle,
   LocateFixed,
   Trash2,
@@ -168,7 +169,7 @@ const LeftPanel = ({
   const isAllVectorsHidden = vectorOverlays.length > 0 && vectorOverlays.every((o) => !o.visible);
   const layerItems = [
     { key: 'diver' as const, icon: Waves, label: 'Водолаз', locked: true },
-    { key: 'basemap' as const, icon: Circle, label: 'Тайловая подложка', locked: false },
+    { key: 'basemap' as const, icon: Map, label: 'Тайловая подложка', locked: false },
     { key: 'baseStation' as const, icon: Anchor, label: 'Базовая станция', locked: false },
     { key: 'track' as const, icon: Route, label: 'Треки', locked: false },
     { key: 'routes' as const, icon: Route, label: 'Маршруты/Галсы', locked: false },
@@ -262,6 +263,41 @@ const LeftPanel = ({
             )}
             {baseStationTrackStatus === 'paused' && (
               <span className="h-2 w-2 rounded-full bg-yellow-500 shrink-0" aria-label="Запись на паузе" />
+            )}
+            {/* Pin follow base station */}
+            {onAgentPin && (
+              <button
+                type="button"
+                className={cn(
+                  'h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm transition-opacity',
+                  pinnedAgentId === BASE_STATION_AGENT_ID
+                    ? 'text-primary bg-primary/10 opacity-100'
+                    : 'text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100',
+                )}
+                aria-label={pinnedAgentId === BASE_STATION_AGENT_ID ? 'Открепить слежение базовой станции' : 'Закрепить слежение базовой станции'}
+                title={pinnedAgentId === BASE_STATION_AGENT_ID ? 'Открепить слежение' : 'Закрепить слежение'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAgentPin(BASE_STATION_AGENT_ID);
+                }}
+              >
+                <Pin className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {/* Center on base station */}
+            {onAgentCenter && (
+              <button
+                type="button"
+                className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label="Переместиться к базовой станции"
+                title="Переместиться к базовой станции"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAgentCenter(BASE_STATION_AGENT_ID);
+                }}
+              >
+                <LocateFixed className="w-3.5 h-3.5" />
+              </button>
             )}
           </div>
           {!isDraft && onBaseStationTrackAction ? (

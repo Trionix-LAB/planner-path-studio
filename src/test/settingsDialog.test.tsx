@@ -33,10 +33,12 @@ const renderDialog = async ({
       isZimaAssignedInProfile={isZimaAssignedInProfile}
       baseStationNavigationSource={null}
       baseStationTrackColor="#a855f7"
+      baseStationMarkerSizePx={34}
       onApply={vi.fn()}
       onApplyDivers={vi.fn()}
       onApplyBaseStationNavigationSource={vi.fn()}
       onApplyBaseStationTrackColor={vi.fn()}
+      onApplyBaseStationMarkerSizePx={vi.fn()}
       onReset={vi.fn()}
       onResetDivers={vi.fn()}
       navigationSourceOptions={[
@@ -66,8 +68,10 @@ const getBeaconIdInput = (): HTMLInputElement => {
 };
 
 const getMarkerSizeInput = (): HTMLInputElement => {
-  const label = screen.getByText('Размер маркера');
-  const field = label.parentElement?.querySelector('input');
+  const labels = screen.getAllByText('Размер маркера');
+  // The last "Размер маркера" label belongs to the diver section (after base station)
+  const diverLabel = labels.at(-1)!;
+  const field = diverLabel.parentElement?.querySelector('input');
   if (!field) {
     throw new Error('Marker size input not found');
   }
@@ -122,10 +126,12 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
         isZimaAssignedInProfile={true}
         baseStationNavigationSource={null}
         baseStationTrackColor="#a855f7"
+        baseStationMarkerSizePx={34}
         onApply={vi.fn()}
         onApplyDivers={onApplyDivers}
         onApplyBaseStationNavigationSource={vi.fn()}
         onApplyBaseStationTrackColor={vi.fn()}
+        onApplyBaseStationMarkerSizePx={vi.fn()}
         onReset={vi.fn()}
         onResetDivers={vi.fn()}
         navigationSourceOptions={[
@@ -169,10 +175,12 @@ describe('SettingsDialog theme toggle (T-90)', () => {
       isZimaAssignedInProfile: true,
       baseStationNavigationSource: null,
       baseStationTrackColor: '#a855f7',
+      baseStationMarkerSizePx: 34,
       onApply: vi.fn(),
       onApplyDivers: vi.fn(),
       onApplyBaseStationNavigationSource: vi.fn(),
       onApplyBaseStationTrackColor: vi.fn(),
+      onApplyBaseStationMarkerSizePx: vi.fn(),
       onReset: vi.fn(),
       onResetDivers: vi.fn(),
       navigationSourceOptions: [

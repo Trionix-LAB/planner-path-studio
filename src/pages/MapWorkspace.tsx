@@ -200,6 +200,7 @@ const canRenderBlob = async (blob: Blob): Promise<boolean> => {
 
 const DEFAULT_APP_SETTINGS = createDefaultAppSettings();
 const DEFAULT_BASE_STATION_TRACK_COLOR = DEFAULT_APP_SETTINGS.defaults.styles.track.color;
+const DEFAULT_BASE_STATION_MARKER_SIZE_PX = 34;
 
 type LayersState = {
   basemap: boolean;
@@ -233,6 +234,7 @@ type WorkspaceSnapshot = {
   divers: DiverUiConfig[];
   baseStationNavigationSource: NavigationSourceId | null;
   baseStationTrackColor: string;
+  baseStationMarkerSizePx: number;
   hiddenTrackIds: string[];
   baseStationTelemetry: BaseStationTelemetryState | null;
   mapView: MissionUiState['map_view'] | null;
@@ -696,6 +698,7 @@ const MapWorkspace = () => {
   const [missionDivers, setMissionDivers] = useState<DiverUiConfig[]>(() => createDefaultDivers(1));
   const [baseStationNavigationSource, setBaseStationNavigationSource] = useState<NavigationSourceId | null>(null);
   const [baseStationTrackColor, setBaseStationTrackColor] = useState<string>(DEFAULT_BASE_STATION_TRACK_COLOR);
+  const [baseStationMarkerSizePx, setBaseStationMarkerSizePx] = useState<number>(DEFAULT_BASE_STATION_MARKER_SIZE_PX);
   const [hiddenTrackIds, setHiddenTrackIds] = useState<string[]>([]);
   const [rasterOverlays, setRasterOverlays] = useState<RasterOverlayUi[]>([]);
   const [rasterOverlayUrls, setRasterOverlayUrls] = useState<Record<string, string>>({});
@@ -812,6 +815,7 @@ const MapWorkspace = () => {
     divers: createDefaultDivers(1),
     baseStationNavigationSource: null,
     baseStationTrackColor: DEFAULT_BASE_STATION_TRACK_COLOR,
+    baseStationMarkerSizePx: DEFAULT_BASE_STATION_MARKER_SIZE_PX,
     hiddenTrackIds: [],
     rasterOverlays: [],
     vectorOverlays: [],
@@ -1138,6 +1142,7 @@ const MapWorkspace = () => {
       divers: missionDivers,
       baseStationNavigationSource,
       baseStationTrackColor,
+      baseStationMarkerSizePx,
       hiddenTrackIds,
       baseStationTelemetry,
       mapView,
@@ -1160,6 +1165,7 @@ const MapWorkspace = () => {
     missionDivers,
     baseStationNavigationSource,
     baseStationTrackColor,
+    baseStationMarkerSizePx,
     hiddenTrackIds,
     baseStationTelemetry,
     mapView,
@@ -1907,6 +1913,7 @@ const MapWorkspace = () => {
       diversState: DiverUiConfig[],
       baseStationSourceState: NavigationSourceId | null,
       baseStationTrackColorState: string,
+      baseStationMarkerSizePxState: number,
       hiddenTrackIdsState: string[],
       baseStationTelemetryState: BaseStationTelemetryState | null,
       nextMapView: MissionUiState['map_view'] | null,
@@ -1939,6 +1946,7 @@ const MapWorkspace = () => {
           base_station: {
             navigation_source: baseStationSourceState,
             track_color: baseStationTrackColorState,
+            marker_size_px: baseStationMarkerSizePxState,
             ...(baseStationTelemetryState
               ? {
                   lat: baseStationTelemetryState.lat,
@@ -2009,6 +2017,7 @@ const MapWorkspace = () => {
         snapshot.divers,
         snapshot.baseStationNavigationSource,
         snapshot.baseStationTrackColor,
+        snapshot.baseStationMarkerSizePx,
         snapshot.hiddenTrackIds,
         snapshot.baseStationTelemetry,
         snapshot.mapView,
@@ -2093,6 +2102,11 @@ const MapWorkspace = () => {
       typeof baseStationUi?.track_color === 'string' && baseStationUi.track_color.trim().length > 0
         ? baseStationUi.track_color
         : effective.styles.track.color,
+    );
+    setBaseStationMarkerSizePx(
+      typeof baseStationUi?.marker_size_px === 'number' && Number.isFinite(baseStationUi.marker_size_px)
+        ? baseStationUi.marker_size_px
+        : DEFAULT_BASE_STATION_MARKER_SIZE_PX,
     );
     setHiddenTrackIds(
       Array.isArray(bundle.mission.ui?.hidden_track_ids)
@@ -2335,6 +2349,7 @@ const MapWorkspace = () => {
         missionDivers,
         baseStationNavigationSource,
         baseStationTrackColor,
+        baseStationMarkerSizePx,
         hiddenTrackIds,
         baseStationTelemetry,
         mapView,
@@ -2389,6 +2404,7 @@ const MapWorkspace = () => {
     missionDivers,
     baseStationNavigationSource,
     baseStationTrackColor,
+    baseStationMarkerSizePx,
     hiddenTrackIds,
     baseStationTelemetry,
     repository,
@@ -3032,6 +3048,17 @@ const MapWorkspace = () => {
 
   const handleAgentCenter = useCallback(
     (agentUid: string) => {
+      if (agentUid === BASE_STATION_AGENT_ID) {
+        if (baseStationTelemetry) {
+          setPinnedAgentId(null);
+          setMapView({
+            center_lat: baseStationTelemetry.lat,
+            center_lon: baseStationTelemetry.lon,
+            zoom: mapView?.zoom ?? 16,
+          });
+        }
+        return;
+      }
       const diver = missionDivers.find((d) => d.uid === agentUid);
       if (!diver) return;
       const key = diver.id.trim();
@@ -3045,7 +3072,7 @@ const MapWorkspace = () => {
         });
       }
     },
-    [diverTelemetryById, mapView?.zoom, missionDivers],
+    [baseStationTelemetry, diverTelemetryById, mapView?.zoom, missionDivers],
   );
 
   const handleTrackDelete = (trackId: string) => {
@@ -3214,6 +3241,7 @@ const MapWorkspace = () => {
     await handleSettingsApply(DEFAULT_APP_SETTINGS.defaults);
     setBaseStationNavigationSource(null);
     setBaseStationTrackColor(DEFAULT_BASE_STATION_TRACK_COLOR);
+    setBaseStationMarkerSizePx(DEFAULT_BASE_STATION_MARKER_SIZE_PX);
   };
 
   const handleDiversApply = (next: DiverUiConfig[]) => {
@@ -3289,6 +3317,13 @@ const MapWorkspace = () => {
         },
       };
     });
+  };
+
+
+  const handleBaseStationMarkerSizePxApply = (next: number) => {
+    setBaseStationMarkerSizePx(
+      Number.isFinite(next) ? Math.max(1, Math.min(256, Math.trunc(next))) : DEFAULT_BASE_STATION_MARKER_SIZE_PX,
+    );
   };
 
   const handleToggleEquipmentConnection = (sourceId: string, enabled: boolean) => {
@@ -3784,6 +3819,7 @@ const MapWorkspace = () => {
                 : null
             }
             isBaseStationSourceAssigned={baseStationNavigationSource !== null}
+            baseStationMarkerSizePx={baseStationMarkerSizePx}
             divers={missionDivers}
             diverPositionsById={diverTelemetryById}
             trackSegments={visibleTrackSegments}
@@ -3891,6 +3927,8 @@ const MapWorkspace = () => {
         onApplyBaseStationNavigationSource={handleBaseStationNavigationSourceApply}
         baseStationTrackColor={baseStationTrackColor}
         onApplyBaseStationTrackColor={handleBaseStationTrackColorApply}
+        baseStationMarkerSizePx={baseStationMarkerSizePx}
+        onApplyBaseStationMarkerSizePx={handleBaseStationMarkerSizePxApply}
         onReset={handleSettingsReset}
         onResetDivers={handleDiversReset}
         navigationSourceOptions={navigationSourceOptions}
