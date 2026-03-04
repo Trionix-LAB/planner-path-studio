@@ -44,6 +44,7 @@ export {
   type MissionUiState,
   type SegmentLengthsMode,
   type RouteFeature,
+  type MeasureFeature,
   type RoutesFeature,
   type SurveyAreaFeature,
   type LaneFeature,

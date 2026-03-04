@@ -93,6 +93,7 @@ const getDefaultColor = (type: MapObject['type'], styles: AppUiDefaults['styles'
   if (type === 'zone') return styles.survey_area.stroke_color;
   if (type === 'marker') return styles.marker.color;
   if (type === 'lane') return styles.lane.color;
+  if (type === 'measure') return '#f97316';
   return styles.route.color;
 };
 
@@ -128,6 +129,12 @@ const computeRouteLengthMeters = (object: MapObject): number => {
     total += haversineDistanceMeters(prev.lat, prev.lon, next.lat, next.lon);
   }
   return total;
+};
+
+const computeMeasureLengthMeters = (object: MapObject): number => {
+  if (object.type !== 'measure' || object.geometry?.type !== 'measure') return 0;
+  const [start, end] = object.geometry.points;
+  return haversineDistanceMeters(start.lat, start.lon, end.lat, end.lon);
 };
 
 const formatLaneCount = (count: number | null | undefined): string => {
@@ -463,6 +470,10 @@ const MapObjectProperties = ({
   const previousObjectRef = useRef<MapObject | null>(null);
   const previousStylesRef = useRef<AppUiDefaults['styles'] | null>(null);
   const routeLengthLabel = useMemo(() => formatRouteLength(computeRouteLengthMeters(object)), [object]);
+  const measureLengthLabel = useMemo(() => {
+    const meters = computeMeasureLengthMeters(object);
+    return `${Number.isFinite(meters) ? meters.toFixed(2) : '0.00'} м`;
+  }, [object]);
   const minPoints = useMemo(() => getMinPointsForObject(object), [object]);
   const laneVertexRows = useMemo(() => formatLaneVertexRows(zoneLaneFeatures), [zoneLaneFeatures]);
   const laneVertexDisplayRows = useMemo(
@@ -532,7 +543,7 @@ const MapObjectProperties = ({
       color: normalizeHexColor(color, fallbackColor),
     };
 
-    if (object.type === 'route' || object.type === 'marker') {
+    if (object.type === 'route' || object.type === 'marker' || object.type === 'measure') {
       updates.note = note;
     }
 
@@ -796,10 +807,10 @@ const MapObjectProperties = ({
           </div>
         )}
 
-        {(object.type === 'route' || object.type === 'marker') && (
+        {(object.type === 'route' || object.type === 'marker' || object.type === 'measure') && (
           <div className="space-y-1.5">
             <Label htmlFor="obj-note" className="text-xs text-muted-foreground">
-              {object.type === 'marker' ? 'Описание' : 'Заметка'}
+              {object.type === 'marker' || object.type === 'measure' ? 'Описание' : 'Заметка'}
             </Label>
             <Textarea
               id="obj-note"
@@ -807,7 +818,13 @@ const MapObjectProperties = ({
               value={note}
               onChange={(e) => handleFieldChange(setNote, e.target.value)}
               rows={3}
-              placeholder={object.type === 'marker' ? 'Описание маркера...' : 'Заметка о маршруте...'}
+              placeholder={
+                object.type === 'marker'
+                  ? 'Описание маркера...'
+                  : object.type === 'measure'
+                    ? 'Описание измерения...'
+                    : 'Заметка о маршруте...'
+              }
             />
           </div>
         )}
@@ -860,6 +877,13 @@ const MapObjectProperties = ({
           <div className="p-2.5 bg-muted rounded-md">
             <div className="text-[11px] text-muted-foreground mb-1">Общая длина</div>
             <div className="font-mono text-base leading-5">{routeLengthLabel}</div>
+          </div>
+        )}
+
+        {object.type === 'measure' && (
+          <div className="p-2.5 bg-muted rounded-md">
+            <div className="text-[11px] text-muted-foreground mb-1">Расстояние</div>
+            <div className="font-mono text-base leading-5">{measureLengthLabel}</div>
           </div>
         )}
 

@@ -30,6 +30,7 @@ import {
   Route,
   Square,
   MapPin,
+  Ruler,
   Pause,
   Play,
   Flag,
@@ -56,6 +57,7 @@ interface TopToolbarProps {
   onToolChange: (tool: Tool) => void;
   onTrackAction: (action: 'pause' | 'resume') => void;
   onOpenCoordinateBuilder?: (type: 'route' | 'zone' | 'marker') => void;
+  onMeasureClearAll?: () => void;
   onSimulationToggle?: () => void;
   onSimulationErrorToggle?: () => void;
   onOpenCreate: () => void;
@@ -97,6 +99,7 @@ const TopToolbar = ({
   onToolChange,
   onTrackAction,
   onOpenCoordinateBuilder,
+  onMeasureClearAll,
   onSimulationToggle,
   onSimulationErrorToggle,
   onOpenCreate,
@@ -156,6 +159,7 @@ const TopToolbar = ({
     { id: 'route' as Tool, icon: Route, label: 'Маршрут' },
     { id: 'zone' as Tool, icon: Square, label: 'Зона (галсы)' },
     { id: 'marker' as Tool, icon: MapPin, label: 'Маркер' },
+    { id: 'measure' as Tool, icon: Ruler, label: 'Измерить' },
   ];
 
   return (
@@ -510,6 +514,11 @@ const TopToolbar = ({
             onContextMenu={(event) => {
               if (tool.id === 'select') return;
               event.preventDefault();
+              event.stopPropagation();
+              if (tool.id === 'measure') {
+                onMeasureClearAll?.();
+                return;
+              }
               onOpenCoordinateBuilder?.(tool.id);
             }}
             title={tool.label}

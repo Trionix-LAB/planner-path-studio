@@ -1,16 +1,17 @@
-export type Tool = "select" | "route" | "zone" | "marker";
+export type Tool = "select" | "route" | "zone" | "marker" | "measure";
 
 export type GeoPoint = {
   lat: number;
   lon: number;
 };
 
-export type MapObjectType = "route" | "zone" | "marker" | "lane";
+export type MapObjectType = "route" | "zone" | "marker" | "lane" | "measure";
 
 export type MapObjectGeometry =
   | { type: "route"; points: GeoPoint[] }
   | { type: "zone"; points: GeoPoint[] }
-  | { type: "marker"; point: GeoPoint };
+  | { type: "marker"; point: GeoPoint }
+  | { type: "measure"; points: [GeoPoint, GeoPoint] };
 
 export type MapObject = {
   id: string;

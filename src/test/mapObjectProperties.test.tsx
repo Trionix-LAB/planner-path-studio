@@ -63,6 +63,22 @@ const mockMarker: MapObject = {
   },
 };
 
+const mockMeasure: MapObject = {
+  id: 'measure-1',
+  type: 'measure',
+  name: 'Test Measure',
+  visible: true,
+  color: '#f97316',
+  note: 'Measure note',
+  geometry: {
+    type: 'measure',
+    points: [
+      { lat: 59.93428, lon: 30.335099 },
+      { lat: 59.93528, lon: 30.336099 },
+    ],
+  },
+};
+
 const mockZoneLanes: LaneFeature[] = [
   {
     type: 'Feature',
@@ -182,6 +198,33 @@ describe('MapObjectProperties regeneration logic (T-61)', () => {
           type: 'marker',
           point: { lat: 59.93428, lon: 31 },
         },
+      }),
+    );
+  });
+
+  it('shows measure distance and saves description for measure object', () => {
+    const onSave = vi.fn();
+
+    render(
+      <MapObjectProperties
+        object={mockMeasure}
+        styles={mockStyles}
+        onSave={onSave}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('Расстояние')).toBeInTheDocument();
+    expect(screen.getByText((text) => text.endsWith(' м'))).toBeInTheDocument();
+
+    const noteInput = screen.getByLabelText('Описание');
+    fireEvent.change(noteInput, { target: { value: 'Новое описание' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить изменения' }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      'measure-1',
+      expect.objectContaining({
+        note: 'Новое описание',
       }),
     );
   });

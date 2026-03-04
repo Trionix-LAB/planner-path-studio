@@ -52,6 +52,27 @@ export const bundleToMapObjects = (bundle: MissionBundle): MapObject[] => {
       continue;
     }
 
+    if (feature.properties.kind === 'measure' && feature.geometry.type === 'LineString') {
+      if (feature.geometry.coordinates.length < 2) continue;
+      const [start, end] = feature.geometry.coordinates;
+      objects.push({
+        id: feature.properties.id,
+        type: 'measure',
+        name: feature.properties.name,
+        visible: true,
+        color: getColorFromStyle(feature.properties.style),
+        note: feature.properties.note ?? undefined,
+        geometry: {
+          type: 'measure',
+          points: [
+            { lat: start[1], lon: start[0] },
+            { lat: end[1], lon: end[0] },
+          ],
+        },
+      });
+      continue;
+    }
+
     if (feature.properties.kind === 'survey_area' && feature.geometry.type === 'Polygon') {
       const ring = feature.geometry.coordinates[0] ?? [];
       objects.push({
@@ -122,6 +143,26 @@ export const mapObjectsToGeoJson = (
         properties: {
           id: object.id || createId(),
           kind: 'route',
+          name: object.name,
+          note: object.note ?? null,
+          created_at: now,
+          updated_at: now,
+          ...(object.color ? { style: { color: object.color } } : {}),
+        },
+      });
+      continue;
+    }
+
+    if (object.type === 'measure' && object.geometry.type === 'measure') {
+      routesFeatures.push({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: object.geometry.points.map((point) => [point.lon, point.lat]),
+        },
+        properties: {
+          id: object.id || createId(),
+          kind: 'measure',
           name: object.name,
           note: object.note ?? null,
           created_at: now,
