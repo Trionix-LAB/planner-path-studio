@@ -12,6 +12,10 @@ const openImportDwgDxfSubmenu = async () => {
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Импортировать DWG/DXF' }));
 };
 
+const openNewMissionSubmenu = async () => {
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Новая миссия' }));
+};
+
 describe('top toolbar mission menu', () => {
   it('calls onGoToStart when user clicks "На старт"', async () => {
     window.PointerEvent = MouseEvent as unknown as typeof PointerEvent;
@@ -29,7 +33,8 @@ describe('top toolbar mission menu', () => {
         isRecordingEnabled={true}
         onToolChange={vi.fn()}
         onTrackAction={vi.fn()}
-        onOpenCreate={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
         onOpenOpen={vi.fn()}
         onOpenExport={vi.fn()}
         onOpenSettings={vi.fn()}
@@ -50,6 +55,87 @@ describe('top toolbar mission menu', () => {
     expect(onGoToStart).toHaveBeenCalledTimes(1);
   });
 
+  it('opens "Новая миссия" submenu and starts creation from current draft', async () => {
+    window.PointerEvent = MouseEvent as unknown as typeof PointerEvent;
+    const onOpenCreateFromDraft = vi.fn();
+    const onOpenCreateEmpty = vi.fn();
+
+    render(
+      <TopToolbar
+        missionName="Тестовая миссия"
+        isDraft={true}
+        autoSaveStatus="saved"
+        activeTool="select"
+        trackStatus="recording"
+        showSimulationControls={false}
+        isRecordingEnabled={true}
+        onToolChange={vi.fn()}
+        onTrackAction={vi.fn()}
+        onOpenCreateFromDraft={onOpenCreateFromDraft}
+        onOpenCreateEmpty={onOpenCreateEmpty}
+        onOpenOpen={vi.fn()}
+        onOpenExport={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenOfflineMaps={vi.fn()}
+        onFinishMission={vi.fn()}
+        onGoToStart={vi.fn()}
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Черновик/i }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    await openNewMissionSubmenu();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Создать из текущего черновика' }));
+
+    expect(onOpenCreateFromDraft).toHaveBeenCalledTimes(1);
+    expect(onOpenCreateEmpty).not.toHaveBeenCalled();
+  });
+
+  it('disables "Создать из текущего черновика" outside draft and allows empty mission', async () => {
+    window.PointerEvent = MouseEvent as unknown as typeof PointerEvent;
+    const onOpenCreateFromDraft = vi.fn();
+    const onOpenCreateEmpty = vi.fn();
+
+    render(
+      <TopToolbar
+        missionName="Тестовая миссия"
+        isDraft={false}
+        autoSaveStatus="saved"
+        activeTool="select"
+        trackStatus="recording"
+        showSimulationControls={false}
+        isRecordingEnabled={true}
+        onToolChange={vi.fn()}
+        onTrackAction={vi.fn()}
+        onOpenCreateFromDraft={onOpenCreateFromDraft}
+        onOpenCreateEmpty={onOpenCreateEmpty}
+        onOpenOpen={vi.fn()}
+        onOpenExport={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenOfflineMaps={vi.fn()}
+        onFinishMission={vi.fn()}
+        onGoToStart={vi.fn()}
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Тестовая миссия/i }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    await openNewMissionSubmenu();
+    const createFromDraftItem = await screen.findByRole('menuitem', { name: 'Создать из текущего черновика' });
+    expect(createFromDraftItem).toHaveAttribute('data-disabled');
+    fireEvent.click(createFromDraftItem);
+    expect(onOpenCreateFromDraft).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Создать новую пустую миссию' }));
+    expect(onOpenCreateEmpty).toHaveBeenCalledTimes(1);
+  });
+
   it('opens GeoTIFF import picker from mission menu', async () => {
     window.PointerEvent = MouseEvent as unknown as typeof PointerEvent;
     const onImportRasterFiles = vi.fn();
@@ -65,7 +151,8 @@ describe('top toolbar mission menu', () => {
         isRecordingEnabled={true}
         onToolChange={vi.fn()}
         onTrackAction={vi.fn()}
-        onOpenCreate={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
         onOpenOpen={vi.fn()}
         onOpenExport={vi.fn()}
         onOpenSettings={vi.fn()}
@@ -108,7 +195,8 @@ describe('top toolbar mission menu', () => {
         isRecordingEnabled={true}
         onToolChange={vi.fn()}
         onTrackAction={vi.fn()}
-        onOpenCreate={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
         onOpenOpen={vi.fn()}
         onOpenExport={vi.fn()}
         onOpenSettings={vi.fn()}
@@ -151,7 +239,8 @@ describe('top toolbar mission menu', () => {
         isRecordingEnabled={true}
         onToolChange={vi.fn()}
         onTrackAction={vi.fn()}
-        onOpenCreate={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
         onOpenOpen={vi.fn()}
         onOpenExport={vi.fn()}
         onOpenSettings={vi.fn()}
@@ -197,7 +286,8 @@ describe('top toolbar mission menu', () => {
         isRecordingEnabled={true}
         onToolChange={vi.fn()}
         onTrackAction={vi.fn()}
-        onOpenCreate={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
         onOpenOpen={vi.fn()}
         onOpenExport={vi.fn()}
         onOpenSettings={vi.fn()}
@@ -258,7 +348,8 @@ describe('top toolbar mission menu', () => {
         isRecordingEnabled={true}
         onToolChange={vi.fn()}
         onTrackAction={vi.fn()}
-        onOpenCreate={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
         onOpenOpen={vi.fn()}
         onOpenExport={vi.fn()}
         onOpenSettings={vi.fn()}
@@ -318,7 +409,8 @@ describe('top toolbar mission menu', () => {
         onToolChange={vi.fn()}
         onTrackAction={vi.fn()}
         onOpenCoordinateBuilder={onOpenCoordinateBuilder}
-        onOpenCreate={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
         onOpenOpen={vi.fn()}
         onOpenExport={vi.fn()}
         onOpenSettings={vi.fn()}
@@ -356,7 +448,8 @@ describe('top toolbar mission menu', () => {
         onTrackAction={vi.fn()}
         onOpenCoordinateBuilder={onOpenCoordinateBuilder}
         onMeasureClearAll={onMeasureClearAll}
-        onOpenCreate={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
         onOpenOpen={vi.fn()}
         onOpenExport={vi.fn()}
         onOpenSettings={vi.fn()}
@@ -372,5 +465,113 @@ describe('top toolbar mission menu', () => {
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Измерить' }));
     expect(onMeasureClearAll).toHaveBeenCalledTimes(1);
     expect(onOpenCoordinateBuilder).not.toHaveBeenCalled();
+  });
+
+  it('resets active marker tool to select on repeated left click', () => {
+    const onToolChange = vi.fn();
+
+    render(
+      <TopToolbar
+        missionName="Тестовая миссия"
+        isDraft={false}
+        autoSaveStatus="saved"
+        activeTool="marker"
+        trackStatus="recording"
+        showSimulationControls={false}
+        isRecordingEnabled={true}
+        onToolChange={onToolChange}
+        onTrackAction={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
+        onOpenOpen={vi.fn()}
+        onOpenExport={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenOfflineMaps={vi.fn()}
+        onFinishMission={vi.fn()}
+        onGoToStart={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Маркер' }));
+    expect(onToolChange).toHaveBeenCalledWith('select');
+  });
+
+  it('resets active route/zone/measure tools to select on repeated left click', () => {
+    const onToolChange = vi.fn();
+
+    const { rerender } = render(
+      <TopToolbar
+        missionName="Тестовая миссия"
+        isDraft={false}
+        autoSaveStatus="saved"
+        activeTool="route"
+        trackStatus="recording"
+        showSimulationControls={false}
+        isRecordingEnabled={true}
+        onToolChange={onToolChange}
+        onTrackAction={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
+        onOpenOpen={vi.fn()}
+        onOpenExport={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenOfflineMaps={vi.fn()}
+        onFinishMission={vi.fn()}
+        onGoToStart={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Маршрут' }));
+    expect(onToolChange).toHaveBeenLastCalledWith('select');
+
+    rerender(
+      <TopToolbar
+        missionName="Тестовая миссия"
+        isDraft={false}
+        autoSaveStatus="saved"
+        activeTool="zone"
+        trackStatus="recording"
+        showSimulationControls={false}
+        isRecordingEnabled={true}
+        onToolChange={onToolChange}
+        onTrackAction={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
+        onOpenOpen={vi.fn()}
+        onOpenExport={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenOfflineMaps={vi.fn()}
+        onFinishMission={vi.fn()}
+        onGoToStart={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Зона (галсы)' }));
+    expect(onToolChange).toHaveBeenLastCalledWith('select');
+
+    rerender(
+      <TopToolbar
+        missionName="Тестовая миссия"
+        isDraft={false}
+        autoSaveStatus="saved"
+        activeTool="measure"
+        trackStatus="recording"
+        showSimulationControls={false}
+        isRecordingEnabled={true}
+        onToolChange={onToolChange}
+        onTrackAction={vi.fn()}
+        onOpenCreateFromDraft={vi.fn()}
+        onOpenCreateEmpty={vi.fn()}
+        onOpenOpen={vi.fn()}
+        onOpenExport={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenOfflineMaps={vi.fn()}
+        onFinishMission={vi.fn()}
+        onGoToStart={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Измерить' }));
+    expect(onToolChange).toHaveBeenLastCalledWith('select');
   });
 });

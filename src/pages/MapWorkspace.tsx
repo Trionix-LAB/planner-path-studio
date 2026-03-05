@@ -397,6 +397,7 @@ type MapBounds = {
 type RasterOverlayUi = NonNullable<MissionUiState['raster_overlays']>[number];
 type VectorOverlayUi = NonNullable<MissionUiState['vector_overlays']>[number];
 const DEFAULT_VECTOR_OVERLAY_COLOR = '#0f766e';
+type CreateMissionMode = 'from-draft' | 'empty';
 
 const computeVectorOverlayBounds = (features: DxfOverlayFeatureCollection['features']): MapBounds | null => {
   const lats: number[] = [];
@@ -868,6 +869,7 @@ const MapWorkspace = () => {
     zoneId: null,
   });
   const [showCreateMission, setShowCreateMission] = useState(false);
+  const [createMissionMode, setCreateMissionMode] = useState<CreateMissionMode>('from-draft');
   const [showOpenMission, setShowOpenMission] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -3412,8 +3414,13 @@ const MapWorkspace = () => {
         await persistMissionSnapshot(latestSnapshotRef.current, { closeActiveTrack: true });
       };
 
+      if (createMissionMode === 'from-draft' && !isDraft) {
+        window.alert('Создание из черновика доступно только в режиме черновика.');
+        return;
+      }
+
       let bundle: MissionBundle;
-      if (isDraft) {
+      if (createMissionMode === 'from-draft' && isDraft) {
         await ensureDraftReadyForConversion();
         try {
           bundle = await repository.convertDraftToMission({
@@ -3796,6 +3803,12 @@ const MapWorkspace = () => {
   }, [isDraft, missionRootPath, navigate, persistMissionSnapshot, releaseCurrentLock]);
 
   const openCreateMissionDialog = useCallback(() => {
+    setCreateMissionMode('from-draft');
+    window.requestAnimationFrame(() => setShowCreateMission(true));
+  }, []);
+
+  const openCreateMissionDialogEmpty = useCallback(() => {
+    setCreateMissionMode('empty');
     window.requestAnimationFrame(() => setShowCreateMission(true));
   }, []);
 
@@ -4000,7 +4013,14 @@ const MapWorkspace = () => {
     }
 
     if (!options?.preserveActiveTool) {
-      setActiveTool('select');
+      const keepActiveToolAfterCreate =
+        (activeTool === 'marker' && normalizedGeometry.type === 'marker') ||
+        (activeTool === 'route' && normalizedGeometry.type === 'route') ||
+        (activeTool === 'zone' && normalizedGeometry.type === 'zone') ||
+        (activeTool === 'measure' && normalizedGeometry.type === 'measure');
+      if (!keepActiveToolAfterCreate) {
+        setActiveTool('select');
+      }
     }
     setSelectedObjectId(newObject.id);
   };
@@ -4034,7 +4054,8 @@ const MapWorkspace = () => {
             onSimulationErrorToggle={
               showSimulationControls ? () => setSimulateConnectionError((prev) => !prev) : undefined
             }
-            onOpenCreate={openCreateMissionDialog}
+            onOpenCreateFromDraft={openCreateMissionDialog}
+            onOpenCreateEmpty={openCreateMissionDialogEmpty}
             onOpenOpen={openOpenMissionDialog}
             onOpenExport={openExportDialog}
             onOpenSettings={openSettingsDialog}

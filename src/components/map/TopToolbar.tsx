@@ -60,7 +60,8 @@ interface TopToolbarProps {
   onMeasureClearAll?: () => void;
   onSimulationToggle?: () => void;
   onSimulationErrorToggle?: () => void;
-  onOpenCreate: () => void;
+  onOpenCreateFromDraft: () => void;
+  onOpenCreateEmpty: () => void;
   onOpenOpen: () => void;
   onOpenExport: () => void;
   onOpenSettings: () => void;
@@ -102,7 +103,8 @@ const TopToolbar = ({
   onMeasureClearAll,
   onSimulationToggle,
   onSimulationErrorToggle,
-  onOpenCreate,
+  onOpenCreateFromDraft,
+  onOpenCreateEmpty,
   onOpenOpen,
   onOpenExport,
   onOpenSettings,
@@ -274,10 +276,34 @@ const TopToolbar = ({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuItem onClick={onOpenCreate}>
-            <Save className="w-4 h-4 mr-2" />
-            Новая миссия
-          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Save className="w-4 h-4 mr-2" />
+              Новая миссия
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-72">
+              <DropdownMenuItem
+                disabled={!isDraft}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  if (!isDraft) return;
+                  onOpenCreateFromDraft();
+                  setMenuOpen(false);
+                }}
+              >
+                Создать из текущего черновика
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onOpenCreateEmpty();
+                  setMenuOpen(false);
+                }}
+              >
+                Создать новую пустую миссию
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuItem onClick={onOpenOpen}>
             <FolderOpen className="w-4 h-4 mr-2" />
             Открыть
@@ -516,7 +542,13 @@ const TopToolbar = ({
               'h-8 px-3 gap-2',
               activeTool === tool.id && 'bg-primary/20 text-primary'
             )}
-            onClick={() => onToolChange(tool.id)}
+            onClick={() => {
+              if (tool.id !== 'select' && activeTool === tool.id) {
+                onToolChange('select');
+                return;
+              }
+              onToolChange(tool.id);
+            }}
             onContextMenu={(event) => {
               if (tool.id === 'select') return;
               event.preventDefault();
