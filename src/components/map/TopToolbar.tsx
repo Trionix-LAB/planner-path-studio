@@ -127,6 +127,7 @@ const TopToolbar = ({
   const [dxfUtmZoneText, setDxfUtmZoneText] = useState('37');
   const [dxfUtmHemisphere, setDxfUtmHemisphere] = useState<'north' | 'south'>('north');
   const [dxfUtmError, setDxfUtmError] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const UTM_ZONE_ERROR = 'Некорректная UTM зона: ожидается число от 1 до 60.';
 
   const parseUtmZone = (value: string): number | null => {
@@ -165,7 +166,7 @@ const TopToolbar = ({
   return (
     <div className="h-12 bg-card border-b border-border flex items-center px-2 gap-1">
       {/* Mission Menu */}
-      <DropdownMenu modal={false}>
+      <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
         <input
           ref={geotiffInputRef}
           type="file"
@@ -177,6 +178,7 @@ const TopToolbar = ({
             if (files && files.length > 0) {
               onImportRasterFiles?.('geotiff', files);
             }
+            setMenuOpen(false);
             event.currentTarget.value = '';
           }}
         />
@@ -191,6 +193,7 @@ const TopToolbar = ({
             if (files && files.length > 0) {
               onImportRasterFiles?.('tif+tfw', files, { tfwUnits: 'degrees' });
             }
+            setMenuOpen(false);
             event.currentTarget.value = '';
           }}
         />
@@ -208,6 +211,7 @@ const TopToolbar = ({
                 metersProjection: 'web-mercator',
               });
             }
+            setMenuOpen(false);
             event.currentTarget.value = '';
           }}
         />
@@ -233,6 +237,7 @@ const TopToolbar = ({
               });
             }
             pendingUtmConfigRef.current = null;
+            setMenuOpen(false);
             event.currentTarget.value = '';
           }}
         />
@@ -256,6 +261,7 @@ const TopToolbar = ({
               });
             }
             pendingDxfUtmConfigRef.current = null;
+            setMenuOpen(false);
             event.currentTarget.value = '';
           }}
         />

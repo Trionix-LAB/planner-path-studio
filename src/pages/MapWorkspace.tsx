@@ -211,6 +211,7 @@ const canRenderBlob = async (blob: Blob): Promise<boolean> => {
 const MAX_RASTER_INPUT_FILE_BYTES = 180 * 1024 * 1024;
 const MAX_RASTER_INPUT_PIXEL_COUNT = 900_000_000;
 const RASTER_RENDER_PROGRESS_TOAST_DURATION_MS = 2_147_483_647;
+const VECTOR_RENDER_PROGRESS_TOAST_DURATION_MS = 2_147_483_647;
 const SUPPORTED_TIFF_COMPRESSION_CODES = new Set([1, 5, 8, 32946, 32773]);
 
 type RasterDecodeHints = {
@@ -1277,7 +1278,10 @@ const MapWorkspace = () => {
   const rasterRenderProgressToastRef = useRef<Map<string, ReturnType<typeof toast>>>(new Map());
   const rasterOverlayDecodeInFlightRef = useRef<Set<string>>(new Set());
   const rasterOverlayUrlCacheRef = useRef<Map<string, { key: string; url: string }>>(new Map());
+  const rasterDecodePendingResolversRef = useRef<Map<string, () => void>>(new Map());
   const vectorOverlayErrorShownRef = useRef<Set<string>>(new Set());
+  const vectorRenderNotificationPendingRef = useRef<Set<string>>(new Set());
+  const vectorRenderProgressToastRef = useRef<Map<string, ReturnType<typeof toast>>>(new Map());
   const vectorOverlayCacheRef = useRef<Map<string, { key: string; data: VectorOverlayMapData }>>(new Map());
   const centerNonceRef = useRef(0);
   const requestCenterOnObject = useCallback((id: string) => {
@@ -1390,6 +1394,14 @@ const MapWorkspace = () => {
     });
   }, [baseStationTrackColor, missionDivers, styles.track.color]);
 
+  const waitForRasterDecode = useCallback(
+    (overlayId: string): Promise<void> =>
+      new Promise<void>((resolve) => {
+        rasterDecodePendingResolversRef.current.set(overlayId, resolve);
+      }),
+    [],
+  );
+
   useEffect(() => {
     let active = true;
 
@@ -1418,6 +1430,11 @@ const MapWorkspace = () => {
       }
       rasterDecodeFailedRef.current.add(overlay.id);
       rasterRenderNotificationPendingRef.current.delete(overlay.id);
+      const pendingResolve = rasterDecodePendingResolversRef.current.get(overlay.id);
+      if (pendingResolve) {
+        rasterDecodePendingResolversRef.current.delete(overlay.id);
+        pendingResolve();
+      }
     };
 
     const notifyRasterRenderSuccess = (overlay: RasterOverlayUi) => {
@@ -1427,6 +1444,11 @@ const MapWorkspace = () => {
         rasterRenderNotificationPendingRef.current.delete(overlay.id);
       }
       rasterDecodeFailedRef.current.delete(overlay.id);
+      const pendingResolve = rasterDecodePendingResolversRef.current.get(overlay.id);
+      if (pendingResolve) {
+        rasterDecodePendingResolversRef.current.delete(overlay.id);
+        pendingResolve();
+      }
     };
 
     const loadOverlayUrls = async () => {
@@ -1577,6 +1599,10 @@ const MapWorkspace = () => {
 
     return () => {
       active = false;
+      for (const resolve of rasterDecodePendingResolversRef.current.values()) {
+        resolve();
+      }
+      rasterDecodePendingResolversRef.current.clear();
     };
   }, [missionRootPath, rasterOverlays]);
 
@@ -1637,23 +1663,31 @@ const MapWorkspace = () => {
       syncStateFromCache();
       if (pending.length === 0) return;
 
-      await Promise.all(
-        pending.map(async (overlay) => {
-          try {
-            const overlayKey = `${missionRootPath}/${overlay.file}::${resolveVectorOverlayCacheFilePath(overlay)}`;
-            const cacheFilePath = resolveVectorOverlayCacheFilePath(overlay);
-            const sourceMeta = toVectorOverlayCacheSourceMeta(overlay);
+      for (const overlay of pending) {
+        if (!active) break;
 
-            const cacheRaw = await platform.fileStore.readText(`${missionRootPath}/${cacheFilePath}`);
-            const cacheData = cacheRaw ? parseVectorOverlayCache(cacheRaw, sourceMeta) : null;
-            if (cacheData) {
-              vectorOverlayCacheRef.current.set(overlay.id, {
-                key: overlayKey,
-                data: cacheData,
-              });
-              return;
-            }
+        const shouldNotifyProgress = vectorRenderNotificationPendingRef.current.has(overlay.id);
+        if (shouldNotifyProgress && !vectorRenderProgressToastRef.current.has(overlay.id)) {
+          const progressToast = toast({
+            title: `Идёт обработка: ${overlay.name}`,
+            duration: VECTOR_RENDER_PROGRESS_TOAST_DURATION_MS,
+          });
+          vectorRenderProgressToastRef.current.set(overlay.id, progressToast);
+        }
 
+        try {
+          const overlayKey = `${missionRootPath}/${overlay.file}::${resolveVectorOverlayCacheFilePath(overlay)}`;
+          const cacheFilePath = resolveVectorOverlayCacheFilePath(overlay);
+          const sourceMeta = toVectorOverlayCacheSourceMeta(overlay);
+
+          const cacheRaw = await platform.fileStore.readText(`${missionRootPath}/${cacheFilePath}`);
+          const cacheData = cacheRaw ? parseVectorOverlayCache(cacheRaw, sourceMeta) : null;
+          if (cacheData) {
+            vectorOverlayCacheRef.current.set(overlay.id, {
+              key: overlayKey,
+              data: cacheData,
+            });
+          } else {
             const parsed = await parseVectorOverlayFromSourceFile(missionRootPath, overlay);
             const cachePayload = serializeVectorOverlayCache(sourceMeta, parsed);
             await platform.fileStore.writeText(`${missionRootPath}/${cacheFilePath}`, cachePayload).catch(() => {
@@ -1664,26 +1698,46 @@ const MapWorkspace = () => {
               key: overlayKey,
               data: parsed,
             });
-          } catch (error) {
-            if (!vectorOverlayErrorShownRef.current.has(overlay.id)) {
-              vectorOverlayErrorShownRef.current.add(overlay.id);
-              const message = error instanceof Error ? error.message : 'Ошибка загрузки CAD-слоя.';
-              toast({
-                title: `Не удалось загрузить слой: ${overlay.name}`,
-                description: message,
-              });
-            }
           }
-        }),
-      );
 
-      syncStateFromCache();
+          const activeProgressToast = vectorRenderProgressToastRef.current.get(overlay.id);
+          if (activeProgressToast) {
+            activeProgressToast.dismiss();
+            vectorRenderProgressToastRef.current.delete(overlay.id);
+          }
+          if (vectorRenderNotificationPendingRef.current.has(overlay.id)) {
+            toast({ title: `Обработка завершена: ${overlay.name}` });
+            vectorRenderNotificationPendingRef.current.delete(overlay.id);
+          }
+        } catch (error) {
+          const activeProgressToast = vectorRenderProgressToastRef.current.get(overlay.id);
+          if (activeProgressToast) {
+            activeProgressToast.dismiss();
+            vectorRenderProgressToastRef.current.delete(overlay.id);
+          }
+          vectorRenderNotificationPendingRef.current.delete(overlay.id);
+          if (!vectorOverlayErrorShownRef.current.has(overlay.id)) {
+            vectorOverlayErrorShownRef.current.add(overlay.id);
+            const message = error instanceof Error ? error.message : 'Ошибка загрузки CAD-слоя.';
+            toast({
+              title: `Не удалось загрузить слой: ${overlay.name}`,
+              description: message,
+            });
+          }
+        }
+
+        syncStateFromCache();
+      }
     };
 
     void loadVectorOverlayData();
 
     return () => {
       active = false;
+      for (const toastHandle of vectorRenderProgressToastRef.current.values()) {
+        toastHandle.dismiss();
+      }
+      vectorRenderProgressToastRef.current.clear();
     };
   }, [missionRootPath, vectorOverlays]);
 
@@ -1810,6 +1864,7 @@ const MapWorkspace = () => {
 
           rasterRenderNotificationPendingRef.current.add(id);
 
+          const decodePromise = waitForRasterDecode(id);
           setRasterOverlays((prev) => {
             const maxZ = prev.reduce((max, item) => Math.max(max, item.z_index), 0);
             return [
@@ -1827,6 +1882,7 @@ const MapWorkspace = () => {
               },
             ];
           });
+          await decodePromise;
           toast({ title: `Растр импортирован: ${baseName}` });
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Ошибка импорта';
@@ -1834,7 +1890,7 @@ const MapWorkspace = () => {
         }
       }
     },
-    [missionRootPath],
+    [missionRootPath, waitForRasterDecode],
   );
 
   const importDxfFiles = useCallback(
@@ -1869,15 +1925,18 @@ const MapWorkspace = () => {
         const lower = sourceFile.name.toLowerCase();
         const baseName = sourceFile.name.replace(/\.[^/.]+$/, '');
 
+        const progressToast = toast({
+          title: `Идёт обработка: ${baseName}`,
+          duration: VECTOR_RENDER_PROGRESS_TOAST_DURATION_MS,
+        });
+
         try {
           let parsed: DxfOverlayFeatureCollection;
           let filePath: string;
           let fileContent: string;
           let overlayType: VectorOverlayUi['type'];
           let fileEncoding: NonNullable<VectorOverlayUi['file_encoding']>;
-          let sourceLabel = 'DXF';
           if (lower.endsWith('.dwg')) {
-            sourceLabel = 'DWG';
             const rawBinary = await sourceFile.arrayBuffer();
             parsed = await parseDwgToWgs84(rawBinary, {
               zone: options.utmZone,
@@ -1952,8 +2011,10 @@ const MapWorkspace = () => {
             ...prev,
             [id]: data,
           }));
-          toast({ title: `${sourceLabel} импортирован: ${baseName}` });
+          progressToast.dismiss();
+          toast({ title: `Слой добавлен: ${baseName}` });
         } catch (error) {
+          progressToast.dismiss();
           const message = error instanceof Error ? error.message : 'Ошибка импорта';
           toast({ title: `Не удалось импортировать ${baseName}`, description: message });
         }
@@ -2448,15 +2509,33 @@ const MapWorkspace = () => {
       toastHandle.dismiss();
     }
     rasterRenderProgressToastRef.current.clear();
-    for (const overlay of nextRasterOverlays) {
-      if (overlay.visible) {
-        rasterRenderNotificationPendingRef.current.add(overlay.id);
-      }
+    // Cancel any pending decode resolvers from previous mission
+    for (const resolve of rasterDecodePendingResolversRef.current.values()) {
+      resolve();
     }
-    setRasterOverlays(nextRasterOverlays);
-    setVectorOverlays(
-      Array.isArray(bundle.mission.ui?.vector_overlays)
-        ? bundle.mission.ui.vector_overlays.filter(
+    rasterDecodePendingResolversRef.current.clear();
+    // Split: hidden overlays go to state immediately; visible ones are queued for sequential decode
+    const hiddenOverlays = nextRasterOverlays.filter((o) => !o.visible);
+    const visibleOverlays = nextRasterOverlays.filter((o) => o.visible);
+    setRasterOverlays(hiddenOverlays);
+    if (visibleOverlays.length > 0) {
+      void (async () => {
+        for (const overlay of visibleOverlays) {
+          rasterRenderNotificationPendingRef.current.add(overlay.id);
+          const decodePromise = waitForRasterDecode(overlay.id);
+          setRasterOverlays((prev) => [...prev, overlay]);
+          await decodePromise;
+        }
+      })();
+    }
+    vectorRenderNotificationPendingRef.current.clear();
+    for (const toastHandle of vectorRenderProgressToastRef.current.values()) {
+      toastHandle.dismiss();
+    }
+    vectorRenderProgressToastRef.current.clear();
+    const nextVectorOverlays = Array.isArray(bundle.mission.ui?.vector_overlays)
+      ? bundle.mission.ui.vector_overlays
+          .filter(
             (item): item is VectorOverlayUi =>
               typeof item?.id === 'string' &&
               typeof item?.name === 'string' &&
@@ -2474,12 +2553,18 @@ const MapWorkspace = () => {
               typeof item?.opacity === 'number' &&
               typeof item?.visible === 'boolean' &&
               typeof item?.z_index === 'number',
-          ).map((item) => ({
+          )
+          .map((item) => ({
             ...item,
             cache_file: resolveVectorOverlayCacheFilePath(item),
           }))
-        : [],
-    );
+      : [];
+    for (const overlay of nextVectorOverlays) {
+      if (overlay.visible) {
+        vectorRenderNotificationPendingRef.current.add(overlay.id);
+      }
+    }
+    setVectorOverlays(nextVectorOverlays);
     vectorOverlayCacheRef.current.clear();
     vectorOverlayErrorShownRef.current.clear();
     setVectorOverlayDataById({});
@@ -2515,7 +2600,7 @@ const MapWorkspace = () => {
     setCenterRequest(null);
     setIsLoaded(true);
     setShouldAutoStartRecording(!draftMode);
-  }, []);
+  }, [waitForRasterDecode]);
 
   const loadDraft = useCallback(
     async (mode: DraftLoadMode) => {
