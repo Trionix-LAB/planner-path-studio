@@ -99,6 +99,16 @@ export type EquipmentRuntimeV3 = {
     instance_id: string;
     instance_name: string | null;
   };
+  rwlt_com?: {
+    interface: 'serial';
+    protocol: 'unav';
+    autoDetectPort: boolean;
+    comPort: string;
+    baudRate: number;
+    mode: 'pinger' | 'divers';
+    instance_id: string;
+    instance_name: string | null;
+  };
 };
 
 export type DeviceChangedPayload = {

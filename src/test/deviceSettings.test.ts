@@ -176,6 +176,46 @@ describe('equipment settings', () => {
     expect(autoModeSkipsComPortValidation.comPort).toBeUndefined();
   });
 
+  it('validates rwlt-com manual COM port, baud rate and mode default', () => {
+    const rwltComSchema = loadDeviceSchemas().find((schema) => schema.id === 'rwlt-com');
+    expect(rwltComSchema).toBeTruthy();
+
+    const invalidManual = validateDeviceConfig(rwltComSchema!, {
+      autoDetectPort: false,
+      comPort: '',
+      baudRate: '0',
+      mode: 'pinger',
+    });
+    expect(invalidManual.comPort).toContain('Выберите');
+    expect(invalidManual.baudRate).toContain('Минимум');
+
+    const validManual = validateDeviceConfig(rwltComSchema!, {
+      autoDetectPort: false,
+      comPort: '/dev/ttyUSB0',
+      baudRate: '38400',
+      mode: 'divers',
+    });
+    expect(validManual.comPort).toBeUndefined();
+    expect(validManual.baudRate).toBeUndefined();
+
+    const validManualWindows = validateDeviceConfig(rwltComSchema!, {
+      autoDetectPort: false,
+      comPort: 'COM7',
+      baudRate: '38400',
+      mode: 'pinger',
+    });
+    expect(validManualWindows.comPort).toBeUndefined();
+    expect(validManualWindows.baudRate).toBeUndefined();
+
+    const autoModeSkipsComPortValidation = validateDeviceConfig(rwltComSchema!, {
+      autoDetectPort: true,
+      comPort: 'COM3',
+      baudRate: '38400',
+      mode: 'pinger',
+    });
+    expect(autoModeSkipsComPortValidation.comPort).toBeUndefined();
+  });
+
   it('skips validation for disabled dependent fields', () => {
     const zimaSchema = loadDeviceSchemas().find((schema) => schema.id === 'zima2r');
     expect(zimaSchema).toBeTruthy();
@@ -382,6 +422,52 @@ describe('equipment settings', () => {
       baudRate: 38400,
       instance_id: gnssComInstanceId,
       instance_name: 'GNSS COM',
+    });
+  });
+
+  it('builds runtime for rwlt-com instance with mode', () => {
+    const schemas = loadDeviceSchemas();
+    const base = createDefaultEquipmentSettings(schemas);
+
+    const rwltComInstanceId = 'profile-zima-gnss-rwlt-com-1';
+
+    const runtime = buildEquipmentRuntime(
+      {
+        ...base,
+        selected_profile_id: 'profile-zima-gnss',
+        profiles: base.profiles.map((item) =>
+          item.id === 'profile-zima-gnss'
+            ? { ...item, device_instance_ids: [...item.device_instance_ids, rwltComInstanceId] }
+            : item,
+        ),
+        device_instances: {
+          ...base.device_instances,
+          [rwltComInstanceId]: {
+            id: rwltComInstanceId,
+            schema_id: 'rwlt-com',
+            name: 'RWLT COM',
+            is_primary: true,
+            config: {
+              autoDetectPort: false,
+              comPort: 'COM7',
+              baudRate: 38400,
+              mode: 'divers',
+            },
+          },
+        },
+      },
+      schemas,
+    );
+
+    expect(runtime.rwlt_com).toEqual({
+      interface: 'serial',
+      protocol: 'unav',
+      autoDetectPort: false,
+      comPort: 'COM7',
+      baudRate: 38400,
+      mode: 'divers',
+      instance_id: rwltComInstanceId,
+      instance_name: 'RWLT COM',
     });
   });
 });

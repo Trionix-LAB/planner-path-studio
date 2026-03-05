@@ -29,7 +29,7 @@ import { getDefaultZoneLanePanelIconPosition, getDefaultZoneLanePanelPosition } 
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import CachedTileLayer from './CachedTileLayer';
-import { createBaseStationIcon, createDiverIcon } from './telemetryMarkerIcons';
+import { createBaseStationIcon, createDiverIcon, createRwltBuoyIcon } from './telemetryMarkerIcons';
 import { resolveFlyToZoomFor50mGrid } from './flyToZoom';
 
 const TRANSPARENT_TILE =
@@ -109,6 +109,14 @@ interface MapCanvasProps {
     visible: boolean;
     zIndex: number;
     features: DxfOverlayFeatureCollection['features'];
+  }>;
+  rwltBuoys?: Array<{
+    buoyId: number;
+    lat: number;
+    lon: number;
+    antennaDepthM: number;
+    batteryV: number | null;
+    updatedAt: number;
   }>;
   followAgentId: string | null;
   connectionStatus: 'ok' | 'timeout' | 'error';
@@ -606,6 +614,7 @@ const MapCanvas = ({
   trackSegments,
   rasterOverlays = [],
   vectorOverlays = [],
+  rwltBuoys = [],
   followAgentId,
   connectionStatus,
   connectionLostSeconds,
@@ -1962,6 +1971,18 @@ const MapCanvas = ({
             </Tooltip>
           </Marker>
         ) : null}
+        {showTelemetryObjects &&
+          rwltBuoys.map((buoy) => (
+            <Marker
+              key={`rwlt-buoy-${buoy.buoyId}`}
+              position={[buoy.lat, buoy.lon]}
+              icon={createRwltBuoyIcon(buoy.buoyId)}
+            >
+              <Tooltip direction="top" offset={[10, -10]}>
+                {`Буй ${buoy.buoyId} · ${buoy.batteryV !== null ? `${buoy.batteryV.toFixed(1)} В` : '—'} · ${buoy.antennaDepthM.toFixed(1)} м`}
+              </Tooltip>
+            </Marker>
+          ))}
       </MapContainer>
 
       {/* Object Context Menu */}

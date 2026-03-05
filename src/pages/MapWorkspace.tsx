@@ -43,6 +43,7 @@ import {
   countZoneLanes,
   createElectronGnssComTelemetryProvider,
   createElectronGnssTelemetryProvider,
+  createElectronRwltComTelemetryProvider,
   createElectronZimaTelemetryProvider,
   createDefaultDivers,
   createMissionRepository,
@@ -104,6 +105,7 @@ import { computeBoundsFromTfw, parseTfw } from '@/features/map/rasterOverlays/pa
 import { moveRasterOverlayByDelta } from '@/features/map/rasterOverlays/reorder';
 import { parseDxfToWgs84, type DxfOverlayFeatureCollection } from '@/features/map/dxfOverlay/parseDxf';
 import { parseDwgToWgs84 } from '@/features/map/dwgOverlay/parseDwg';
+import type { RwltPrwlaMessage } from '@/features/devices/rwlt-com/protocol';
 import {
   parseVectorOverlayCache,
   serializeVectorOverlayCache,
@@ -582,6 +584,23 @@ type ElectronGnssComTelemetryConfig = {
   navigationSourceId: string;
 };
 
+type ElectronRwltComTelemetryConfig = {
+  autoDetectPort: boolean;
+  comPort: string;
+  baudRate: number;
+  mode: 'pinger' | 'divers';
+  navigationSourceId: string;
+};
+
+type RwltBuoyState = {
+  buoyId: number;
+  lat: number;
+  lon: number;
+  antennaDepthM: number;
+  batteryV: number | null;
+  updatedAt: number;
+};
+
 type DiverTelemetryState = {
   lat: number;
   lon: number;
@@ -592,7 +611,7 @@ type DiverTelemetryState = {
   received_at: number;
 };
 
-type ProviderSourceId = 'zima2r' | 'gnss-udp' | 'gnss-com' | 'simulation';
+type ProviderSourceId = 'zima2r' | 'gnss-udp' | 'gnss-com' | 'rwlt-com' | 'simulation';
 type DeviceProviderSourceId = Exclude<ProviderSourceId, 'simulation'>;
 type ElectronLifecycleApi = {
   onPrepareClose: (listener: (payload: { token?: string }) => void) => () => void;
@@ -673,6 +692,21 @@ const normalizeGnssComTelemetryConfig = (raw: unknown): ElectronGnssComTelemetry
     comPort,
     baudRate: normalizePositiveInt(raw.baudRate, 115200, 4_000_000),
     navigationSourceId: instanceIdRaw || 'gnss-com',
+  };
+};
+
+const normalizeRwltComTelemetryConfig = (raw: unknown): ElectronRwltComTelemetryConfig | null => {
+  if (!isRecord(raw)) return null;
+
+  const comPort = typeof raw.comPort === 'string' ? raw.comPort.trim() : '';
+  const instanceIdRaw = typeof raw.instance_id === 'string' ? raw.instance_id.trim() : '';
+  const modeRaw = typeof raw.mode === 'string' ? raw.mode.trim().toLowerCase() : '';
+  return {
+    autoDetectPort: normalizeBoolean(raw.autoDetectPort, true),
+    comPort,
+    baudRate: normalizePositiveInt(raw.baudRate, 38400, 4_000_000),
+    mode: modeRaw === 'divers' ? 'divers' : 'pinger',
+    navigationSourceId: instanceIdRaw || 'rwlt-com',
   };
 };
 
@@ -801,6 +835,20 @@ const MapWorkspace = () => {
     const runtime = buildEquipmentRuntime(normalizedSettings, deviceSchemas);
     return normalizeGnssComTelemetryConfig(runtime.gnss_com);
   }, [deviceSchemas]);
+  const readElectronRwltComConfig = useCallback(async (): Promise<ElectronRwltComTelemetryConfig | null> => {
+    const runtimeRaw = await platform.settings.readJson<unknown>(EQUIPMENT_RUNTIME_STORAGE_KEY);
+    if (isRecord(runtimeRaw)) {
+      const runtimeConfig = normalizeRwltComTelemetryConfig(runtimeRaw.rwlt_com);
+      if (runtimeConfig) {
+        return runtimeConfig;
+      }
+    }
+
+    const settingsRaw = await platform.settings.readJson<unknown>(EQUIPMENT_SETTINGS_STORAGE_KEY);
+    const normalizedSettings = normalizeEquipmentSettings(settingsRaw, deviceSchemas);
+    const runtime = buildEquipmentRuntime(normalizedSettings, deviceSchemas);
+    return normalizeRwltComTelemetryConfig(runtime.rwlt_com);
+  }, [deviceSchemas]);
 
   const zimaTelemetryProvider = useMemo(
     () =>
@@ -857,6 +905,7 @@ const MapWorkspace = () => {
   const [rasterOverlayUrls, setRasterOverlayUrls] = useState<Record<string, string>>({});
   const [vectorOverlays, setVectorOverlays] = useState<VectorOverlayUi[]>([]);
   const [vectorOverlayDataById, setVectorOverlayDataById] = useState<Record<string, VectorOverlayMapData>>({});
+  const [rwltBuoys, setRwltBuoys] = useState<Record<number, RwltBuoyState>>({});
   const [baseStationTelemetry, setBaseStationTelemetry] = useState<BaseStationTelemetryState | null>(null);
   const [layers, setLayers] = useState<LayersState>(DEFAULT_LAYERS);
   const [objects, setObjects] = useState<MapObject[]>([]);
@@ -920,12 +969,14 @@ const MapWorkspace = () => {
     zima2r: 'timeout',
     'gnss-udp': 'timeout',
     'gnss-com': 'timeout',
+    'rwlt-com': 'timeout',
   });
   const [simulationConnectionStatus, setSimulationConnectionStatus] = useState<TelemetryConnectionState>('timeout');
   const [deviceConnectionLostSeconds, setDeviceConnectionLostSeconds] = useState<Record<DeviceProviderSourceId, number>>({
     zima2r: 1,
     'gnss-udp': 1,
     'gnss-com': 1,
+    'rwlt-com': 1,
   });
   const [recordingState, setRecordingState] = useState<TrackRecorderState>(() =>
     createTrackRecorderState(null, {}, {}),
@@ -945,24 +996,55 @@ const MapWorkspace = () => {
     zima2r: Date.now(),
     'gnss-udp': Date.now(),
     'gnss-com': Date.now(),
+    'rwlt-com': Date.now(),
     simulation: Date.now(),
   });
   const hadFixBySourceRef = useRef<Record<ProviderSourceId, boolean>>({
     zima2r: false,
     'gnss-udp': false,
     'gnss-com': false,
+    'rwlt-com': false,
     simulation: false,
   });
   const zimaAzmLocFixRef = useRef<DiverTelemetryState | null>(null);
   const zimaRemFixByBeaconRef = useRef<Record<string, DiverTelemetryState>>({});
   const gnssFixRef = useRef<DiverTelemetryState | null>(null);
   const gnssComFixRef = useRef<DiverTelemetryState | null>(null);
+  const rwltBaseFixRef = useRef<DiverTelemetryState | null>(null);
+  const rwltPingerAgentFixRef = useRef<DiverTelemetryState | null>(null);
+  const rwltDiverFixByIdRef = useRef<Record<string, DiverTelemetryState>>({});
   const simulationFixRef = useRef<DiverTelemetryState | null>(null);
   const lastRecordedPrimaryFixAtRef = useRef<number>(0);
   const lastRecordedFixByAgentRef = useRef<Record<string, number>>({});
   const missionDiversRef = useRef<DiverUiConfig[]>(createDefaultDivers(1));
   const appSettingsRef = useRef<AppSettingsV1>(DEFAULT_APP_SETTINGS);
   const appSettingsReadyRef = useRef(false);
+  const handleRwltBuoyUpdate = useCallback((msg: RwltPrwlaMessage) => {
+    setRwltBuoys((prev) => ({
+      ...prev,
+      [msg.buoyId]: {
+        buoyId: msg.buoyId,
+        lat: msg.lat,
+        lon: msg.lon,
+        antennaDepthM: msg.antennaDepthM,
+        batteryV: msg.batteryV,
+        updatedAt: Date.now(),
+      },
+    }));
+  }, []);
+  const rwltComTelemetryProvider = useMemo(
+    () =>
+      createElectronRwltComTelemetryProvider({
+        timeoutMs: CONNECTION_TIMEOUT_MS,
+        readConfig: readElectronRwltComConfig,
+        resolveDiver: (tId) => {
+          const match = missionDiversRef.current.find((diver) => diver.beacon_id === String(tId));
+          return match ? { uid: match.uid, id: match.id } : null;
+        },
+        onBuoyUpdate: handleRwltBuoyUpdate,
+      }),
+    [handleRwltBuoyUpdate, readElectronRwltComConfig],
+  );
   const latestSnapshotRef = useRef<WorkspaceSnapshot>({
     missionRootPath: null,
     recordingState: createTrackRecorderState(null, {}, {}),
@@ -1039,6 +1121,13 @@ const MapWorkspace = () => {
         features: vectorOverlayDataById[overlay.id]?.features ?? [],
       })),
     [vectorOverlayDataById, vectorOverlays],
+  );
+  const rwltBuoysForMap = useMemo(
+    () =>
+      Object.values(rwltBuoys)
+        .filter((buoy) => Number.isFinite(buoy.lat) && Number.isFinite(buoy.lon))
+        .sort((a, b) => a.buoyId - b.buoyId),
+    [rwltBuoys],
   );
   const activeTrackNumber = useMemo(() => {
     if (!missionDocument) return 0;
@@ -1157,8 +1246,12 @@ const MapWorkspace = () => {
       if (sourceId === 'simulation') return 'simulation';
       const schemaId =
         navigationSourceSchemaById.get(sourceId) ??
-        (sourceId === 'zima2r' || sourceId === 'gnss-udp' || sourceId === 'gnss-com' ? sourceId : null);
-      if (schemaId === 'zima2r' || schemaId === 'gnss-udp' || schemaId === 'gnss-com') return schemaId;
+        (sourceId === 'zima2r' || sourceId === 'gnss-udp' || sourceId === 'gnss-com' || sourceId === 'rwlt-com'
+          ? sourceId
+          : null);
+      if (schemaId === 'zima2r' || schemaId === 'gnss-udp' || schemaId === 'gnss-com' || schemaId === 'rwlt-com') {
+        return schemaId;
+      }
       return null;
     },
     [navigationSourceSchemaById],
@@ -1169,7 +1262,7 @@ const MapWorkspace = () => {
       if (!sourceId) return null;
       if (availableNavigationSources.includes(sourceId)) return sourceId;
 
-      if (sourceId === 'zima2r' || sourceId === 'gnss-udp' || sourceId === 'gnss-com') {
+      if (sourceId === 'zima2r' || sourceId === 'gnss-udp' || sourceId === 'gnss-com' || sourceId === 'rwlt-com') {
         const instanceSource = navigationSourceOptions.find((option) => option.schemaId === sourceId)?.id;
         return instanceSource ?? null;
       }
@@ -1213,6 +1306,11 @@ const MapWorkspace = () => {
     () => isSourceEnabled(primaryNavigationSource),
     [isSourceEnabled, primaryNavigationSource],
   );
+  const showRwltBuoys = useMemo(() => {
+    return navigationSourceOptions.some(
+      (option) => option.schemaId === 'rwlt-com' && Boolean(equipmentEnabledBySource[option.id]),
+    );
+  }, [equipmentEnabledBySource, navigationSourceOptions]);
   const realtimeVisibility = useMemo(
     () =>
       computeRealtimeVisibilityState({
@@ -2325,12 +2423,16 @@ const MapWorkspace = () => {
     setHasPrimaryTelemetry(false);
     setHasPrimaryTelemetryHistory(false);
     setDiverTelemetryById({});
-    hadFixBySourceRef.current = { zima2r: false, 'gnss-udp': false, 'gnss-com': false, simulation: false };
+    hadFixBySourceRef.current = { zima2r: false, 'gnss-udp': false, 'gnss-com': false, 'rwlt-com': false, simulation: false };
     zimaAzmLocFixRef.current = null;
     zimaRemFixByBeaconRef.current = {};
     gnssFixRef.current = null;
     gnssComFixRef.current = null;
+    rwltBaseFixRef.current = null;
+    rwltPingerAgentFixRef.current = null;
+    rwltDiverFixByIdRef.current = {};
     simulationFixRef.current = null;
+    setRwltBuoys({});
     lastRecordedPrimaryFixAtRef.current = 0;
     lastRecordedFixByAgentRef.current = {};
     setSelectedAgentId(null);
@@ -2728,6 +2830,8 @@ const MapWorkspace = () => {
         telemetry = gnssFixRef.current;
       } else if (providerSource === 'gnss-com') {
         telemetry = gnssComFixRef.current;
+      } else if (providerSource === 'rwlt-com') {
+        telemetry = rwltDiverFixByIdRef.current[diver.id.trim()] ?? rwltPingerAgentFixRef.current;
       } else if (providerSource === 'simulation') {
         telemetry = simulationFixRef.current;
       } else {
@@ -2762,6 +2866,8 @@ const MapWorkspace = () => {
           ? gnssFixRef.current
           : primaryProviderSource === 'gnss-com'
             ? gnssComFixRef.current
+          : primaryProviderSource === 'rwlt-com'
+            ? rwltDiverFixByIdRef.current[missionDiversRef.current[0]?.id.trim() ?? ''] ?? rwltPingerAgentFixRef.current
           : primaryProviderSource === 'simulation'
             ? simulationFixRef.current
             : null;
@@ -2814,6 +2920,7 @@ const MapWorkspace = () => {
     if (providerSource === 'zima2r') return zimaAzmLocFixRef.current;
     if (providerSource === 'gnss-udp') return gnssFixRef.current;
     if (providerSource === 'gnss-com') return gnssComFixRef.current;
+    if (providerSource === 'rwlt-com') return rwltBaseFixRef.current;
     if (providerSource === 'simulation') return simulationFixRef.current;
     return null;
   }, [resolveProviderSource]);
@@ -2911,6 +3018,20 @@ const MapWorkspace = () => {
         gnssFixRef.current = telemetryState;
       } else if (sourceId === 'gnss-com') {
         gnssComFixRef.current = telemetryState;
+      } else if (sourceId === 'rwlt-com') {
+        if (fix.entity_type === 'base_station') {
+          rwltBaseFixRef.current = telemetryState;
+        } else if (fix.entity_type === 'diver' && typeof fix.entity_id === 'string') {
+          const diver = missionDiversRef.current.find((item) => item.uid === fix.entity_id);
+          if (diver) {
+            const diverKey = diver.id.trim();
+            if (diverKey) {
+              rwltDiverFixByIdRef.current[diverKey] = telemetryState;
+            }
+          }
+        } else {
+          rwltPingerAgentFixRef.current = telemetryState;
+        }
       } else {
         simulationFixRef.current = telemetryState;
       }
@@ -2937,7 +3058,7 @@ const MapWorkspace = () => {
 
   const handleDeviceConnectionState = useCallback(
     (sourceId: ProviderSourceId, nextState: TelemetryConnectionState) => {
-      if (sourceId === 'zima2r' || sourceId === 'gnss-udp' || sourceId === 'gnss-com') {
+      if (sourceId === 'zima2r' || sourceId === 'gnss-udp' || sourceId === 'gnss-com' || sourceId === 'rwlt-com') {
         setDeviceConnectionStatus((prev) => ({ ...prev, [sourceId]: nextState }));
       } else {
         setSimulationConnectionStatus(nextState);
@@ -2958,7 +3079,8 @@ const MapWorkspace = () => {
     const nextStatus =
       primaryProviderSource === 'zima2r' ||
       primaryProviderSource === 'gnss-udp' ||
-      primaryProviderSource === 'gnss-com'
+      primaryProviderSource === 'gnss-com' ||
+      primaryProviderSource === 'rwlt-com'
         ? deviceConnectionStatus[primaryProviderSource]
         : primaryProviderSource === 'simulation'
           ? simulationConnectionStatus
@@ -3002,9 +3124,14 @@ const MapWorkspace = () => {
       const unsubscribeGnssComConnection = gnssComTelemetryProvider.onConnectionState((state) =>
         handleDeviceConnectionState('gnss-com', state),
       );
+      const unsubscribeRwltComFix = rwltComTelemetryProvider.onFix((fix) => handleTelemetryFix('rwlt-com', fix));
+      const unsubscribeRwltComConnection = rwltComTelemetryProvider.onConnectionState((state) =>
+        handleDeviceConnectionState('rwlt-com', state),
+      );
       zimaTelemetryProvider.start();
       gnssTelemetryProvider.start();
       gnssComTelemetryProvider.start();
+      rwltComTelemetryProvider.start();
 
       return () => {
         unsubscribeZimaFix();
@@ -3013,9 +3140,12 @@ const MapWorkspace = () => {
         unsubscribeGnssConnection();
         unsubscribeGnssComFix();
         unsubscribeGnssComConnection();
+        unsubscribeRwltComFix();
+        unsubscribeRwltComConnection();
         zimaTelemetryProvider.stop();
         gnssTelemetryProvider.stop();
         gnssComTelemetryProvider.stop();
+        rwltComTelemetryProvider.stop();
       };
     }
 
@@ -3035,6 +3165,7 @@ const MapWorkspace = () => {
     handleDeviceConnectionState,
     handleTelemetryFix,
     isElectronRuntime,
+    rwltComTelemetryProvider,
     simulationTelemetryProvider,
     zimaTelemetryProvider,
   ]);
@@ -3050,18 +3181,35 @@ const MapWorkspace = () => {
       const gnssComEnabled = navigationSourceOptions.some(
         (option) => option.schemaId === 'gnss-com' && Boolean(equipmentEnabledBySource[option.id]),
       );
+      const rwltComEnabled = navigationSourceOptions.some(
+        (option) => option.schemaId === 'rwlt-com' && Boolean(equipmentEnabledBySource[option.id]),
+      );
       zimaTelemetryProvider.setEnabled(zimaEnabled);
       gnssTelemetryProvider.setEnabled(gnssEnabled);
       gnssComTelemetryProvider.setEnabled(gnssComEnabled);
+      rwltComTelemetryProvider.setEnabled(rwltComEnabled);
+      if (!rwltComEnabled) {
+        setRwltBuoys({});
+        rwltBaseFixRef.current = null;
+        rwltPingerAgentFixRef.current = null;
+        rwltDiverFixByIdRef.current = {};
+      }
       return;
     }
     simulationTelemetryProvider.setEnabled(simulationEnabled);
+    if (!simulationEnabled) {
+      setRwltBuoys({});
+      rwltBaseFixRef.current = null;
+      rwltPingerAgentFixRef.current = null;
+      rwltDiverFixByIdRef.current = {};
+    }
   }, [
     equipmentEnabledBySource,
     gnssComTelemetryProvider,
     gnssTelemetryProvider,
     isElectronRuntime,
     navigationSourceOptions,
+    rwltComTelemetryProvider,
     simulationEnabled,
     simulationTelemetryProvider,
     zimaTelemetryProvider,
@@ -3109,6 +3257,10 @@ const MapWorkspace = () => {
           deviceConnectionStatus['gnss-com'] === 'ok'
             ? 0
             : Math.max(1, Math.floor((Date.now() - lastFixAtBySourceRef.current['gnss-com']) / 1000)),
+        'rwlt-com':
+          deviceConnectionStatus['rwlt-com'] === 'ok'
+            ? 0
+            : Math.max(1, Math.floor((Date.now() - lastFixAtBySourceRef.current['rwlt-com']) / 1000)),
       });
     }, 1000);
     return () => {
@@ -4154,6 +4306,7 @@ const MapWorkspace = () => {
             trackSegments={visibleTrackSegments}
             rasterOverlays={rasterOverlaysForMap}
             vectorOverlays={vectorOverlaysForMap}
+            rwltBuoys={showRwltBuoys ? rwltBuoysForMap : []}
             followAgentId={pinnedAgentId}
             connectionStatus={connectionStatus}
             connectionLostSeconds={connectionLostSeconds}
@@ -4271,13 +4424,15 @@ const MapWorkspace = () => {
                 const deviceState =
                   sourceSchemaId === 'zima2r' ||
                   sourceSchemaId === 'gnss-udp' ||
-                  sourceSchemaId === 'gnss-com'
+                  sourceSchemaId === 'gnss-com' ||
+                  sourceSchemaId === 'rwlt-com'
                     ? deviceConnectionStatus[sourceSchemaId]
                     : 'ok';
                 const lostSeconds =
                   sourceSchemaId === 'zima2r' ||
                   sourceSchemaId === 'gnss-udp' ||
-                  sourceSchemaId === 'gnss-com'
+                  sourceSchemaId === 'gnss-com' ||
+                  sourceSchemaId === 'rwlt-com'
                     ? deviceConnectionLostSeconds[sourceSchemaId]
                     : 0;
                 const statusText = enabled

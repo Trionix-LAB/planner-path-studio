@@ -1,12 +1,16 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DeviceSchemaForm from '@/components/devices/DeviceSchemaForm';
 import { loadDeviceSchemas, type DeviceConfig } from '@/features/devices';
 
 const gnssComSchema = loadDeviceSchemas().find((schema) => schema.id === 'gnss-com');
+const rwltComSchema = loadDeviceSchemas().find((schema) => schema.id === 'rwlt-com');
 
 if (!gnssComSchema) {
   throw new Error('GNSS-COM schema is required for DeviceSchemaForm tests');
+}
+if (!rwltComSchema) {
+  throw new Error('RWLT-COM schema is required for DeviceSchemaForm tests');
 }
 
 const defaultConfig: DeviceConfig = {
@@ -18,6 +22,9 @@ const defaultConfig: DeviceConfig = {
 const electronWindow = window as unknown as {
   electronAPI?: {
     gnssCom?: {
+      listPorts?: () => Promise<Array<{ path?: string } | string>>;
+    };
+    rwltCom?: {
       listPorts?: () => Promise<Array<{ path?: string } | string>>;
     };
   };
@@ -122,5 +129,46 @@ describe('DeviceSchemaForm GNSS-COM combobox', () => {
       expect(screen.queryByPlaceholderText('Введите или найдите COM-порт')).not.toBeInTheDocument();
     });
     expect(screen.getByRole('combobox')).toBeDisabled();
+  });
+});
+
+describe('DeviceSchemaForm RWLT-COM combobox', () => {
+  const listPortsMock = vi.fn<() => Promise<Array<{ path?: string } | string>>>();
+
+  beforeEach(() => {
+    listPortsMock.mockReset();
+    listPortsMock.mockResolvedValue(['COM7', '/dev/ttyUSB1']);
+    electronWindow.electronAPI = {
+      rwltCom: {
+        listPorts: listPortsMock,
+      },
+    };
+  });
+
+  afterEach(() => {
+    delete electronWindow.electronAPI;
+  });
+
+  it('opens COM list and applies selected port', async () => {
+    const onChange = vi.fn();
+
+    render(
+      <DeviceSchemaForm
+        schema={rwltComSchema}
+        value={{ ...defaultConfig, baudRate: 38400, mode: 'pinger' }}
+        errors={{}}
+        onChange={(key, value) => onChange(key, value)}
+      />,
+    );
+
+    const comPortField = document.querySelector('[data-field-key="comPort"]');
+    expect(comPortField).toBeTruthy();
+    const comPortCombobox = within(comPortField as HTMLElement).getByRole('combobox');
+    fireEvent.click(comPortCombobox);
+    expect(await screen.findByPlaceholderText('Введите или найдите COM-порт')).toBeInTheDocument();
+    expect(await screen.findByText('COM7')).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByText('/dev/ttyUSB1'));
+    expect(onChange).toHaveBeenCalledWith('comPort', '/dev/ttyUSB1');
   });
 });

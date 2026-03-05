@@ -2,18 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { createDefaultDeviceConfig, loadDeviceSchemas } from '@/features/devices';
 
 describe('device schema loader', () => {
-  it('loads zima2r, gnss-udp and gnss-com schemas from files', () => {
+  it('loads zima2r, gnss-udp, gnss-com and rwlt-com schemas from files', () => {
     const schemas = loadDeviceSchemas();
     const zima = schemas.find((schema) => schema.id === 'zima2r');
     const gnss = schemas.find((schema) => schema.id === 'gnss-udp');
     const gnssCom = schemas.find((schema) => schema.id === 'gnss-com');
+    const rwltCom = schemas.find((schema) => schema.id === 'rwlt-com');
 
     expect(zima).toBeTruthy();
     expect(gnss).toBeTruthy();
     expect(gnssCom).toBeTruthy();
+    expect(rwltCom).toBeTruthy();
     expect(zima?.title).toBe('Zima2R');
     expect(gnss?.title).toBe('GNSS-UDP');
     expect(gnssCom?.title).toBe('GNSS-COM');
+    expect(rwltCom?.title).toBe('RWLT-COM');
     expect(zima?.fields.map((field) => field.key)).toEqual([
       'ipAddress',
       'commandPort',
@@ -44,6 +47,11 @@ describe('device schema loader', () => {
     expect(comPortField?.enabledBy).toBe('!autoDetectPort');
     expect(comPortField?.validation.type).toBe('none');
     expect(autoDetectPortField?.inputForm).toBe('boolean');
+
+    expect(rwltCom?.fields.map((field) => field.key)).toEqual(['autoDetectPort', 'comPort', 'baudRate', 'mode']);
+    const rwltModeField = rwltCom?.fields.find((field) => field.key === 'mode');
+    expect(rwltModeField?.inputForm).toBe('select');
+    expect(rwltModeField?.options?.map((option) => option.value)).toEqual(['pinger', 'divers']);
   });
 
   it('builds default config from schema defaults', () => {

@@ -59,6 +59,7 @@ Key principles:
 - [**docs/devices.md**](docs/devices.md) — Hardware device specifications
 - [**docs/features/tif-tfw-import-modes.md**](docs/features/tif-tfw-import-modes.md) — Quick guide for choosing `TIF + TFW` import mode (degrees / Mercator / UTM)
 - [**docs/electron-telemetry-provider.md**](docs/electron-telemetry-provider.md) — Electron telemetry integration notes
+- [**docs/features/rwlt-simulator.md**](docs/features/rwlt-simulator.md) — RWLT-COM serial simulator usage
 - [**spec/adr/**](spec/adr/) — Architectural Decision Records
 
 **Full documentation:** [`docs/`](docs/) | **Interactive dashboard:** [`docs/index.html`](https://docs.trionix-lab.ru/planner-path-studio/)
@@ -89,6 +90,12 @@ npm run electron:build        # Build for current platform (auto-detected)
 npm run electron:build:win    # Build Windows portable .exe
 npm run electron:build:linux  # Build Linux AppImage + .deb
 npm run electron:build:mac    # Build macOS .dmg + .zip (requires macOS)
+
+# Hardware Simulators
+npm run zima:sim              # Zima2R UDP simulator
+npm run gnss:sim              # GNSS-UDP simulator
+npm run gnss-com:sim          # GNSS-COM serial simulator
+npm run rwlt-com:sim          # RWLT-COM serial simulator
 
 # Deployment
 npm run deploy           # Deploy to GitHub Pages
@@ -124,7 +131,7 @@ planner-path-studio/
 
 ## 🎮 Hardware Simulators
 
-CLI simulators for local development and CI testing. These tools send UDP telemetry data to the application, enabling testing without physical hardware.
+CLI simulators for local development and CI testing. These tools send telemetry data over the corresponding transport (UDP or serial/COM), enabling testing without physical hardware.
 
 ### Zima2R Simulator (UDP @AZMLOC/@AZMREM)
 
@@ -211,6 +218,43 @@ npm run gnss-com:sim -- --virtual false --port COM12 --baud 115200 --rate 2
 - Windows: virtual COM pair tool (`com0com` or equivalent) and an existing paired COM ports.
 
 📖 **Documentation:** [docs/features/gnss-com-simulator.md](docs/features/gnss-com-simulator.md)
+
+### RWLT-COM Simulator (uNav over Serial)
+
+Simulates RWLT dongle over serial port (COM/TTY) for `rwlt-com` integration testing.
+
+**Linux/macOS (auto virtual pair via `socat`):**
+```sh
+npm run rwlt-com:sim
+```
+
+**Modes (short):**
+```sh
+# Pinger mode (agent from GGA/RMC)
+npm run rwlt-com:sim -- --rwlt-mode pinger
+
+# Divers mode (divers from PUWV3)
+npm run rwlt-com:sim -- --rwlt-mode divers --diver-ids 1,2,3
+```
+
+After start, simulator prints:
+- `appPortPath` — set this exact value in Equipment -> `RWLT-COM` -> `COM-порт`
+- `simulatorPortPath` — internal side used by simulator
+
+**Windows (manual virtual COM pair):**
+1. Install a virtual COM pair driver, e.g. `com0com`.
+2. Create a pair (example: `COM11 <-> COM12`).
+3. Start simulator on one side:
+```sh
+npm run rwlt-com:sim -- --virtual false --port COM12 --baud 38400 --rwlt-mode pinger
+```
+4. In app set `RWLT-COM -> COM-порт` to `COM11`.
+
+**Requirements:**
+- Linux/macOS auto mode: `socat` must be installed and available in `PATH`.
+- Windows: virtual COM pair tool (`com0com` or equivalent) and an existing paired COM ports.
+
+📖 **Documentation:** [docs/features/rwlt-simulator.md](docs/features/rwlt-simulator.md)
 
 ### CI Integration
 

@@ -70,6 +70,20 @@ declare global {
 				onStatus: (listener: (payload: { status?: string }) => void) => () => void;
 				onError: (listener: (payload: { message?: string }) => void) => () => void;
 			};
+			rwltCom?: {
+				start: (config: {
+					autoDetectPort: boolean;
+					comPort: string;
+					baudRate: number;
+					mode: 'pinger' | 'divers';
+				}) => Promise<unknown>;
+				stop: () => Promise<unknown>;
+				status: () => Promise<unknown>;
+				listPorts: () => Promise<Array<{ path?: string } | string>>;
+				onData: (listener: (payload: { message?: string; receivedAt?: number; portPath?: string }) => void) => () => void;
+				onStatus: (listener: (payload: { status?: string }) => void) => () => void;
+				onError: (listener: (payload: { message?: string }) => void) => () => void;
+			};
 		};
 	}
 }

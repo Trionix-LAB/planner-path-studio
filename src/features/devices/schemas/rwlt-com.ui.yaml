@@ -1,0 +1,29 @@
+RWLT-COM:
+  autoDetectPort:
+    label: Авто COM-порт
+    inputForm: boolean
+    inputMask: none
+    defaultValue: true
+  comPort:
+    label: COM-порт
+    inputForm: select
+    enabledBy: '!autoDetectPort'
+    defaultValue: ''
+    validation:
+      type: none
+  baudRate:
+    label: Скорость порта
+    inputForm: number
+    inputMask: none
+    defaultValue: 38400
+    validation:
+      type: number
+      min: 1
+      integer: true
+  mode:
+    label: Режим работы
+    inputForm: select
+    defaultValue: pinger
+    options: [{"label":"Пингер","value":"pinger"},{"label":"Водолазы (RedPhone-DX)","value":"divers"}]
+    validation:
+      type: none

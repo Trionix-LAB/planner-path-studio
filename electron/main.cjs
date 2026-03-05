@@ -128,6 +128,17 @@ const CHANNELS = {
       error: 'planner:gnssCom:error',
     },
   },
+  rwltCom: {
+    start: 'planner:rwltCom:start',
+    stop: 'planner:rwltCom:stop',
+    status: 'planner:rwltCom:status',
+    listPorts: 'planner:rwltCom:listPorts',
+    events: {
+      data: 'planner:rwltCom:data',
+      status: 'planner:rwltCom:statusChanged',
+      error: 'planner:rwltCom:error',
+    },
+  },
 };
 const FILE_STORE_ROOT_DIR = 'planner.fs';
 const PREPARE_CLOSE_TIMEOUT_MS = 8000;
@@ -206,8 +217,16 @@ const DEFAULT_GNSS_COM_CONFIG = {
   baudRate: 115200,
   scanTimeoutMs: 1500,
 };
+const DEFAULT_RWLT_COM_CONFIG = {
+  autoDetectPort: true,
+  comPort: '',
+  baudRate: 38400,
+  scanTimeoutMs: 1500,
+  mode: 'pinger',
+};
 
 const GNSS_COM_SIM_REGISTRY_PATH = path.join(os.tmpdir(), 'planner-gnss-com-sim.json');
+const RWLT_COM_SIM_REGISTRY_PATH = path.join(os.tmpdir(), 'planner-rwlt-com-sim.json');
 
 const normalizeInputPath = (value) => {
   if (typeof value !== 'string') throw new Error('Invalid path');
@@ -418,6 +437,18 @@ const normalizeGnssComConfig = (input) => {
   };
 };
 
+const normalizeRwltComConfig = (input) => {
+  const source = input && typeof input === 'object' ? input : {};
+  const modeRaw = normalizeText(source.mode, DEFAULT_RWLT_COM_CONFIG.mode).toLowerCase();
+  return {
+    autoDetectPort: normalizeBoolean(source.autoDetectPort, DEFAULT_RWLT_COM_CONFIG.autoDetectPort),
+    comPort: normalizeText(source.comPort, DEFAULT_RWLT_COM_CONFIG.comPort),
+    baudRate: normalizePositiveInt(source.baudRate, DEFAULT_RWLT_COM_CONFIG.baudRate, 4_000_000),
+    scanTimeoutMs: normalizePositiveInt(source.scanTimeoutMs, DEFAULT_RWLT_COM_CONFIG.scanTimeoutMs, 10_000),
+    mode: modeRaw === 'divers' ? 'divers' : 'pinger',
+  };
+};
+
 const normalizeComPortNumber = (value) => {
   const text = normalizeText(value, '');
   if (!/^\d+$/.test(text)) return null;
@@ -500,16 +531,21 @@ const listSerialPorts = async () => {
       .catch(() => []);
   })();
 
-  const simulatorRegistryPorts = (async () => {
+  const readSimulatorRegistryPorts = async (registryPath, manufacturer) => {
     try {
-      const raw = await fs.readFile(GNSS_COM_SIM_REGISTRY_PATH, 'utf8');
+      const raw = await fs.readFile(registryPath, 'utf8');
       const parsed = JSON.parse(raw);
       const appPortPath = normalizeText(parsed?.appPortPath, '');
       if (!appPortPath) return [];
+      try {
+        await fs.access(appPortPath);
+      } catch {
+        return [];
+      }
       return [
         {
           path: appPortPath,
-          manufacturer: 'Planner GNSS-COM Simulator',
+          manufacturer,
           serialNumber: '',
           pnpId: '',
           vendorId: '',
@@ -519,15 +555,15 @@ const listSerialPorts = async () => {
     } catch {
       return [];
     }
-  })();
+  };
 
-  const simulatorTmpPorts = (async () => {
+  const findSimulatorTmpPorts = async (prefix, manufacturer) => {
     try {
       const tmpDir = os.tmpdir();
       const entries = await fs.readdir(tmpDir, { withFileTypes: true });
       const candidates = entries
         .map((entry) => entry.name)
-        .filter((name) => name.startsWith('gnss-com') && !name.endsWith('.sim'))
+        .filter((name) => name.startsWith(prefix) && !name.endsWith('.sim'))
         .map((name) => path.join(tmpDir, name));
       if (candidates.length === 0) return [];
 
@@ -546,7 +582,7 @@ const listSerialPorts = async () => {
 
       return valid.map((candidate) => ({
         path: candidate,
-        manufacturer: 'Planner GNSS-COM Simulator',
+        manufacturer,
         serialNumber: '',
         pnpId: '',
         vendorId: '',
@@ -555,15 +591,28 @@ const listSerialPorts = async () => {
     } catch {
       return [];
     }
-  })();
+  };
 
-  const [hardware, registry, tmpPorts] = await Promise.all([
+  const gnssRegistryPorts = readSimulatorRegistryPorts(
+    GNSS_COM_SIM_REGISTRY_PATH,
+    'Planner GNSS-COM Simulator',
+  );
+  const rwltRegistryPorts = readSimulatorRegistryPorts(
+    RWLT_COM_SIM_REGISTRY_PATH,
+    'Planner RWLT-COM Simulator',
+  );
+  const gnssTmpPorts = findSimulatorTmpPorts('gnss-com', 'Planner GNSS-COM Simulator');
+  const rwltTmpPorts = findSimulatorTmpPorts('rwlt-com', 'Planner RWLT-COM Simulator');
+
+  const [hardware, gnssRegistry, rwltRegistry, gnssTmp, rwltTmp] = await Promise.all([
     hardwarePorts,
-    simulatorRegistryPorts,
-    simulatorTmpPorts,
+    gnssRegistryPorts,
+    rwltRegistryPorts,
+    gnssTmpPorts,
+    rwltTmpPorts,
   ]);
 
-  const merged = [...registry, ...tmpPorts, ...hardware];
+  const merged = [...gnssRegistry, ...rwltRegistry, ...gnssTmp, ...rwltTmp, ...hardware];
   const seenPaths = new Set();
   return merged.filter((entry) => {
     const pathValue = normalizeText(entry?.path, '');
@@ -578,6 +627,22 @@ const looksLikeNmeaLine = (line) => {
   const trimmed = line.trim();
   if (!trimmed.startsWith('$')) return false;
   return /^\$[A-Z0-9]{5},/.test(trimmed);
+};
+
+const buildNmeaSentence = (payload) => {
+  const text = typeof payload === 'string' ? payload : '';
+  let checksum = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    checksum ^= text.charCodeAt(i);
+  }
+  return `$${text}*${checksum.toString(16).toUpperCase().padStart(2, '0')}`;
+};
+
+const buildRwltModeCommand = (mode) => {
+  const rwltMode = mode === 'divers' ? '1' : '0';
+  const fields = new Array(12).fill('');
+  fields[10] = rwltMode;
+  return buildNmeaSentence(`PUNV0,${fields.join(',')}`);
 };
 
 const emitToRenderer = (channel, payload) => {
@@ -819,6 +884,17 @@ const closeSerialPort = async (port) => {
   });
 };
 
+const pathExists = async (targetPath) => {
+  const normalized = normalizeText(targetPath, '');
+  if (!normalized) return false;
+  try {
+    await fs.access(normalized);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const createGnssComBridge = () => {
   let serialPort = null;
   let status = 'stopped';
@@ -910,6 +986,11 @@ const createGnssComBridge = () => {
     const manualPortRaw = normalizeText(nextConfig.comPort, '');
     const manualPortNumber = normalizeComPortNumber(manualPortRaw);
     const ports = await listSerialPorts();
+    const listedPortPaths = new Set(
+      ports
+        .map((entry) => normalizeText(entry?.path, ''))
+        .filter((value) => value.length > 0),
+    );
 
     const resolveManualPathByNumber = (portNumber) => {
       const exactWinPath = `COM${portNumber}`;
@@ -937,6 +1018,13 @@ const createGnssComBridge = () => {
         throw new Error('Не выбран COM-порт');
       }
       if (manualPortNumber === null) {
+        if (process.platform !== 'win32') {
+          const isListed = listedPortPaths.has(manualPortRaw);
+          const isReachable = isListed || (await pathExists(manualPortRaw));
+          if (!isReachable) {
+            throw new Error('Выбранный COM-порт недоступен. Выберите порт из списка или включите Авто COM-порт.');
+          }
+        }
         return manualPortRaw;
       }
       const resolvedByNumber = resolveManualPathByNumber(manualPortNumber);
@@ -946,18 +1034,9 @@ const createGnssComBridge = () => {
       return resolvedByNumber;
     }
 
+    // In auto mode COM port value from UI must not bias selection.
     const candidates = [];
     const seenPaths = new Set();
-    if (manualPortNumber !== null) {
-      const preferredPath = resolveManualPathByNumber(manualPortNumber);
-      if (preferredPath) {
-        candidates.push({ path: preferredPath });
-        seenPaths.add(preferredPath);
-      }
-    } else if (manualPortRaw.length > 0) {
-      candidates.push({ path: manualPortRaw });
-      seenPaths.add(manualPortRaw);
-    }
     for (const entry of ports) {
       const pathValue = normalizeText(entry.path, '');
       if (!pathValue || seenPaths.has(pathValue)) continue;
@@ -1039,6 +1118,249 @@ const createGnssComBridge = () => {
   };
 };
 
+const createRwltComBridge = () => {
+  let serialPort = null;
+  let status = 'stopped';
+  let config = { ...DEFAULT_RWLT_COM_CONFIG };
+  let activePortPath = '';
+
+  const emitStatus = (nextStatus) => {
+    if (status === nextStatus) return;
+    status = nextStatus;
+    emitToRenderer(CHANNELS.rwltCom.events.status, {
+      status,
+      config: { ...config, comPort: activePortPath || config.comPort },
+    });
+  };
+
+  const emitError = (message) => {
+    emitToRenderer(CHANNELS.rwltCom.events.error, {
+      message,
+      status,
+      config: { ...config, comPort: activePortPath || config.comPort },
+    });
+  };
+
+  const stop = async () => {
+    const current = serialPort;
+    serialPort = null;
+    activePortPath = '';
+    await closeSerialPort(current);
+    emitStatus('stopped');
+    return { status, config };
+  };
+
+  const hasRwltDataOnPort = async (portPath, baudRate, timeoutMs) => {
+    let probePort = null;
+    let probeBuffer = '';
+    try {
+      probePort = await openSerialPort(portPath, baudRate);
+      return await new Promise((resolve) => {
+        let finished = false;
+        const finish = async (result) => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(timerId);
+          probePort.removeListener('data', onData);
+          probePort.removeListener('error', onError);
+          await closeSerialPort(probePort);
+          resolve(result);
+        };
+        const onData = (chunk) => {
+          const message = Buffer.from(chunk).toString('ascii');
+          if (!message) return;
+          probeBuffer += message;
+          const parts = probeBuffer.split(/\r?\n/);
+          const lines = parts.slice(0, -1).map((line) => line.trim()).filter((line) => line.length > 0);
+          probeBuffer = (parts[parts.length - 1] ?? '').slice(-2048);
+
+          for (const line of lines) {
+            if (looksLikeNmeaLine(line)) {
+              void finish(true);
+              return;
+            }
+          }
+
+          const tail = probeBuffer.trim();
+          if (tail.length > 6 && looksLikeNmeaLine(tail)) {
+            void finish(true);
+          }
+        };
+        const onError = () => {
+          void finish(false);
+        };
+        const timerId = setTimeout(() => {
+          void finish(false);
+        }, timeoutMs);
+        probePort.on('data', onData);
+        probePort.on('error', onError);
+      });
+    } catch {
+      await closeSerialPort(probePort);
+      return false;
+    }
+  };
+
+  const resolvePortPath = async (nextConfig) => {
+    const manualPortRaw = normalizeText(nextConfig.comPort, '');
+    const manualPortNumber = normalizeComPortNumber(manualPortRaw);
+    const ports = await listSerialPorts();
+    const listedPortPaths = new Set(
+      ports
+        .map((entry) => normalizeText(entry?.path, ''))
+        .filter((value) => value.length > 0),
+    );
+
+    const resolveManualPathByNumber = (portNumber) => {
+      const exactWinPath = `COM${portNumber}`;
+      const exactWinMatch = ports.find((entry) => normalizeText(entry.path, '').toUpperCase() === exactWinPath);
+      if (exactWinMatch) {
+        return normalizeText(exactWinMatch.path, '');
+      }
+
+      const byTrailingNumber = ports.find(
+        (entry) => extractComPortNumberFromPath(entry.path) === portNumber,
+      );
+      if (byTrailingNumber) {
+        return normalizeText(byTrailingNumber.path, '');
+      }
+
+      if (process.platform === 'win32') {
+        return exactWinPath;
+      }
+      return '';
+    };
+
+    if (!nextConfig.autoDetectPort) {
+      if (!manualPortRaw) {
+        throw new Error('Не выбран COM-порт');
+      }
+      if (manualPortNumber === null) {
+        if (process.platform !== 'win32') {
+          const isListed = listedPortPaths.has(manualPortRaw);
+          const isReachable = isListed || (await pathExists(manualPortRaw));
+          if (!isReachable) {
+            throw new Error('Выбранный COM-порт недоступен. Выберите порт из списка или включите Авто COM-порт.');
+          }
+        }
+        return manualPortRaw;
+      }
+      const resolvedByNumber = resolveManualPathByNumber(manualPortNumber);
+      if (!resolvedByNumber) {
+        throw new Error(`COM-порт ${manualPortNumber} не найден среди доступных`);
+      }
+      return resolvedByNumber;
+    }
+
+    // In auto mode COM port value from UI must not bias selection.
+    const candidates = [];
+    const seenPaths = new Set();
+    for (const entry of ports) {
+      const pathValue = normalizeText(entry.path, '');
+      if (!pathValue || seenPaths.has(pathValue)) continue;
+      seenPaths.add(pathValue);
+      candidates.push({ path: pathValue });
+    }
+
+    if (candidates.length === 0) {
+      throw new Error('Нет доступных COM-портов для автоопределения');
+    }
+
+    for (const entry of candidates) {
+      const pathValue = normalizeText(entry.path, '');
+      if (!pathValue) continue;
+      const hasRwlt = await hasRwltDataOnPort(pathValue, nextConfig.baudRate, nextConfig.scanTimeoutMs);
+      if (hasRwlt) {
+        return pathValue;
+      }
+    }
+    throw new Error(`Не найден COM-порт с потоком RWLT (проверено портов: ${candidates.length})`);
+  };
+
+  const sendModeCommand = async (port, mode) => {
+    const command = `${buildRwltModeCommand(mode)}\r\n`;
+    await new Promise((resolve, reject) => {
+      port.write(command, 'ascii', (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        port.drain((drainError) => {
+          if (drainError) {
+            reject(drainError);
+            return;
+          }
+          resolve();
+        });
+      });
+    });
+  };
+
+  const start = async (input) => {
+    config = normalizeRwltComConfig(input);
+    await stop();
+
+    let openedPort = null;
+    try {
+      const resolvedPortPath = await resolvePortPath(config);
+      openedPort = await openSerialPort(resolvedPortPath, config.baudRate);
+      serialPort = openedPort;
+      activePortPath = resolvedPortPath;
+
+      await sendModeCommand(openedPort, config.mode);
+
+      openedPort.on('data', (chunk) => {
+        const message = Buffer.from(chunk).toString('ascii');
+        if (!message) return;
+        emitToRenderer(CHANNELS.rwltCom.events.data, {
+          message,
+          receivedAt: Date.now(),
+          portPath: activePortPath,
+        });
+      });
+
+      openedPort.on('error', (error) => {
+        emitStatus('error');
+        emitError(error instanceof Error ? error.message : String(error));
+      });
+
+      openedPort.on('close', () => {
+        if (serialPort === openedPort) {
+          serialPort = null;
+          activePortPath = '';
+          if (status === 'running') {
+            emitStatus('stopped');
+          }
+        }
+      });
+
+      emitStatus('running');
+      return { status, config: { ...config, comPort: resolvedPortPath } };
+    } catch (error) {
+      await closeSerialPort(openedPort);
+      serialPort = null;
+      activePortPath = '';
+      emitStatus('error');
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const message =
+        /No such file or directory|ENOENT/i.test(rawMessage)
+          ? 'Выбранный COM-порт недоступен. Перезапустите симулятор RWLT и выберите актуальный порт.'
+          : rawMessage;
+      emitError(message);
+      throw new Error(message);
+    }
+  };
+
+  const getStatus = () => ({ status, config: { ...config, comPort: activePortPath || config.comPort } });
+
+  return {
+    start,
+    stop,
+    getStatus,
+    listPorts: listSerialPorts,
+  };
+};
+
 const createMainWindow = async () => {
   const win = new BrowserWindow({
     width: 1280,
@@ -1101,6 +1423,7 @@ const registerIpcHandlers = () => {
   const zimaBridge = createZimaUdpBridge();
   const gnssBridge = createGnssUdpBridge();
   const gnssComBridge = createGnssComBridge();
+  const rwltComBridge = createRwltComBridge();
   registerPrepareCloseResult(ipcMain);
 
   ipcMain.handle(CHANNELS.pickDirectory, async (event, options) => {
@@ -1309,11 +1632,28 @@ const registerIpcHandlers = () => {
     return gnssComBridge.listPorts();
   });
 
+  ipcMain.handle(CHANNELS.rwltCom.start, async (_event, input) => {
+    return rwltComBridge.start(input);
+  });
+
+  ipcMain.handle(CHANNELS.rwltCom.stop, async () => {
+    return rwltComBridge.stop();
+  });
+
+  ipcMain.handle(CHANNELS.rwltCom.status, async () => {
+    return rwltComBridge.getStatus();
+  });
+
+  ipcMain.handle(CHANNELS.rwltCom.listPorts, async () => {
+    return rwltComBridge.listPorts();
+  });
+
   app.on('before-quit', () => {
     void Promise.allSettled([
       zimaBridge.stop(),
       gnssBridge.stop(),
       gnssComBridge.stop(),
+      rwltComBridge.stop(),
     ]);
   });
 };
@@ -1335,4 +1675,3 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
-

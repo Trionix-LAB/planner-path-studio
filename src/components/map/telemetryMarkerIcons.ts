@@ -149,3 +149,20 @@ export const createBaseStationIcon = (
     iconAnchor: [size / 2, size / 2],
   });
 };
+
+export const createRwltBuoyIcon = (buoyId: number): L.DivIcon => {
+  const size = 24;
+  const label = Number.isInteger(buoyId) ? String(buoyId) : '?';
+  return L.divIcon({
+    className: 'rwlt-buoy-marker',
+    html: `
+      <div style="position:relative;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;">
+        <div style="width:${size}px;height:${size}px;border-radius:9999px;background:#ffffff;border:2px solid #1d4ed8;box-shadow:0 1px 4px rgba(15,23,42,0.25);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#1d4ed8;line-height:1;">
+          ${label}
+        </div>
+      </div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+};

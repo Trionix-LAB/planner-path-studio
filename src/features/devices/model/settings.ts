@@ -700,8 +700,8 @@ export const validateDeviceConfig = (schema: DeviceSchema, config: DeviceConfig)
     const rawValue = config[field.key];
     const value = rawValue ?? field.defaultValue;
 
-    // GNSS-COM manual mode requires selecting any non-empty real port name/path.
-    if (schema.id === 'gnss-com' && field.key === 'comPort') {
+    // GNSS-COM/RWLT-COM manual mode requires selecting any non-empty real port name/path.
+    if ((schema.id === 'gnss-com' || schema.id === 'rwlt-com') && field.key === 'comPort') {
       if (String(value ?? '').trim().length === 0) {
         errors[field.key] = 'Выберите COM-порт';
       }
@@ -825,6 +825,31 @@ export const buildEquipmentRuntime = (
         baudRate: parseIntWithFallback(gnssComConfig.baudRate, defaultBaudRate),
         instance_id: gnssComInstance.id,
         instance_name: gnssComInstance.name ?? null,
+      };
+    }
+  }
+
+  const rwltComInstance = pickPrimaryInstanceForSchema(activeProfile, settings, 'rwlt-com');
+  if (rwltComInstance) {
+    const rwltComSchema = schemas.find((schema) => schema.id === 'rwlt-com');
+    if (rwltComSchema) {
+      const rwltComConfig = rwltComInstance.config ?? {};
+      const defaultAutoDetectPort = readSchemaBooleanDefault(rwltComSchema, 'autoDetectPort', true);
+      const defaultComPort = String(readSchemaFieldDefault(rwltComSchema, 'comPort', '')).trim();
+      const defaultBaudRate = parseIntWithFallback(readSchemaFieldDefault(rwltComSchema, 'baudRate', 38400), 38400);
+      const rawMode = String(readSchemaFieldDefault(rwltComSchema, 'mode', 'pinger')).trim().toLowerCase();
+      const defaultMode = rawMode === 'divers' ? 'divers' : 'pinger';
+      const modeValue = String(rwltComConfig.mode ?? defaultMode).trim().toLowerCase();
+
+      runtime.rwlt_com = {
+        interface: 'serial',
+        protocol: 'unav',
+        autoDetectPort: parseBooleanWithFallback(rwltComConfig.autoDetectPort, defaultAutoDetectPort),
+        comPort: String(rwltComConfig.comPort ?? defaultComPort).trim(),
+        baudRate: parseIntWithFallback(rwltComConfig.baudRate, defaultBaudRate),
+        mode: modeValue === 'divers' ? 'divers' : 'pinger',
+        instance_id: rwltComInstance.id,
+        instance_name: rwltComInstance.name ?? null,
       };
     }
   }
