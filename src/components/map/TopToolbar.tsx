@@ -280,7 +280,7 @@ const TopToolbar = ({
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onOpenOpen}>
             <FolderOpen className="w-4 h-4 mr-2" />
-            Открыть...
+            Открыть
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onGoToStart}>
             <Home className="w-4 h-4 mr-2" />
@@ -289,11 +289,11 @@ const TopToolbar = ({
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onOpenExport}>
             <Download className="w-4 h-4 mr-2" />
-            Экспорт...
+            Экспорт
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onOpenOfflineMaps}>
             <CloudDownload className="w-4 h-4 mr-2" />
-            Скачать карты...
+            Скачать карты
           </DropdownMenuItem>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>

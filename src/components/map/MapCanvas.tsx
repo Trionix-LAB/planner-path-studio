@@ -30,6 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import CachedTileLayer from './CachedTileLayer';
 import { createBaseStationIcon, createDiverIcon } from './telemetryMarkerIcons';
+import { resolveFlyToZoomFor50mGrid } from './flyToZoom';
 
 const TRANSPARENT_TILE =
   'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
@@ -495,8 +496,12 @@ const CenterOnObjectRequest = ({
     }
 
     if (obj.geometry.type === 'marker') {
-      const targetZoom = Math.max(map.getZoom(), 16);
-      map.setView([obj.geometry.point.lat, obj.geometry.point.lon], targetZoom, { animate: true });
+      const targetZoom = resolveFlyToZoomFor50mGrid(obj.geometry.point.lat, {
+        zoomSnap: platform.map.zoomSnap(),
+        maxZoom: platform.map.maxZoom(),
+        minZoom: map.getMinZoom(),
+      });
+      map.flyTo([obj.geometry.point.lat, obj.geometry.point.lon], targetZoom, { animate: true });
       lastHandledNonceRef.current = request.nonce;
       return;
     }
@@ -514,8 +519,13 @@ const CenterOnObjectRequest = ({
       lastHandledNonceRef.current = request.nonce;
       return;
     }
-
-    map.fitBounds(bounds, { padding: [24, 24], maxZoom: platform.map.maxZoom(), animate: true });
+    const center = bounds.getCenter();
+    const targetZoom = resolveFlyToZoomFor50mGrid(center.lat, {
+      zoomSnap: platform.map.zoomSnap(),
+      maxZoom: platform.map.maxZoom(),
+      minZoom: map.getMinZoom(),
+    });
+    map.flyTo(center, targetZoom, { animate: true });
     lastHandledNonceRef.current = request.nonce;
   }, [map, objects, onMissingGeometry, request]);
 

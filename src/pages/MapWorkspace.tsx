@@ -109,6 +109,7 @@ import {
   type VectorOverlayCacheSourceMeta,
   type VectorOverlayMapData,
 } from '@/features/map/vectorOverlays/cache';
+import { resolveFlyToZoomFor50mGrid } from '@/components/map/flyToZoom';
 
 const DRAFT_ROOT_PATH = 'draft/current';
 const DRAFT_MISSION_NAME = 'Черновик';
@@ -2077,11 +2078,15 @@ const MapWorkspace = () => {
     if (!target) return;
     const centerLat = (target.bounds.north + target.bounds.south) / 2;
     const centerLon = (target.bounds.east + target.bounds.west) / 2;
-    setMapView((prev) => ({
+    const targetZoom = resolveFlyToZoomFor50mGrid(centerLat, {
+      zoomSnap: platform.map.zoomSnap(),
+      maxZoom: platform.map.maxZoom(),
+    });
+    setMapView({
       center_lat: centerLat,
       center_lon: centerLon,
-      zoom: prev?.zoom ?? 16,
-    }));
+      zoom: targetZoom,
+    });
   }, [rasterOverlays]);
 
   const toggleVectorOverlayVisible = useCallback((id: string) => {
@@ -2139,11 +2144,15 @@ const MapWorkspace = () => {
       const applyBounds = (bounds: MapBounds) => {
         const centerLat = (bounds.north + bounds.south) / 2;
         const centerLon = (bounds.east + bounds.west) / 2;
-        setMapView((prev) => ({
+        const targetZoom = resolveFlyToZoomFor50mGrid(centerLat, {
+          zoomSnap: platform.map.zoomSnap(),
+          maxZoom: platform.map.maxZoom(),
+        });
+        setMapView({
           center_lat: centerLat,
           center_lon: centerLon,
-          zoom: prev?.zoom ?? 16,
-        }));
+          zoom: targetZoom,
+        });
       };
 
       const cached = vectorOverlayDataById[id];
@@ -3488,10 +3497,14 @@ const MapWorkspace = () => {
       if (agentUid === BASE_STATION_AGENT_ID) {
         if (baseStationTelemetry) {
           setPinnedAgentId(null);
+          const targetZoom = resolveFlyToZoomFor50mGrid(baseStationTelemetry.lat, {
+            zoomSnap: platform.map.zoomSnap(),
+            maxZoom: platform.map.maxZoom(),
+          });
           setMapView({
             center_lat: baseStationTelemetry.lat,
             center_lon: baseStationTelemetry.lon,
-            zoom: mapView?.zoom ?? 16,
+            zoom: targetZoom,
           });
         }
         return;
@@ -3502,14 +3515,18 @@ const MapWorkspace = () => {
       const telemetry = diverTelemetryById[key];
       if (telemetry) {
         setPinnedAgentId(null);
+        const targetZoom = resolveFlyToZoomFor50mGrid(telemetry.lat, {
+          zoomSnap: platform.map.zoomSnap(),
+          maxZoom: platform.map.maxZoom(),
+        });
         setMapView({
           center_lat: telemetry.lat,
           center_lon: telemetry.lon,
-          zoom: mapView?.zoom ?? 16,
+          zoom: targetZoom,
         });
       }
     },
-    [baseStationTelemetry, diverTelemetryById, mapView?.zoom, missionDivers],
+    [baseStationTelemetry, diverTelemetryById, missionDivers],
   );
 
   const handleTrackDelete = (trackId: string) => {
