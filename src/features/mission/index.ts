@@ -1,5 +1,14 @@
 export { createMissionRepository } from './model/repository';
 export type { MissionRepository } from './model/repository';
+export { buildMissionBundle } from './model/buildMissionBundle';
+export type {
+  BuildMissionBundleInput,
+  MissionLayersState,
+  BaseStationTelemetryState as MissionBaseStationTelemetryState,
+  LeftPanelSectionsCollapsedState as MissionLeftPanelSectionsCollapsedState,
+  RightPanelSectionsCollapsedState as MissionRightPanelSectionsCollapsedState,
+  MapPanelsCollapsedState as MissionMapPanelsCollapsedState,
+} from './model/buildMissionBundle';
 export { loadDraftSession, resolveDraftLoadMode } from './model/draftSession';
 export type { DraftLoadMode } from './model/draftSession';
 export { buildTrackSegments, bundleToMapObjects, mapObjectsToGeoJson } from './model/adapters';
@@ -32,6 +41,7 @@ export { createTrackRecorderState, trackRecorderReduce } from './model/trackReco
 export type { TrackFixPayload, TrackRecorderEvent, TrackRecorderState, TrackRecorderStatus } from './model/trackRecorder';
 export { filterVisibleTrackSegments } from './model/trackVisibility';
 export type { ColoredTrackSegment } from './model/trackVisibility';
+export { useMissionAutosave } from './hooks/useMissionAutosave';
 export { createDefaultDiver, createDefaultDivers, normalizeDivers } from './model/divers';
 export {
   MISSION_SCHEMA_VERSION,

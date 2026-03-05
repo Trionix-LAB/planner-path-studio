@@ -54,11 +54,12 @@ import {
   generateLanesFromZoneObject,
   isConvexZonePolygon,
   markZoneLanesOutdated,
-  mapObjectsToGeoJson,
+  buildMissionBundle,
   normalizeDivers,
   toConvexZonePolygon,
   replaceZoneLanes,
   trackRecorderReduce,
+  useMissionAutosave,
   type DiverUiConfig,
   type LaneFeature,
   type MissionBundle,
@@ -935,8 +936,6 @@ const MapWorkspace = () => {
 
   const lockOwnerRootRef = useRef<string | null>(null);
   const prepareCloseInFlightRef = useRef<Promise<void> | null>(null);
-  const walStageTimerRef = useRef<number | null>(null);
-  const autosaveTimerRef = useRef<number | null>(null);
   const lastFixAtRef = useRef<number>(Date.now());
   const connectionStateRef = useRef<TelemetryConnectionState>('timeout');
   const primaryNavigationSourceRef = useRef<NavigationSourceId>('simulation');
@@ -988,6 +987,12 @@ const MapWorkspace = () => {
     segmentLengthsMode: DEFAULT_APP_SETTINGS.defaults.measurements.segment_lengths_mode,
     styles: DEFAULT_APP_SETTINGS.defaults.styles,
     isLoaded: false,
+  });
+  const { cancelPendingAutosave, cancelPendingWalStage, scheduleMissionAutosave } = useMissionAutosave({
+    repository,
+    walStageDelayMs: WAL_STAGE_DELAY_MS,
+    autosaveDelayMs: AUTOSAVE_DELAY_MS,
+    onStatusChange: setAutoSaveStatus,
   });
 
   const hiddenTrackIdSet = useMemo(() => new Set(hiddenTrackIds), [hiddenTrackIds]);
@@ -2231,114 +2236,36 @@ const MapWorkspace = () => {
     await repository.releaseLock(root);
   }, [repository]);
 
-  const cancelPendingAutosave = useCallback(() => {
-    if (autosaveTimerRef.current === null) return;
-    window.clearTimeout(autosaveTimerRef.current);
-    autosaveTimerRef.current = null;
-  }, []);
-
-  const cancelPendingWalStage = useCallback(() => {
-    if (walStageTimerRef.current === null) return;
-    window.clearTimeout(walStageTimerRef.current);
-    walStageTimerRef.current = null;
-  }, []);
-
-  const buildMissionBundle = useCallback(
-    (
-      rootPath: string,
-      mission: MissionDocument,
-      pointsByTrackId: TrackRecorderState['trackPointsByTrackId'],
-      missionObjects: MapObject[],
-      missionLaneFeatures: LaneFeature[],
-      followEnabled: boolean,
-      layersState: LayersState,
-      diversState: DiverUiConfig[],
-      baseStationSourceState: NavigationSourceId | null,
-      baseStationTrackColorState: string,
-      baseStationMarkerSizePxState: number,
-      hiddenTrackIdsState: string[],
-      baseStationTelemetryState: BaseStationTelemetryState | null,
-      nextMapView: MissionUiState['map_view'] | null,
-      nextCoordPrecision: number,
-      nextGrid: AppUiDefaults['measurements']['grid'],
-      nextSegmentLengthsMode: SegmentLengthsMode,
-      nextStyles: AppUiDefaults['styles'],
-      rasterOverlaysState: RasterOverlayUi[],
-      vectorOverlaysState: VectorOverlayUi[],
-      nextLeftPanelSectionsCollapsed: LeftPanelSectionsCollapsedState,
-      nextRightPanelSectionsCollapsed: RightPanelSectionsCollapsedState,
-      nextLeftPanelWidthPx: number,
-      nextRightPanelWidthPx: number,
-      nextMapPanelsCollapsed: MapPanelsCollapsedState,
-    ): MissionBundle => {
-      const geo = mapObjectsToGeoJson(missionObjects);
-      const nextMission: MissionDocument = {
-        ...mission,
-        ui: {
-          ...(mission.ui ?? {}),
-          follow_diver: followEnabled,
-          hidden_track_ids: hiddenTrackIdsState,
-          divers: diversState,
-          layers: {
-            basemap: layersState.basemap,
-            track: layersState.track,
-            routes: layersState.routes,
-            markers: layersState.markers,
-            base_station: layersState.baseStation,
-            grid: layersState.grid,
-            scale_bar: layersState.scaleBar,
-          },
-          left_panel_sections: nextLeftPanelSectionsCollapsed,
-          right_panel_sections: nextRightPanelSectionsCollapsed,
-          panel_layout: {
-            left_width_px: nextLeftPanelWidthPx,
-            right_width_px: nextRightPanelWidthPx,
-            left_collapsed: nextMapPanelsCollapsed.left,
-            right_collapsed: nextMapPanelsCollapsed.right,
-          },
-          base_station: {
-            navigation_source: baseStationSourceState,
-            track_color: baseStationTrackColorState,
-            marker_size_px: baseStationMarkerSizePxState,
-            ...(baseStationTelemetryState
-              ? {
-                  lat: baseStationTelemetryState.lat,
-                  lon: baseStationTelemetryState.lon,
-                  heading_deg: baseStationTelemetryState.heading,
-                  updated_at: new Date(baseStationTelemetryState.received_at).toISOString(),
-                  source_id: baseStationTelemetryState.sourceId,
-                }
-              : {}),
-          },
-          ...(nextMapView ? { map_view: nextMapView } : {}),
-          coordinates: { precision: nextCoordPrecision },
-          measurements: {
-            ...(mission.ui?.measurements ?? {}),
-            grid: { ...nextGrid },
-            segment_lengths_mode: nextSegmentLengthsMode,
-          },
-          raster_overlays: rasterOverlaysState,
-          vector_overlays: vectorOverlaysState,
-          styles: {
-            track: { ...nextStyles.track },
-            route: { ...nextStyles.route },
-            survey_area: { ...nextStyles.survey_area },
-            lane: { ...nextStyles.lane },
-            marker: { ...nextStyles.marker },
-          },
-        },
-      };
-
-      return {
-        rootPath,
-        mission: nextMission,
-        routes: {
-          ...geo.routes,
-          features: [...geo.routes.features, ...missionLaneFeatures],
-        },
-        markers: geo.markers,
-        trackPointsByTrackId: pointsByTrackId,
-      };
+  const buildMissionBundleFromSnapshot = useCallback(
+    (snapshot: WorkspaceSnapshot, currentRecordingState: TrackRecorderState): MissionBundle | null => {
+      if (!snapshot.missionRootPath || !currentRecordingState.mission) return null;
+      return buildMissionBundle({
+        rootPath: snapshot.missionRootPath,
+        mission: currentRecordingState.mission,
+        trackPointsByTrackId: currentRecordingState.trackPointsByTrackId,
+        objects: snapshot.objects,
+        laneFeatures: snapshot.laneFeatures,
+        followEnabled: snapshot.isFollowing,
+        layers: snapshot.layers,
+        divers: snapshot.divers,
+        baseStationNavigationSource: snapshot.baseStationNavigationSource,
+        baseStationTrackColor: snapshot.baseStationTrackColor,
+        baseStationMarkerSizePx: snapshot.baseStationMarkerSizePx,
+        hiddenTrackIds: snapshot.hiddenTrackIds,
+        baseStationTelemetry: snapshot.baseStationTelemetry,
+        mapView: snapshot.mapView,
+        coordPrecision: snapshot.coordPrecision,
+        grid: snapshot.grid,
+        segmentLengthsMode: snapshot.segmentLengthsMode,
+        styles: snapshot.styles,
+        rasterOverlays: snapshot.rasterOverlays,
+        vectorOverlays: snapshot.vectorOverlays,
+        leftPanelSectionsCollapsed: snapshot.leftPanelSectionsCollapsed,
+        rightPanelSectionsCollapsed: snapshot.rightPanelSectionsCollapsed,
+        leftPanelWidthPx: snapshot.leftPanelWidthPx,
+        rightPanelWidthPx: snapshot.rightPanelWidthPx,
+        mapPanelsCollapsed: snapshot.mapPanelsCollapsed,
+      });
     },
     [],
   );
@@ -2359,33 +2286,8 @@ const MapWorkspace = () => {
         : snapshot.recordingState;
       if (!finalizedRecordingState.mission) return;
 
-      const bundle = buildMissionBundle(
-        snapshot.missionRootPath,
-        finalizedRecordingState.mission,
-        finalizedRecordingState.trackPointsByTrackId,
-        snapshot.objects,
-        snapshot.laneFeatures,
-        snapshot.isFollowing,
-        snapshot.layers,
-        snapshot.divers,
-        snapshot.baseStationNavigationSource,
-        snapshot.baseStationTrackColor,
-        snapshot.baseStationMarkerSizePx,
-        snapshot.hiddenTrackIds,
-        snapshot.baseStationTelemetry,
-        snapshot.mapView,
-        snapshot.coordPrecision,
-        snapshot.grid,
-        snapshot.segmentLengthsMode,
-        snapshot.styles,
-        snapshot.rasterOverlays,
-        snapshot.vectorOverlays,
-        snapshot.leftPanelSectionsCollapsed,
-        snapshot.rightPanelSectionsCollapsed,
-        snapshot.leftPanelWidthPx,
-        snapshot.rightPanelWidthPx,
-        snapshot.mapPanelsCollapsed,
-      );
+      const bundle = buildMissionBundleFromSnapshot(snapshot, finalizedRecordingState);
+      if (!bundle) return;
       await repository.saveMission(bundle);
 
       if (options?.closeActiveTrack) {
@@ -2395,7 +2297,7 @@ const MapWorkspace = () => {
         };
       }
     },
-    [buildMissionBundle, cancelPendingAutosave, cancelPendingWalStage, repository],
+    [buildMissionBundleFromSnapshot, cancelPendingAutosave, cancelPendingWalStage, repository],
   );
 
   const persistMissionBestEffort = useCallback(() => {
@@ -2746,74 +2648,17 @@ const MapWorkspace = () => {
 
   useEffect(() => {
     if (!isLoaded || !missionDocument || !missionRootPath) return;
-    if (walStageTimerRef.current !== null) {
-      window.clearTimeout(walStageTimerRef.current);
-    }
-    if (autosaveTimerRef.current !== null) {
-      window.clearTimeout(autosaveTimerRef.current);
-    }
-
-    const buildCurrentBundle = () =>
-      buildMissionBundle(
-        missionRootPath,
-        missionDocument,
-        trackPointsByTrackId,
-        objects,
-        laneFeatures,
-        isFollowing,
-        layers,
-        missionDivers,
-        baseStationNavigationSource,
-        baseStationTrackColor,
-        baseStationMarkerSizePx,
-        hiddenTrackIds,
-        baseStationTelemetry,
-        mapView,
-        coordPrecision,
-        gridSettings,
-        segmentLengthsMode,
-        styles,
-        rasterOverlays,
-        vectorOverlays,
-        leftPanelSectionsCollapsed,
-        rightPanelSectionsCollapsed,
-        leftPanelWidthPx,
-        rightPanelWidthPx,
-        mapPanelsCollapsed,
-      );
-
-    walStageTimerRef.current = window.setTimeout(async () => {
-      walStageTimerRef.current = null;
-      try {
-        await repository.stageMission(buildCurrentBundle());
-      } catch {
-        // keep checkpoint autosave running; status reflects checkpoint result
-      }
-    }, WAL_STAGE_DELAY_MS);
-
-    setAutoSaveStatus('saving');
-    autosaveTimerRef.current = window.setTimeout(async () => {
-      autosaveTimerRef.current = null;
-      try {
-        await repository.saveMission(buildCurrentBundle());
-        setAutoSaveStatus('saved');
-      } catch {
-        setAutoSaveStatus('error');
-      }
-    }, AUTOSAVE_DELAY_MS);
-
-    return () => {
-      if (walStageTimerRef.current !== null) {
-        window.clearTimeout(walStageTimerRef.current);
-        walStageTimerRef.current = null;
-      }
-      if (autosaveTimerRef.current !== null) {
-        window.clearTimeout(autosaveTimerRef.current);
-        autosaveTimerRef.current = null;
-      }
+    const buildCurrentBundle = () => {
+      const snapshot = latestSnapshotRef.current;
+      const bundle = buildMissionBundleFromSnapshot(snapshot, snapshot.recordingState);
+      if (bundle) return bundle;
+      throw new Error('Autosave snapshot is incomplete.');
     };
+
+    return scheduleMissionAutosave(buildCurrentBundle);
   }, [
-    buildMissionBundle,
+    buildMissionBundleFromSnapshot,
+    scheduleMissionAutosave,
     isFollowing,
     isLoaded,
     layers,
@@ -2827,7 +2672,6 @@ const MapWorkspace = () => {
     baseStationMarkerSizePx,
     hiddenTrackIds,
     baseStationTelemetry,
-    repository,
     trackPointsByTrackId,
     mapView,
     coordPrecision,
