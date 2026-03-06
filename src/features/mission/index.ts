@@ -34,11 +34,13 @@ export {
   createNoopTelemetryProvider,
   createSimulationTelemetryProvider,
 } from './model/telemetry';
-export type { TelemetryConnectionState, TelemetryEntityType, TelemetryFix, TelemetryProvider } from './model/telemetry';
+export type { RawTelemetryPacket, TelemetryConnectionState, TelemetryEntityType, TelemetryFix, TelemetryProvider } from './model/telemetry';
 export { computeRealtimeVisibilityState } from './model/realtimeVisibility';
 export type { RealtimeUiConnectionState, RealtimeVisibilityState } from './model/realtimeVisibility';
 export { createTrackRecorderState, trackRecorderReduce } from './model/trackRecorder';
 export type { TrackFixPayload, TrackRecorderEvent, TrackRecorderState, TrackRecorderStatus } from './model/trackRecorder';
+export { createEquipmentLogger } from './model/equipmentLogger';
+export type { EquipmentLogger, EquipmentLoggerOptions } from './model/equipmentLogger';
 export { filterVisibleTrackSegments } from './model/trackVisibility';
 export type { ColoredTrackSegment } from './model/trackVisibility';
 export { useMissionAutosave } from './hooks/useMissionAutosave';

@@ -124,9 +124,11 @@ describe('noop telemetry provider', () => {
     vi.useFakeTimers();
     const provider = createNoopTelemetryProvider();
     const onFix = vi.fn();
+    const onRawPacket = vi.fn();
     const onConnectionState = vi.fn();
 
     const unsubscribeFix = provider.onFix(onFix);
+    const unsubscribeRawPacket = provider.onRawPacket(onRawPacket);
     const unsubscribeConnection = provider.onConnectionState(onConnectionState);
 
     provider.start();
@@ -136,10 +138,12 @@ describe('noop telemetry provider', () => {
     provider.stop();
 
     expect(onFix).not.toHaveBeenCalled();
+    expect(onRawPacket).not.toHaveBeenCalled();
     expect(onConnectionState).toHaveBeenCalledTimes(1);
     expect(onConnectionState).toHaveBeenLastCalledWith('ok');
 
     unsubscribeFix();
+    unsubscribeRawPacket();
     unsubscribeConnection();
     vi.useRealTimers();
   });
@@ -164,7 +168,9 @@ describe('electron zima telemetry provider', () => {
     });
 
     const onFix = vi.fn();
+    const onRawPacket = vi.fn();
     provider.onFix(onFix);
+    provider.onRawPacket(onRawPacket);
 
     provider.start();
     provider.setEnabled(true);
@@ -194,6 +200,12 @@ describe('electron zima telemetry provider', () => {
       entity_id: 'base-station',
       navigation_source_id: 'zima2r',
     });
+    expect(onRawPacket).toHaveBeenCalledTimes(1);
+    expect(onRawPacket.mock.calls[0]?.[0]).toMatchObject({
+      schema_id: 'zima2r',
+      raw: '@AZMLOC,1013.2,10.5,12.3,0.1,-0.2,0,59.937500,30.308600,120.0,0.8,0,130.0,0,0,0,10.5,1.2,0,',
+      received_at: 1739318400000,
+    });
 
     provider.stop();
     await flushMicrotasks();
@@ -221,7 +233,9 @@ describe('electron zima telemetry provider', () => {
     });
 
     const onFix = vi.fn();
+    const onRawPacket = vi.fn();
     provider.onFix(onFix);
+    provider.onRawPacket(onRawPacket);
 
     provider.start();
     provider.setEnabled(true);
@@ -278,7 +292,9 @@ describe('electron zima telemetry provider', () => {
     });
 
     const onFix = vi.fn();
+    const onRawPacket = vi.fn();
     provider.onFix(onFix);
+    provider.onRawPacket(onRawPacket);
 
     provider.start();
     provider.setEnabled(true);
@@ -330,7 +346,9 @@ describe('electron zima telemetry provider', () => {
     });
 
     const onFix = vi.fn();
+    const onRawPacket = vi.fn();
     provider.onFix(onFix);
+    provider.onRawPacket(onRawPacket);
 
     provider.start();
     provider.setEnabled(true);
@@ -421,7 +439,9 @@ describe('electron zima telemetry provider', () => {
     });
 
     const onFix = vi.fn();
+    const onRawPacket = vi.fn();
     provider.onFix(onFix);
+    provider.onRawPacket(onRawPacket);
 
     provider.start();
     provider.setEnabled(true);
@@ -470,7 +490,9 @@ describe('electron gnss telemetry provider', () => {
     });
 
     const onFix = vi.fn();
+    const onRawPacket = vi.fn();
     provider.onFix(onFix);
+    provider.onRawPacket(onRawPacket);
 
     provider.start();
     provider.setEnabled(true);
@@ -501,6 +523,12 @@ describe('electron gnss telemetry provider', () => {
     expect(payload.entity_type).toBe('base_station');
     expect(payload.entity_id).toBe('base-station');
     expect(payload.navigation_source_id).toBe('gnss-udp');
+    expect(onRawPacket).toHaveBeenCalledTimes(2);
+    expect(onRawPacket.mock.calls[1]?.[0]).toMatchObject({
+      schema_id: 'gnss-udp',
+      raw: '$GPRMC,123520,A,5956.2560,N,03018.5160,E,1.94,84.4,230394,,',
+      received_at: 1739318404000,
+    });
 
     provider.stop();
     await flushMicrotasks();
@@ -520,7 +548,9 @@ describe('electron gnss telemetry provider', () => {
     });
 
     const onFix = vi.fn();
+    const onRawPacket = vi.fn();
     provider.onFix(onFix);
+    provider.onRawPacket(onRawPacket);
 
     provider.start();
     provider.setEnabled(true);
@@ -579,7 +609,9 @@ describe('electron gnss-com telemetry provider', () => {
     });
 
     const onFix = vi.fn();
+    const onRawPacket = vi.fn();
     provider.onFix(onFix);
+    provider.onRawPacket(onRawPacket);
 
     provider.start();
     provider.setEnabled(true);
@@ -604,6 +636,12 @@ describe('electron gnss-com telemetry provider', () => {
     expect(payload.received_at).toBe(1739318403000);
     expect(payload.lat).toBeCloseTo(59.9375, 5);
     expect(payload.lon).toBeCloseTo(30.3086, 5);
+    expect(onRawPacket).toHaveBeenCalledTimes(1);
+    expect(onRawPacket.mock.calls[0]?.[0]).toMatchObject({
+      schema_id: 'gnss-com',
+      raw: '$GPRMC,123519,A,5956.2500,N,03018.5160,E,1.94,84.4,230394,,*1B',
+      received_at: 1739318403000,
+    });
 
     provider.stop();
     await flushMicrotasks();
