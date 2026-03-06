@@ -10,6 +10,7 @@ import {
   type RoutesFeature,
   type TrackPoint,
 } from './types';
+import { createTrackWriter, type TrackWriter } from './trackWriter';
 
 export type MissionRepository = {
   createMission: (input: CreateMissionInput, options?: { acquireLock?: boolean }) => Promise<MissionBundle>;
@@ -23,6 +24,10 @@ export type MissionRepository = {
   stageMission: (bundle: MissionBundle) => Promise<void>;
   flushMission: (rootPath: string) => Promise<void>;
   saveMission: (bundle: MissionBundle) => Promise<void>;
+  registerTrackWriter: (trackId: string, trackPath: string) => void;
+  appendTrackPoints: (trackId: string, newPoints: TrackPoint[]) => void;
+  finalizeTrack: (trackId: string, allPoints: TrackPoint[]) => Promise<void>;
+  finalizeAllTracks: (trackPointsByTrackId: Record<string, TrackPoint[]>) => Promise<void>;
   hasLock: (rootPath: string) => Promise<boolean>;
   acquireLock: (rootPath: string) => Promise<void>;
   releaseLock: (rootPath: string) => Promise<void>;
@@ -194,6 +199,7 @@ const toWalDocument = (bundle: MissionBundle): MissionWalDocument => ({
 
 export const createMissionRepository = (store: FileStoreBridge): MissionRepository => {
   const saveQueuesByRootPath = new Map<string, Promise<void>>();
+  const trackWritersByTrackId = new Map<string, { rootPath: string; writer: TrackWriter }>();
 
   const enqueueByRootPath = async <T>(rootPathInput: string, operation: () => Promise<T>): Promise<T> => {
     const rootPath = normalizePath(rootPathInput);
@@ -214,6 +220,15 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
         saveQueuesByRootPath.delete(rootPath);
       }
     }
+  };
+
+  const resolveTrackRootPath = (trackPathInput: string): string => {
+    const trackPath = normalizePath(trackPathInput);
+    const marker = '/tracks/';
+    const markerIndex = trackPath.lastIndexOf(marker);
+    if (markerIndex > 0) return trackPath.slice(0, markerIndex);
+    const lastSlash = trackPath.lastIndexOf('/');
+    return lastSlash > 0 ? trackPath.slice(0, lastSlash) : trackPath;
   };
 
   const hasLock = async (rootPath: string): Promise<boolean> => {
@@ -321,7 +336,11 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
     await writeJson(store, markersPath, bundle.markers);
     await Promise.allSettled([store.flush(missionBackupPath), store.flush(missionPath)]);
 
+    const activeTrackIds = new Set(Object.values(mission.active_tracks));
     for (const track of mission.tracks) {
+      if (activeTrackIds.has(track.id)) {
+        continue;
+      }
       const points = bundle.trackPointsByTrackId[track.id] ?? [];
       const csvPath = joinPath(rootPath, track.file);
       await store.writeText(csvPath, toCsvTrack(points));
@@ -330,6 +349,46 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
     if (options?.clearWal !== false) {
       await store.remove(walPath(rootPath));
     }
+  };
+
+  const registerTrackWriter = (trackId: string, trackPath: string): void => {
+    if (!trackId || !trackPath) return;
+    if (trackWritersByTrackId.has(trackId)) return;
+    const rootPath = resolveTrackRootPath(trackPath);
+    const writer = createTrackWriter({
+      trackPath,
+      fileStore: store,
+    });
+    trackWritersByTrackId.set(trackId, { rootPath, writer });
+  };
+
+  const appendTrackPoints = (trackId: string, newPoints: TrackPoint[]): void => {
+    if (!trackId || newPoints.length === 0) return;
+    const entry = trackWritersByTrackId.get(trackId);
+    if (!entry) return;
+    entry.writer.append(newPoints);
+  };
+
+  const finalizeTrack = async (trackId: string, allPoints: TrackPoint[]): Promise<void> => {
+    const entry = trackWritersByTrackId.get(trackId);
+    if (!entry) return;
+    await enqueueByRootPath(entry.rootPath, async () => {
+      await entry.writer.rewrite(allPoints);
+      trackWritersByTrackId.delete(trackId);
+    });
+  };
+
+  const finalizeAllTracks = async (trackPointsByTrackId: Record<string, TrackPoint[]>): Promise<void> => {
+    const entries = Array.from(trackWritersByTrackId.entries());
+    await Promise.all(
+      entries.map(([trackId, entry]) =>
+        enqueueByRootPath(entry.rootPath, async () => {
+          const points = trackPointsByTrackId[trackId] ?? [];
+          await entry.writer.rewrite(points);
+          trackWritersByTrackId.delete(trackId);
+        }),
+      ),
+    );
   };
 
   const createMission = async (
@@ -491,6 +550,13 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
         }
       }
 
+      const activeTrackIds = new Set(Object.values(selectedBundle.mission.active_tracks));
+      for (const trackId of activeTrackIds) {
+        const track = selectedBundle.mission.tracks.find((item) => item.id === trackId);
+        if (!track) continue;
+        registerTrackWriter(trackId, joinPath(rootPath, track.file));
+      }
+
       return selectedBundle;
     } catch (error) {
       if (shouldAcquireLock) {
@@ -573,6 +639,10 @@ export const createMissionRepository = (store: FileStoreBridge): MissionReposito
     stageMission,
     flushMission,
     saveMission,
+    registerTrackWriter,
+    appendTrackPoints,
+    finalizeTrack,
+    finalizeAllTracks,
     hasLock,
     acquireLock,
     releaseLock,

@@ -62,6 +62,40 @@ const createMemoryStoreWithReadLog = (): { store: FileStoreBridge; readLog: stri
   };
 };
 
+const createMemoryStoreWithWriteSpy = (): {
+  store: FileStoreBridge;
+  writeTextSpy: ReturnType<typeof vi.fn>;
+} => {
+  const db = new Map<string, string>();
+  const writeTextSpy = vi.fn(async (path: string, content: string) => {
+    db.set(path, content);
+  });
+  return {
+    writeTextSpy,
+    store: {
+      exists: async (path) => db.has(path),
+      readText: async (path) => db.get(path) ?? null,
+      writeText: writeTextSpy,
+      appendText: async (path, content) => {
+        const current = db.get(path) ?? '';
+        db.set(path, `${current}${content}`);
+      },
+      flush: async () => {},
+      remove: async (path) => {
+        db.delete(path);
+        const prefix = `${path.replace(/\/+$/g, '')}/`;
+        for (const key of Array.from(db.keys())) {
+          if (key.startsWith(prefix)) {
+            db.delete(key);
+          }
+        }
+      },
+      list: async (prefix) => Array.from(db.keys()).filter((key) => key.startsWith(prefix)),
+      stat: async () => null,
+    },
+  };
+};
+
 describe('mission repository', () => {
   it('stores provided mission ui on create (R-046)', async () => {
     const store = createMemoryStore();
@@ -490,5 +524,133 @@ describe('mission repository', () => {
     await expect(repository.openMission(rootPath, { acquireLock: false })).rejects.toThrow(
       'missing required headers',
     );
+  });
+
+  it('skips CSV rewrite for active tracks during checkpoint save', async () => {
+    const { store, writeTextSpy } = createMemoryStoreWithWriteSpy();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/ActiveTrackSkip';
+
+    const created = await repository.createMission(
+      {
+        rootPath,
+        name: 'Active skip mission',
+        now: new Date('2026-02-03T10:00:00.000Z'),
+      },
+      { acquireLock: false },
+    );
+
+    created.mission.tracks = [
+      {
+        id: 'track-active',
+        agent_id: 'agent-1',
+        file: 'tracks/track-active.csv',
+        started_at: '2026-02-03T10:00:00.000Z',
+        ended_at: null,
+        note: null,
+      },
+      {
+        id: 'track-closed',
+        agent_id: 'agent-2',
+        file: 'tracks/track-closed.csv',
+        started_at: '2026-02-03T10:00:00.000Z',
+        ended_at: '2026-02-03T10:05:00.000Z',
+        note: null,
+      },
+    ];
+    created.mission.active_tracks = { 'agent-1': 'track-active' };
+    created.trackPointsByTrackId['track-active'] = [
+      {
+        timestamp: '2026-02-03T10:00:01.000Z',
+        lat: 59.9,
+        lon: 30.3,
+        segment_id: 1,
+      },
+    ];
+    created.trackPointsByTrackId['track-closed'] = [
+      {
+        timestamp: '2026-02-03T10:00:02.000Z',
+        lat: 59.91,
+        lon: 30.31,
+        segment_id: 1,
+      },
+    ];
+
+    writeTextSpy.mockClear();
+    await repository.saveMission(created);
+
+    const writePaths = writeTextSpy.mock.calls.map((call) => call[0] as string);
+    expect(writePaths).not.toContain(`${rootPath}/tracks/track-active.csv`);
+    expect(writePaths).toContain(`${rootPath}/tracks/track-closed.csv`);
+  });
+
+  it('finalizeTrack rewrites CSV and removes writer from active map', async () => {
+    const { store, writeTextSpy } = createMemoryStoreWithWriteSpy();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/FinalizeTrack';
+    const trackPath = `${rootPath}/tracks/track-1.csv`;
+    const points = [
+      {
+        timestamp: '2026-02-03T10:00:01.000Z',
+        lat: 59.9,
+        lon: 30.3,
+        segment_id: 1,
+      },
+      {
+        timestamp: '2026-02-03T10:00:02.000Z',
+        lat: 59.91,
+        lon: 30.31,
+        segment_id: 1,
+      },
+    ];
+
+    repository.registerTrackWriter('track-1', trackPath);
+    writeTextSpy.mockClear();
+    await repository.finalizeTrack('track-1', points);
+
+    expect(writeTextSpy).toHaveBeenCalledWith(
+      trackPath,
+      expect.stringContaining('timestamp,lat,lon,segment_id,depth_m,sog_mps,cog_deg'),
+    );
+
+    writeTextSpy.mockClear();
+    repository.appendTrackPoints('track-1', [points[0]]);
+    await repository.finalizeTrack('track-1', points);
+    expect(writeTextSpy).not.toHaveBeenCalled();
+  });
+
+  it('finalizeAllTracks rewrites all active writers', async () => {
+    const { store, writeTextSpy } = createMemoryStoreWithWriteSpy();
+    const repository = createMissionRepository(store);
+    const rootPath = 'C:/Missions/FinalizeAll';
+    const trackPathA = `${rootPath}/tracks/a.csv`;
+    const trackPathB = `${rootPath}/tracks/b.csv`;
+
+    repository.registerTrackWriter('track-a', trackPathA);
+    repository.registerTrackWriter('track-b', trackPathB);
+    writeTextSpy.mockClear();
+
+    await repository.finalizeAllTracks({
+      'track-a': [
+        {
+          timestamp: '2026-02-03T10:00:01.000Z',
+          lat: 59.9,
+          lon: 30.3,
+          segment_id: 1,
+        },
+      ],
+      'track-b': [
+        {
+          timestamp: '2026-02-03T10:00:02.000Z',
+          lat: 59.91,
+          lon: 30.31,
+          segment_id: 1,
+        },
+      ],
+    });
+
+    const writePaths = writeTextSpy.mock.calls.map((call) => call[0] as string);
+    expect(writePaths).toContain(trackPathA);
+    expect(writePaths).toContain(trackPathB);
   });
 });
