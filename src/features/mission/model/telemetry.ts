@@ -767,7 +767,14 @@ export const createElectronGnssTelemetryProvider = (
         lon: parsed.lon,
         receivedAt,
       };
-      const groundMotion = computeGroundMotion(lastGroundPoint, currentPoint);
+      const previousPoint = lastGroundPoint;
+      if (previousPoint && currentPoint.receivedAt <= previousPoint.receivedAt) {
+        // Ignore duplicate or out-of-order timestamps to avoid overriding
+        // valid over-ground motion with dt=0 samples from the same datagram.
+        continue;
+      }
+
+      const groundMotion = computeGroundMotion(previousPoint, currentPoint);
       lastGroundPoint = currentPoint;
       const headingIsFresh = latestHeading !== null && isFreshHeading(latestHeadingAt, receivedAt);
       const course = headingIsFresh && latestHeading !== null ? latestHeading : groundMotion.course;
@@ -1018,7 +1025,14 @@ export const createElectronGnssComTelemetryProvider = (
         lon: parsed.lon,
         receivedAt,
       };
-      const groundMotion = computeGroundMotion(lastGroundPoint, currentPoint);
+      const previousPoint = lastGroundPoint;
+      if (previousPoint && currentPoint.receivedAt <= previousPoint.receivedAt) {
+        // Ignore duplicate or out-of-order timestamps to avoid overriding
+        // valid over-ground motion with dt=0 samples from the same datagram.
+        continue;
+      }
+
+      const groundMotion = computeGroundMotion(previousPoint, currentPoint);
       lastGroundPoint = currentPoint;
       const headingIsFresh = latestHeading !== null && isFreshHeading(latestHeadingAt, receivedAt);
       const course = headingIsFresh && latestHeading !== null ? latestHeading : groundMotion.course;

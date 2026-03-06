@@ -98,6 +98,7 @@ import {
 } from '@/features/export';
 import { platform } from '@/platform';
 import { toast } from '@/hooks/use-toast';
+import { useThrottledValue } from '@/hooks/useThrottledValue';
 import { arrayBufferToBase64, base64ToBlob, base64ToUint8Array } from '@/features/map/rasterOverlays/base64';
 import { assertBoundsWithinEpsg4326, isBoundsWithinEpsg4326 } from '@/features/map/rasterOverlays/bounds';
 import { parseGeoTiffMetadata, parseTiffCoreMetadata } from '@/features/map/rasterOverlays/parseGeoTiff';
@@ -1041,9 +1042,10 @@ const MapWorkspace = () => {
   });
 
   const hiddenTrackIdSet = useMemo(() => new Set(hiddenTrackIds), [hiddenTrackIds]);
+  const throttledTrackPointsByTrackId = useThrottledValue(trackPointsByTrackId, 500);
 
   const trackSegments = useMemo(() => {
-    const segments = buildTrackSegments(trackPointsByTrackId);
+    const segments = buildTrackSegments(throttledTrackPointsByTrackId);
     const fallbackColor = styles.track.color;
     const trackMetaById = new Map(missionDocument?.tracks.map((track) => [track.id, track]) ?? []);
 
@@ -1052,7 +1054,7 @@ const MapWorkspace = () => {
       const color = meta?.color ?? fallbackColor;
       return { trackId: segment.trackId, points: segment.points, color };
     });
-  }, [missionDocument?.tracks, styles.track.color, trackPointsByTrackId]);
+  }, [missionDocument?.tracks, styles.track.color, throttledTrackPointsByTrackId]);
   const visibleTrackSegments = useMemo(
     () => filterVisibleTrackSegments(trackSegments, hiddenTrackIdSet),
     [hiddenTrackIdSet, trackSegments],

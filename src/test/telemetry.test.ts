@@ -592,6 +592,47 @@ describe('electron gnss telemetry provider', () => {
     await flushMicrotasks();
     setElectronApi(undefined);
   });
+
+  it('does not override over-ground speed with duplicate timestamp samples from one datagram', async () => {
+    const api = createMockGnssApi();
+    setElectronApi({ gnss: api });
+
+    const provider = createElectronGnssTelemetryProvider({
+      readConfig: async () => ({
+        ipAddress: '127.0.0.1',
+        dataPort: 28128,
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    api.emitData({
+      message:
+        '$GPRMC,123519,A,5956.2500,N,03018.5160,E,0.00,0.0,230394,,\r\n$GPGGA,123519,5956.2500,N,03018.5160,E,1,08,0.9,545.4,M,46.9,M,,\r\n',
+      receivedAt: 1739318401000,
+    });
+    api.emitData({
+      message:
+        '$GPRMC,123520,A,5956.2560,N,03018.5160,E,0.00,0.0,230394,,\r\n$GPGGA,123520,5956.2560,N,03018.5160,E,1,08,0.9,545.4,M,46.9,M,,\r\n',
+      receivedAt: 1739318402000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(2);
+    const secondFix = onFix.mock.calls[1]?.[0];
+    expect(secondFix.speed).toBeGreaterThan(11);
+    expect(secondFix.speed).toBeLessThan(11.3);
+    expect(secondFix.course).toBeCloseTo(0, 0);
+    expect(secondFix.heading).toBeNull();
+
+    provider.stop();
+    await flushMicrotasks();
+    setElectronApi(undefined);
+  });
 });
 
 describe('electron gnss-com telemetry provider', () => {
@@ -646,6 +687,117 @@ describe('electron gnss-com telemetry provider', () => {
     provider.stop();
     await flushMicrotasks();
     expect(api.stop).toHaveBeenCalledTimes(1);
+    setElectronApi(undefined);
+  });
+
+  it('uses over-ground course/speed without HDT and keeps speed over-ground with fresh/stale HDT', async () => {
+    const api = createMockGnssApi();
+    setElectronApi({ gnssCom: api });
+
+    const provider = createElectronGnssComTelemetryProvider({
+      readConfig: async () => ({
+        autoDetectPort: true,
+        comPort: '',
+        baudRate: 115200,
+        navigationSourceId: 'device-gnss-com-1',
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    api.emitData({
+      message: '$GPRMC,123519,A,5956.2500,N,03018.5160,E,0.00,270.0,230394,,\r\n',
+      receivedAt: 1739318401000,
+    });
+    api.emitData({
+      message: '$GPRMC,123520,A,5956.2560,N,03018.5160,E,0.00,270.0,230394,,\r\n',
+      receivedAt: 1739318402000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(2);
+    const withoutHdtFix = onFix.mock.calls[1]?.[0];
+    expect(withoutHdtFix.heading).toBeNull();
+    expect(withoutHdtFix.course).toBeCloseTo(0, 0);
+    expect(withoutHdtFix.speed).toBeGreaterThan(11);
+    expect(withoutHdtFix.speed).toBeLessThan(11.3);
+
+    api.emitData({
+      message: '$GPHDT,120.0,T\r\n',
+      receivedAt: 1739318402500,
+    });
+    api.emitData({
+      message: '$GPRMC,123521,A,5956.2620,N,03018.5160,E,0.00,270.0,230394,,\r\n',
+      receivedAt: 1739318403000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(3);
+    const freshHdtFix = onFix.mock.calls[2]?.[0];
+    expect(freshHdtFix.course).toBe(120);
+    expect(freshHdtFix.heading).toBe(120);
+    expect(freshHdtFix.speed).toBeGreaterThan(11);
+
+    api.emitData({
+      message: '$GPRMC,123527,A,5956.2680,N,03018.5160,E,0.00,270.0,230394,,\r\n',
+      receivedAt: 1739318409000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(4);
+    const staleHdtFix = onFix.mock.calls[3]?.[0];
+    expect(staleHdtFix.heading).toBeNull();
+    expect(staleHdtFix.course).toBeCloseTo(0, 0);
+    expect(staleHdtFix.speed).toBeGreaterThan(1.8);
+    expect(staleHdtFix.speed).toBeLessThan(1.9);
+
+    provider.stop();
+    await flushMicrotasks();
+    setElectronApi(undefined);
+  });
+
+  it('does not override over-ground speed with duplicate timestamp samples from one datagram', async () => {
+    const api = createMockGnssApi();
+    setElectronApi({ gnssCom: api });
+
+    const provider = createElectronGnssComTelemetryProvider({
+      readConfig: async () => ({
+        autoDetectPort: true,
+        comPort: '',
+        baudRate: 115200,
+        navigationSourceId: 'device-gnss-com-1',
+      }),
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    api.emitData({
+      message:
+        '$GPRMC,123519,A,5956.2500,N,03018.5160,E,0.00,0.0,230394,,\r\n$GPGGA,123519,5956.2500,N,03018.5160,E,1,08,0.9,545.4,M,46.9,M,,\r\n',
+      receivedAt: 1739318401000,
+    });
+    api.emitData({
+      message:
+        '$GPRMC,123520,A,5956.2560,N,03018.5160,E,0.00,0.0,230394,,\r\n$GPGGA,123520,5956.2560,N,03018.5160,E,1,08,0.9,545.4,M,46.9,M,,\r\n',
+      receivedAt: 1739318402000,
+    });
+
+    expect(onFix).toHaveBeenCalledTimes(2);
+    const secondFix = onFix.mock.calls[1]?.[0];
+    expect(secondFix.speed).toBeGreaterThan(11);
+    expect(secondFix.speed).toBeLessThan(11.3);
+    expect(secondFix.course).toBeCloseTo(0, 0);
+    expect(secondFix.heading).toBeNull();
+
+    provider.stop();
+    await flushMicrotasks();
     setElectronApi(undefined);
   });
 });
