@@ -703,6 +703,9 @@ const normalizeStorePath = (path: string): string => path.replace(/\\+/g, '/').r
 const buildEquipmentLogPath = (rootPath: string, deviceInstanceId: string): string =>
   `${normalizeStorePath(rootPath)}/${EQUIPMENT_LOGS_DIR}/${deviceInstanceId}.log`;
 
+const buildTrackCsvPath = (rootPath: string, trackFile: string): string =>
+  `${normalizeStorePath(rootPath)}/${trackFile.replace(/^\/+/, '')}`;
+
 const isMissionFileMissingError = (error: unknown): boolean => {
   return error instanceof Error && /Mission file not found/i.test(error.message);
 };
@@ -995,6 +998,8 @@ const MapWorkspace = () => {
   const simulationFixRef = useRef<DiverTelemetryState | null>(null);
   const lastRecordedPrimaryFixAtRef = useRef<number>(0);
   const lastRecordedFixByAgentRef = useRef<Record<string, number>>({});
+  const activeTrackWriterIdsRef = useRef<Set<string>>(new Set());
+  const trackWriterPointCountRef = useRef<Record<string, number>>({});
   const equipmentLoggersRef = useRef<Map<string, EquipmentLogger>>(new Map());
   const equipmentRawUnsubscribersRef = useRef<Array<() => void>>([]);
   const equipmentLoggingSessionSignatureRef = useRef<string | null>(null);
@@ -2385,6 +2390,9 @@ const MapWorkspace = () => {
       if (options?.closeActiveTrack) {
         cancelPendingWalStage();
         cancelPendingAutosave();
+        await repository.finalizeAllTracks(snapshot.recordingState.trackPointsByTrackId);
+        activeTrackWriterIdsRef.current = new Set();
+        trackWriterPointCountRef.current = {};
       }
 
       const finalizedRecordingState = options?.closeActiveTrack
@@ -2751,6 +2759,52 @@ const MapWorkspace = () => {
     // If mission had active_tracks saved, they are already restored by hydration.
     // No additional start events needed.
   }, [isDraft, isLoaded, shouldAutoStartRecording]);
+
+  useEffect(() => {
+    if (!missionDocument || !missionRootPath) {
+      activeTrackWriterIdsRef.current = new Set();
+      trackWriterPointCountRef.current = {};
+      return;
+    }
+
+    const previousActiveTrackIds = activeTrackWriterIdsRef.current;
+    const nextActiveTrackIds = new Set(Object.values(missionDocument.active_tracks));
+
+    for (const trackId of nextActiveTrackIds) {
+      if (previousActiveTrackIds.has(trackId)) continue;
+      const track = missionDocument.tracks.find((item) => item.id === trackId);
+      if (!track) continue;
+      repository.registerTrackWriter(trackId, buildTrackCsvPath(missionRootPath, track.file));
+      trackWriterPointCountRef.current[trackId] = (trackPointsByTrackId[trackId] ?? []).length;
+    }
+
+    for (const trackId of previousActiveTrackIds) {
+      if (nextActiveTrackIds.has(trackId)) continue;
+      const allPoints = trackPointsByTrackId[trackId] ?? [];
+      void repository.finalizeTrack(trackId, allPoints).catch(() => {
+        // Finalization is best-effort; checkpoint save still runs on schedule.
+      });
+      delete trackWriterPointCountRef.current[trackId];
+    }
+
+    activeTrackWriterIdsRef.current = nextActiveTrackIds;
+  }, [missionDocument, missionRootPath, repository, trackPointsByTrackId]);
+
+  useEffect(() => {
+    if (!missionDocument) return;
+    const activeTrackIds = new Set(Object.values(missionDocument.active_tracks));
+    for (const trackId of activeTrackIds) {
+      const points = trackPointsByTrackId[trackId] ?? [];
+      const previousCount = trackWriterPointCountRef.current[trackId] ?? 0;
+      if (points.length < previousCount) {
+        trackWriterPointCountRef.current[trackId] = points.length;
+        continue;
+      }
+      if (points.length === previousCount) continue;
+      repository.appendTrackPoints(trackId, points.slice(previousCount));
+      trackWriterPointCountRef.current[trackId] = points.length;
+    }
+  }, [missionDocument, repository, trackPointsByTrackId]);
 
   useEffect(() => {
     if (!isLoaded || !missionDocument || !missionRootPath) return;
