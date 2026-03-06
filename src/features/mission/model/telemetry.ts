@@ -20,12 +20,19 @@ export type TelemetryFix = {
   navigation_source_id?: string;
 };
 
+export type RawTelemetryPacket = {
+  schema_id: string;
+  raw: string;
+  received_at: number;
+};
+
 export type TelemetryProvider = {
   start: () => void;
   stop: () => void;
   setEnabled: (enabled: boolean) => void;
   setSimulateConnectionError: (enabled: boolean) => void;
   onFix: (listener: (fix: TelemetryFix) => void) => () => void;
+  onRawPacket: (listener: (packet: RawTelemetryPacket) => void) => () => void;
   onConnectionState: (listener: (state: TelemetryConnectionState) => void) => () => void;
 };
 
@@ -204,6 +211,7 @@ const isFreshHeading = (headingAt: number, receivedAt: number): boolean => {
 
 export const createNoopTelemetryProvider = (): TelemetryProvider => {
   const connectionListeners = new Set<(nextState: TelemetryConnectionState) => void>();
+  const rawPacketListeners = new Set<(packet: RawTelemetryPacket) => void>();
 
   return {
     start: () => {
@@ -222,6 +230,12 @@ export const createNoopTelemetryProvider = (): TelemetryProvider => {
     onFix: () => {
       return () => {
         // no-op
+      };
+    },
+    onRawPacket: (listener) => {
+      rawPacketListeners.add(listener);
+      return () => {
+        rawPacketListeners.delete(listener);
       };
     },
     onConnectionState: (listener) => {
@@ -258,6 +272,7 @@ export const createSimulationTelemetryProvider = (
 
   const fixListeners = new Set<(fix: TelemetryFix) => void>();
   const connectionListeners = new Set<(nextState: TelemetryConnectionState) => void>();
+  const rawPacketListeners = new Set<(packet: RawTelemetryPacket) => void>();
 
   const emitConnectionState = (nextState: TelemetryConnectionState) => {
     if (nextState === connectionState) return;
@@ -363,6 +378,12 @@ export const createSimulationTelemetryProvider = (
         fixListeners.delete(listener);
       };
     },
+    onRawPacket: (listener) => {
+      rawPacketListeners.add(listener);
+      return () => {
+        rawPacketListeners.delete(listener);
+      };
+    },
     onConnectionState: (listener) => {
       connectionListeners.add(listener);
       return () => {
@@ -393,6 +414,7 @@ export const createElectronZimaTelemetryProvider = (
 
   const fixListeners = new Set<(fix: TelemetryFix) => void>();
   const connectionListeners = new Set<(nextState: TelemetryConnectionState) => void>();
+  const rawPacketListeners = new Set<(packet: RawTelemetryPacket) => void>();
 
   const emitConnectionState = (nextState: TelemetryConnectionState) => {
     if (connectionState === nextState) return;
@@ -402,6 +424,9 @@ export const createElectronZimaTelemetryProvider = (
 
   const emitFix = (fix: TelemetryFix) => {
     fixListeners.forEach((listener) => listener(fix));
+  };
+  const emitRawPacket = (packet: RawTelemetryPacket) => {
+    rawPacketListeners.forEach((listener) => listener(packet));
   };
 
   const clearIntervals = () => {
@@ -436,8 +461,13 @@ export const createElectronZimaTelemetryProvider = (
     lineBuffer = nextRest.slice(-MAX_BUFFERED_ZIMA_BYTES);
 
     for (const line of linesToProcess) {
-      const parsed = parseZimaLine(line);
       const receivedAt = payload.receivedAt ?? Date.now();
+      emitRawPacket({
+        schema_id: 'zima2r',
+        raw: line,
+        received_at: receivedAt,
+      });
+      const parsed = parseZimaLine(line);
 
       if (parsed.kind === 'AZMLOC') {
         lastFixAt = receivedAt;
@@ -637,6 +667,12 @@ export const createElectronZimaTelemetryProvider = (
         fixListeners.delete(listener);
       };
     },
+    onRawPacket: (listener) => {
+      rawPacketListeners.add(listener);
+      return () => {
+        rawPacketListeners.delete(listener);
+      };
+    },
     onConnectionState: (listener) => {
       connectionListeners.add(listener);
       return () => {
@@ -668,6 +704,7 @@ export const createElectronGnssTelemetryProvider = (
 
   const fixListeners = new Set<(fix: TelemetryFix) => void>();
   const connectionListeners = new Set<(nextState: TelemetryConnectionState) => void>();
+  const rawPacketListeners = new Set<(packet: RawTelemetryPacket) => void>();
 
   const emitConnectionState = (nextState: TelemetryConnectionState) => {
     if (connectionState === nextState) return;
@@ -677,6 +714,9 @@ export const createElectronGnssTelemetryProvider = (
 
   const emitFix = (fix: TelemetryFix) => {
     fixListeners.forEach((listener) => listener(fix));
+  };
+  const emitRawPacket = (packet: RawTelemetryPacket) => {
+    rawPacketListeners.forEach((listener) => listener(packet));
   };
 
   const clearIntervals = () => {
@@ -700,8 +740,13 @@ export const createElectronGnssTelemetryProvider = (
     lineBuffer = rest.slice(-MAX_BUFFERED_NMEA_BYTES);
 
     for (const line of lines) {
-      const parsed = parseNmeaLine(line);
       const receivedAt = payload.receivedAt ?? Date.now();
+      emitRawPacket({
+        schema_id: 'gnss-udp',
+        raw: line,
+        received_at: receivedAt,
+      });
+      const parsed = parseNmeaLine(line);
 
       if (parsed.kind === 'HDT' && parsed.headingDeg !== null) {
         latestHeading = parsed.headingDeg;
@@ -872,6 +917,12 @@ export const createElectronGnssTelemetryProvider = (
         fixListeners.delete(listener);
       };
     },
+    onRawPacket: (listener) => {
+      rawPacketListeners.add(listener);
+      return () => {
+        rawPacketListeners.delete(listener);
+      };
+    },
     onConnectionState: (listener) => {
       connectionListeners.add(listener);
       return () => {
@@ -904,6 +955,7 @@ export const createElectronGnssComTelemetryProvider = (
 
   const fixListeners = new Set<(fix: TelemetryFix) => void>();
   const connectionListeners = new Set<(nextState: TelemetryConnectionState) => void>();
+  const rawPacketListeners = new Set<(packet: RawTelemetryPacket) => void>();
 
   const emitConnectionState = (nextState: TelemetryConnectionState) => {
     if (connectionState === nextState) return;
@@ -913,6 +965,9 @@ export const createElectronGnssComTelemetryProvider = (
 
   const emitFix = (fix: TelemetryFix) => {
     fixListeners.forEach((listener) => listener(fix));
+  };
+  const emitRawPacket = (packet: RawTelemetryPacket) => {
+    rawPacketListeners.forEach((listener) => listener(packet));
   };
 
   const clearIntervals = () => {
@@ -936,8 +991,13 @@ export const createElectronGnssComTelemetryProvider = (
     lineBuffer = rest.slice(-MAX_BUFFERED_NMEA_BYTES);
 
     for (const line of lines) {
-      const parsed = parseNmeaLine(line);
       const receivedAt = payload.receivedAt ?? Date.now();
+      emitRawPacket({
+        schema_id: 'gnss-com',
+        raw: line,
+        received_at: receivedAt,
+      });
+      const parsed = parseNmeaLine(line);
 
       if (parsed.kind === 'HDT' && parsed.headingDeg !== null) {
         latestHeading = parsed.headingDeg;
@@ -1112,6 +1172,12 @@ export const createElectronGnssComTelemetryProvider = (
       fixListeners.add(listener);
       return () => {
         fixListeners.delete(listener);
+      };
+    },
+    onRawPacket: (listener) => {
+      rawPacketListeners.add(listener);
+      return () => {
+        rawPacketListeners.delete(listener);
       };
     },
     onConnectionState: (listener) => {

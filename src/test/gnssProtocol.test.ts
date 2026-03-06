@@ -31,6 +31,20 @@ describe('gnss nmea protocol parser', () => {
     expect(parsed.headingDeg).toBe(120);
   });
 
+  it('parses HDT heading for GP and GN talkers', () => {
+    const gp = parseNmeaLine('$GPHDT,123.4,T*31');
+    expect(gp.kind).toBe('HDT');
+    if (gp.kind === 'HDT') {
+      expect(gp.headingDeg).toBeCloseTo(123.4, 5);
+    }
+
+    const gn = parseNmeaLine('$GNHDT,278.9,T*2F');
+    expect(gn.kind).toBe('HDT');
+    if (gn.kind === 'HDT') {
+      expect(gn.headingDeg).toBeCloseTo(278.9, 5);
+    }
+  });
+
   it('returns UNKNOWN for invalid checksum and splits datagram lines', () => {
     const invalid = parseNmeaLine('$GPRMC,123519,A,5956.2500,N,03018.5160,E,1.94,84.4,230394,,*00');
     expect(invalid.kind).toBe('UNKNOWN');

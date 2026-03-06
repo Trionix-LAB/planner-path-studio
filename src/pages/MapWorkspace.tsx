@@ -45,6 +45,7 @@ import {
   createElectronGnssTelemetryProvider,
   createElectronZimaTelemetryProvider,
   createDefaultDivers,
+  createEquipmentLogger,
   createMissionRepository,
   resolveDraftLoadMode,
   createSimulationTelemetryProvider,
@@ -71,6 +72,7 @@ import {
   type TelemetryConnectionState,
   type TelemetryFix,
   type TrackRecorderState,
+  type EquipmentLogger,
   type DraftLoadMode,
 } from '@/features/mission';
 import {
@@ -121,6 +123,7 @@ const BASE_STATION_AGENT_ID = 'base-station';
 const OVERLAYS_DIR = 'overlays';
 const OVERLAYS_RASTER_DIR = `${OVERLAYS_DIR}/rasters`;
 const OVERLAYS_VECTOR_DIR = `${OVERLAYS_DIR}/vectors`;
+const EQUIPMENT_LOGS_DIR = 'logs/equipment';
 const createOverlayId = (): string =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -605,6 +608,19 @@ type EquipmentNavigationSourceOption = {
   schemaId: string | null;
 };
 
+type EquipmentLoggingTarget = {
+  deviceInstanceId: string;
+  schemaId: DeviceProviderSourceId;
+  profileName: string;
+  label: string;
+};
+
+type EquipmentLogDownloadItem = {
+  id: string;
+  label: string;
+  path: string;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -682,6 +698,11 @@ const normalizeNavigationSourceId = (value: unknown): NavigationSourceId | null 
   return normalized.length > 0 ? normalized : null;
 };
 
+const normalizeStorePath = (path: string): string => path.replace(/\\+/g, '/').replace(/\/+$/g, '');
+
+const buildEquipmentLogPath = (rootPath: string, deviceInstanceId: string): string =>
+  `${normalizeStorePath(rootPath)}/${EQUIPMENT_LOGS_DIR}/${deviceInstanceId}.log`;
+
 const isMissionFileMissingError = (error: unknown): boolean => {
   return error instanceof Error && /Mission file not found/i.test(error.message);
 };
@@ -733,6 +754,8 @@ const MapWorkspace = () => {
     const selectedProfile =
       normalized.profiles.find((profile) => profile.id === normalized.selected_profile_id) ?? normalized.profiles[0] ?? null;
     const instanceOptions: EquipmentNavigationSourceOption[] = [];
+    const loggingTargets: EquipmentLoggingTarget[] = [];
+    const activeProfileName = selectedProfile?.name.trim() || 'Без названия профиля';
     if (selectedProfile) {
       for (const instanceId of selectedProfile.device_instance_ids) {
         const instance = normalized.device_instances[instanceId];
@@ -745,10 +768,20 @@ const MapWorkspace = () => {
           label: instanceLabel,
           schemaId: instance.schema_id,
         });
+        if (instance.schema_id !== 'zima2r' && instance.schema_id !== 'gnss-udp' && instance.schema_id !== 'gnss-com') {
+          continue;
+        }
+        loggingTargets.push({
+          deviceInstanceId: instance.id,
+          schemaId: instance.schema_id,
+          profileName: activeProfileName,
+          label: instanceLabel,
+        });
       }
     }
     setSelectedEquipmentProfileName(selectedProfile?.name ?? 'Не выбрано');
     setSelectedEquipmentNavigationOptions(instanceOptions);
+    setEquipmentLoggingTargets(loggingTargets);
     setEquipmentEnabledBySource((prev) => {
       const next: Record<string, boolean> = {};
       for (const option of instanceOptions) {
@@ -843,6 +876,8 @@ const MapWorkspace = () => {
   const [selectedEquipmentNavigationOptions, setSelectedEquipmentNavigationOptions] = useState<
     EquipmentNavigationSourceOption[]
   >([]);
+  const [equipmentLoggingTargets, setEquipmentLoggingTargets] = useState<EquipmentLoggingTarget[]>([]);
+  const [equipmentLogDownloadItems, setEquipmentLogDownloadItems] = useState<EquipmentLogDownloadItem[]>([]);
   const [simulateConnectionError, setSimulateConnectionError] = useState(false);
   const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
   const [hasPrimaryTelemetry, setHasPrimaryTelemetry] = useState(false);
@@ -960,6 +995,9 @@ const MapWorkspace = () => {
   const simulationFixRef = useRef<DiverTelemetryState | null>(null);
   const lastRecordedPrimaryFixAtRef = useRef<number>(0);
   const lastRecordedFixByAgentRef = useRef<Record<string, number>>({});
+  const equipmentLoggersRef = useRef<Map<string, EquipmentLogger>>(new Map());
+  const equipmentRawUnsubscribersRef = useRef<Array<() => void>>([]);
+  const equipmentLoggingSessionSignatureRef = useRef<string | null>(null);
   const missionDiversRef = useRef<DiverUiConfig[]>(createDefaultDivers(1));
   const appSettingsRef = useRef<AppSettingsV1>(DEFAULT_APP_SETTINGS);
   const appSettingsReadyRef = useRef(false);
@@ -1232,6 +1270,72 @@ const MapWorkspace = () => {
     if (!isElectronRuntime) return simulationEnabled;
     return navigationSourceOptions.some((option) => Boolean(equipmentEnabledBySource[option.id]));
   }, [equipmentEnabledBySource, isElectronRuntime, navigationSourceOptions, simulationEnabled]);
+  const equipmentLoggingSessionSignature = useMemo(() => {
+    if (!missionRootPath || equipmentLoggingTargets.length === 0) return null;
+    const targetsSignature = equipmentLoggingTargets
+      .map((target) => `${target.schemaId}:${target.deviceInstanceId}:${target.profileName}`)
+      .sort()
+      .join('|');
+    return `${normalizeStorePath(missionRootPath)}::${targetsSignature}`;
+  }, [equipmentLoggingTargets, missionRootPath]);
+
+  const stopEquipmentLoggingSession = useCallback(async () => {
+    const unsubscribers = equipmentRawUnsubscribersRef.current.splice(0);
+    unsubscribers.forEach((unsubscribe) => unsubscribe());
+
+    const activeLoggers = Array.from(equipmentLoggersRef.current.values());
+    equipmentLoggersRef.current.clear();
+    equipmentLoggingSessionSignatureRef.current = null;
+    await Promise.all(activeLoggers.map((logger) => logger.stop()));
+  }, []);
+
+  const startEquipmentLoggingSession = useCallback(
+    (rootPath: string, targets: EquipmentLoggingTarget[], signature: string) => {
+      const loggersBySchema = new Map<DeviceProviderSourceId, EquipmentLogger[]>();
+      const loggerByInstanceId = new Map<string, EquipmentLogger>();
+
+      for (const target of targets) {
+        const logger = createEquipmentLogger({
+          rootPath,
+          deviceInstanceId: target.deviceInstanceId,
+          profileName: target.profileName,
+          fileStore: platform.fileStore,
+        });
+        const schemaLoggers = loggersBySchema.get(target.schemaId) ?? [];
+        schemaLoggers.push(logger);
+        loggersBySchema.set(target.schemaId, schemaLoggers);
+        loggerByInstanceId.set(target.deviceInstanceId, logger);
+      }
+
+      const unsubscribers: Array<() => void> = [];
+      unsubscribers.push(
+        zimaTelemetryProvider.onRawPacket((packet) => {
+          if (packet.schema_id !== 'zima2r') return;
+          const schemaLoggers = loggersBySchema.get('zima2r') ?? [];
+          schemaLoggers.forEach((logger) => logger.write(packet.raw));
+        }),
+      );
+      unsubscribers.push(
+        gnssTelemetryProvider.onRawPacket((packet) => {
+          if (packet.schema_id !== 'gnss-udp') return;
+          const schemaLoggers = loggersBySchema.get('gnss-udp') ?? [];
+          schemaLoggers.forEach((logger) => logger.write(packet.raw));
+        }),
+      );
+      unsubscribers.push(
+        gnssComTelemetryProvider.onRawPacket((packet) => {
+          if (packet.schema_id !== 'gnss-com') return;
+          const schemaLoggers = loggersBySchema.get('gnss-com') ?? [];
+          schemaLoggers.forEach((logger) => logger.write(packet.raw));
+        }),
+      );
+
+      equipmentRawUnsubscribersRef.current = unsubscribers;
+      equipmentLoggersRef.current = loggerByInstanceId;
+      equipmentLoggingSessionSignatureRef.current = signature;
+    },
+    [gnssComTelemetryProvider, gnssTelemetryProvider, zimaTelemetryProvider],
+  );
 
 
   const settingsValue = useMemo<AppUiDefaults>(
@@ -3082,6 +3186,88 @@ const MapWorkspace = () => {
     void loadActiveEquipmentProfile();
   }, [isElectronRuntime, loadActiveEquipmentProfile, showSettings]);
 
+  const shouldCollectEquipmentLogs =
+    isLoaded &&
+    Boolean(missionRootPath) &&
+    equipmentLoggingTargets.length > 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    const syncEquipmentLogging = async () => {
+      if (!shouldCollectEquipmentLogs || !missionRootPath || !equipmentLoggingSessionSignature) {
+        if (equipmentLoggingSessionSignatureRef.current !== null) {
+          await stopEquipmentLoggingSession();
+        }
+        return;
+      }
+
+      if (equipmentLoggingSessionSignatureRef.current === equipmentLoggingSessionSignature) {
+        return;
+      }
+
+      await stopEquipmentLoggingSession();
+      if (cancelled) return;
+      startEquipmentLoggingSession(missionRootPath, equipmentLoggingTargets, equipmentLoggingSessionSignature);
+    };
+
+    void syncEquipmentLogging();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    equipmentLoggingSessionSignature,
+    equipmentLoggingTargets,
+    missionRootPath,
+    shouldCollectEquipmentLogs,
+    startEquipmentLoggingSession,
+    stopEquipmentLoggingSession,
+  ]);
+
+  useEffect(
+    () => () => {
+      void stopEquipmentLoggingSession();
+    },
+    [stopEquipmentLoggingSession],
+  );
+
+  useEffect(() => {
+    if (!showSettings || !missionRootPath || equipmentLoggingTargets.length === 0) {
+      setEquipmentLogDownloadItems([]);
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: number | null = null;
+    const refresh = async () => {
+      const entries = await Promise.all(
+        equipmentLoggingTargets.map(async (target) => {
+          const path = buildEquipmentLogPath(missionRootPath, target.deviceInstanceId);
+          const exists = await platform.fileStore.exists(path);
+          if (!exists) return null;
+          return {
+            id: target.deviceInstanceId,
+            label: target.label,
+            path,
+          } satisfies EquipmentLogDownloadItem;
+        }),
+      );
+      if (cancelled) return;
+      setEquipmentLogDownloadItems(entries.filter((item): item is EquipmentLogDownloadItem => item !== null));
+    };
+
+    void refresh();
+    intervalId = window.setInterval(() => {
+      void refresh();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [equipmentLoggingTargets, missionRootPath, showSettings]);
+
   useEffect(() => {
     if (connectionStatus === 'ok') {
       return;
@@ -3637,6 +3823,28 @@ const MapWorkspace = () => {
     const title = sourceOption?.label ?? sourceId;
     toast({ title: `${title}: ${enabled ? 'включено' : 'выключено'}` });
   };
+
+  const handleDownloadEquipmentLog = useCallback(async (item: EquipmentLogDownloadItem) => {
+    const content = await platform.fileStore.readText(item.path);
+    if (content === null) {
+      toast({ title: 'Лог недоступен', description: `Файл не найден: ${item.path}` });
+      return;
+    }
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const missionPart = safeFilename(missionName ?? missionDocument?.name ?? 'mission');
+    const labelPart = safeFilename(item.label || item.id);
+    const filename = `${missionPart}-${labelPart}.log`;
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, [missionDocument?.name, missionName]);
 
   const handleExport = async (request: ExportRequest) => {
     if (!missionRootPath || !missionDocument) {
@@ -4298,6 +4506,8 @@ const MapWorkspace = () => {
             : []
         }
         onToggleEquipment={isElectronRuntime ? handleToggleEquipmentConnection : undefined}
+        equipmentLogs={equipmentLogDownloadItems}
+        onDownloadEquipmentLog={handleDownloadEquipmentLog}
         onOpenEquipment={handleOpenEquipmentScreen}
       />
 
