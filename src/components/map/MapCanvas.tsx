@@ -31,6 +31,13 @@ import { cn } from "@/lib/utils";
 import CachedTileLayer from './CachedTileLayer';
 import { createBaseStationIcon, createDiverIcon } from './telemetryMarkerIcons';
 import { resolveFlyToZoomFor50mGrid } from './flyToZoom';
+import {
+  buildVisibleDiverMarkers,
+  normalizeDiverTelemetryById,
+  resolveFollowDiverPosition,
+  resolvePrimaryDiverPosition,
+  type DiverTelemetryPosition,
+} from './diverTelemetry';
 
 const TRANSPARENT_TILE =
   'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
@@ -83,14 +90,7 @@ interface MapCanvasProps {
   isBaseStationSourceAssigned: boolean;
   baseStationMarkerSizePx?: number;
   divers: DiverUiConfig[];
-  diverPositionsById?: Record<
-    string,
-    {
-      lat: number;
-      lon: number;
-      course?: number;
-    }
-  >;
+  diverPositionsById?: Record<string, DiverTelemetryPosition>;
   trackSegments: Array<{ trackId: string; points: Array<[number, number]>; color: string }>;
   rasterOverlays?: Array<{
     id: string;
@@ -654,52 +654,25 @@ const MapCanvas = ({
   const pendingCursor = useRef<{ lat: number; lon: number } | null>(null);
   const cursorRaf = useRef<number | null>(null);
 
-  const normalizedDiverPositions = useMemo(() => {
-    const next: Record<string, { lat: number; lon: number; course?: number }> = {};
-    for (const [id, value] of Object.entries(diverPositionsById)) {
-      const key = id.trim();
-      if (!key) continue;
-      next[key] = value;
-    }
-    return next;
-  }, [diverPositionsById]);
+  const normalizedDiverPositions = useMemo(() => normalizeDiverTelemetryById(diverPositionsById), [diverPositionsById]);
+  const visibleDiverMarkers = useMemo(
+    () => buildVisibleDiverMarkers(divers, normalizedDiverPositions),
+    [divers, normalizedDiverPositions],
+  );
 
-  const primaryDiverId = divers[0]?.id?.trim() ?? '';
-  const primaryTelemetry = primaryDiverId ? normalizedDiverPositions[primaryDiverId] : undefined;
-  const diverPosition: [number, number] = primaryTelemetry
-    ? [primaryTelemetry.lat, primaryTelemetry.lon]
-    : [diverData.lat, diverData.lon];
-  const offsetStep = 0.00008;
-  const getDiverPosition = (diver: DiverUiConfig, index: number): [number, number] => {
-    const diverId = diver.id.trim();
-    const telemetry = diverId ? normalizedDiverPositions[diverId] : undefined;
-    if (telemetry) {
-      return [telemetry.lat, telemetry.lon];
-    }
-    if (index === 0) return diverPosition;
-    const ring = Math.ceil(index / 2);
-    const sign = index % 2 === 0 ? -1 : 1;
-    return [diverPosition[0] + ring * offsetStep * sign, diverPosition[1] + ring * offsetStep * sign];
-  };
+  const primaryDiverPosition = useMemo(
+    () => resolvePrimaryDiverPosition(divers, normalizedDiverPositions),
+    [divers, normalizedDiverPositions],
+  );
+  const diverPosition: [number, number] = primaryDiverPosition ?? [diverData.lat, diverData.lon];
+
+  const followDiverPosition = useMemo(
+    () => resolveFollowDiverPosition(divers, normalizedDiverPositions, followAgentId),
+    [divers, followAgentId, normalizedDiverPositions],
+  );
+  const isFollowing = Boolean(followAgentId && followDiverPosition);
+  const followPosition: [number, number] = followDiverPosition ?? diverPosition;
   const normalizeCourse = (value: number): number => ((value % 360) + 360) % 360;
-  const getDiverCourse = (diver: DiverUiConfig, index: number): number => {
-    const diverId = diver.id.trim();
-    const telemetry = diverId ? normalizedDiverPositions[diverId] : undefined;
-    if (telemetry && typeof telemetry.course === 'number' && Number.isFinite(telemetry.course)) {
-      return normalizeCourse(telemetry.course);
-    }
-    if (index === 0) {
-      return normalizeCourse(diverData.course);
-    }
-    return 0;
-  };
-
-  const isFollowing = Boolean(followAgentId);
-  const followAgentIndex = followAgentId ? divers.findIndex((diver) => diver.uid === followAgentId) : -1;
-  const followAgent = followAgentIndex >= 0 ? divers[followAgentIndex] : null;
-  const followPosition: [number, number] = followAgent
-    ? getDiverPosition(followAgent, followAgentIndex)
-    : diverPosition;
 
   const baseStationPosition: [number, number] | null = baseStationData
     ? [baseStationData.lat, baseStationData.lon]
@@ -1939,15 +1912,13 @@ const MapCanvas = ({
         {/* Diver */}
         {layers.diver &&
           showTelemetryObjects &&
-          divers.map((diver, index) => {
-            const position = getDiverPosition(diver, index);
-            const course = getDiverCourse(diver, index);
+          visibleDiverMarkers.map((diver) => {
             const isPinned = Boolean(followAgentId && diver.uid === followAgentId);
             return (
               <Marker
                 key={diver.uid}
-                position={position}
-                icon={createDiverIcon(course, isPinned, diver.marker_color, diver.marker_size_px)}
+                position={diver.position}
+                icon={createDiverIcon(diver.course, isPinned, diver.markerColor, diver.markerSizePx)}
               />
             );
           })}
