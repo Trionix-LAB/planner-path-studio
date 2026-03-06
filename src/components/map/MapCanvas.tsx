@@ -7,6 +7,8 @@ import { AlertTriangle } from "lucide-react";
 import type { MapObject, MapObjectGeometry, Tool } from "@/features/map/model/types";
 import {
   buildLaneTraversal,
+  decimateSegments,
+  epsilonDegFromMetersPerPixel,
   generateLanesForZone,
   toConvexZonePolygon,
   type LaneFeature,
@@ -23,7 +25,7 @@ import { platform } from "@/platform";
 import { MapContextMenu } from "./MapContextMenu";
 import { GridLayer } from "./GridLayer";
 import { ScaleBar } from "./ScaleBar";
-import { computeScaleRatioLabelFromMap, haversineDistanceMeters } from './scaleUtils';
+import { computeMetersPerPixelFromMap, computeScaleRatioLabelFromMap, haversineDistanceMeters } from './scaleUtils';
 import { ZoneDraftLanePanel } from './ZoneDraftLanePanel';
 import { getDefaultZoneLanePanelIconPosition, getDefaultZoneLanePanelPosition } from './zoneDraftLanePanelUtils';
 import { useToast } from "@/hooks/use-toast";
@@ -321,6 +323,7 @@ const MapEvents = ({
   onMapDrag,
   onMapContextMenu,
   onMapScaleChange,
+  onMetersPerPixelChange,
   onMapViewChange,
   onMapBoundsChange,
 }: {
@@ -329,6 +332,7 @@ const MapEvents = ({
   onMapDrag: () => void;
   onMapContextMenu: (e: L.LeafletMouseEvent) => void;
   onMapScaleChange?: (scale: string) => void;
+  onMetersPerPixelChange?: (value: number) => void;
   onMapViewChange?: (view: { center_lat: number; center_lon: number; zoom: number }) => void;
   onMapBoundsChange?: (bounds: { north: number; south: number; east: number; west: number }) => void;
 }) => {
@@ -336,7 +340,8 @@ const MapEvents = ({
   const viewTimerRef = useRef<number | null>(null);
   const reportScale = useCallback(() => {
     onMapScaleChange?.(computeScaleRatioLabelFromMap(map));
-  }, [map, onMapScaleChange]);
+    onMetersPerPixelChange?.(computeMetersPerPixelFromMap(map));
+  }, [map, onMapScaleChange, onMetersPerPixelChange]);
 
   const scheduleViewReport = useCallback(() => {
     if (!onMapViewChange && !onMapBoundsChange) return;
@@ -644,6 +649,7 @@ const MapCanvas = ({
   const [zoneDraftPanelIconPosition, setZoneDraftPanelIconPosition] = useState(() => getDefaultZoneLanePanelIconPosition());
   const [zoneDraftPanelMinimized, setZoneDraftPanelMinimized] = useState(false);
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
+  const [metersPerPixel, setMetersPerPixel] = useState<number>(0);
 
   const mapRef = useRef<L.Map | null>(null);
   const previousToolRef = useRef<Tool>(activeTool);
@@ -672,6 +678,10 @@ const MapCanvas = ({
   );
   const isFollowing = Boolean(followAgentId && followDiverPosition);
   const followPosition: [number, number] = followDiverPosition ?? diverPosition;
+  const decimatedTrackSegments = useMemo(() => {
+    const epsilonDeg = epsilonDegFromMetersPerPixel(metersPerPixel);
+    return decimateSegments(trackSegments, epsilonDeg);
+  }, [metersPerPixel, trackSegments]);
   const normalizeCourse = (value: number): number => ((value % 360) + 360) % 360;
 
   const baseStationPosition: [number, number] | null = baseStationData
@@ -1518,6 +1528,7 @@ const MapCanvas = ({
           onMapClick={handleMapClick}
           onMapDrag={onMapDrag}
           onMapScaleChange={onMapScaleChange}
+          onMetersPerPixelChange={setMetersPerPixel}
           onMapViewChange={onMapViewChange}
           onMapBoundsChange={onMapBoundsChange}
           onMapContextMenu={() => {
@@ -1533,7 +1544,7 @@ const MapCanvas = ({
 
         {/* Track */}
         {layers.track &&
-          trackSegments.map((segment, index) => (
+          decimatedTrackSegments.map((segment, index) => (
             <Polyline
               key={`track-segment-${segment.trackId}-${index}`}
               positions={segment.points}
