@@ -7,6 +7,8 @@ import { AlertTriangle } from "lucide-react";
 import type { MapObject, MapObjectGeometry, Tool } from "@/features/map/model/types";
 import {
   buildLaneTraversal,
+  decimateSegments,
+  epsilonDegFromMetersPerPixel,
   generateLanesForZone,
   toConvexZonePolygon,
   type LaneFeature,
@@ -23,7 +25,7 @@ import { platform } from "@/platform";
 import { MapContextMenu } from "./MapContextMenu";
 import { GridLayer } from "./GridLayer";
 import { ScaleBar } from "./ScaleBar";
-import { computeScaleRatioLabelFromMap, haversineDistanceMeters } from './scaleUtils';
+import { computeMetersPerPixelFromMap, computeScaleRatioLabelFromMap, haversineDistanceMeters } from './scaleUtils';
 import { ZoneDraftLanePanel } from './ZoneDraftLanePanel';
 import { getDefaultZoneLanePanelIconPosition, getDefaultZoneLanePanelPosition } from './zoneDraftLanePanelUtils';
 import { useToast } from "@/hooks/use-toast";
@@ -31,6 +33,13 @@ import { cn } from "@/lib/utils";
 import CachedTileLayer from './CachedTileLayer';
 import { createBaseStationIcon, createDiverIcon, createRwltBuoyIcon } from './telemetryMarkerIcons';
 import { resolveFlyToZoomFor50mGrid } from './flyToZoom';
+import {
+  buildVisibleDiverMarkers,
+  normalizeDiverTelemetryById,
+  resolveFollowDiverPosition,
+  resolvePrimaryDiverPosition,
+  type DiverTelemetryPosition,
+} from './diverTelemetry';
 
 const TRANSPARENT_TILE =
   'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
@@ -83,14 +92,7 @@ interface MapCanvasProps {
   isBaseStationSourceAssigned: boolean;
   baseStationMarkerSizePx?: number;
   divers: DiverUiConfig[];
-  diverPositionsById?: Record<
-    string,
-    {
-      lat: number;
-      lon: number;
-      course?: number;
-    }
-  >;
+  diverPositionsById?: Record<string, DiverTelemetryPosition>;
   trackSegments: Array<{ trackId: string; points: Array<[number, number]>; color: string }>;
   rasterOverlays?: Array<{
     id: string;
@@ -329,6 +331,7 @@ const MapEvents = ({
   onMapDrag,
   onMapContextMenu,
   onMapScaleChange,
+  onMetersPerPixelChange,
   onMapViewChange,
   onMapBoundsChange,
 }: {
@@ -337,6 +340,7 @@ const MapEvents = ({
   onMapDrag: () => void;
   onMapContextMenu: (e: L.LeafletMouseEvent) => void;
   onMapScaleChange?: (scale: string) => void;
+  onMetersPerPixelChange?: (value: number) => void;
   onMapViewChange?: (view: { center_lat: number; center_lon: number; zoom: number }) => void;
   onMapBoundsChange?: (bounds: { north: number; south: number; east: number; west: number }) => void;
 }) => {
@@ -344,7 +348,8 @@ const MapEvents = ({
   const viewTimerRef = useRef<number | null>(null);
   const reportScale = useCallback(() => {
     onMapScaleChange?.(computeScaleRatioLabelFromMap(map));
-  }, [map, onMapScaleChange]);
+    onMetersPerPixelChange?.(computeMetersPerPixelFromMap(map));
+  }, [map, onMapScaleChange, onMetersPerPixelChange]);
 
   const scheduleViewReport = useCallback(() => {
     if (!onMapViewChange && !onMapBoundsChange) return;
@@ -653,6 +658,7 @@ const MapCanvas = ({
   const [zoneDraftPanelIconPosition, setZoneDraftPanelIconPosition] = useState(() => getDefaultZoneLanePanelIconPosition());
   const [zoneDraftPanelMinimized, setZoneDraftPanelMinimized] = useState(false);
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
+  const [metersPerPixel, setMetersPerPixel] = useState<number>(0);
 
   const mapRef = useRef<L.Map | null>(null);
   const previousToolRef = useRef<Tool>(activeTool);
@@ -663,52 +669,29 @@ const MapCanvas = ({
   const pendingCursor = useRef<{ lat: number; lon: number } | null>(null);
   const cursorRaf = useRef<number | null>(null);
 
-  const normalizedDiverPositions = useMemo(() => {
-    const next: Record<string, { lat: number; lon: number; course?: number }> = {};
-    for (const [id, value] of Object.entries(diverPositionsById)) {
-      const key = id.trim();
-      if (!key) continue;
-      next[key] = value;
-    }
-    return next;
-  }, [diverPositionsById]);
+  const normalizedDiverPositions = useMemo(() => normalizeDiverTelemetryById(diverPositionsById), [diverPositionsById]);
+  const visibleDiverMarkers = useMemo(
+    () => buildVisibleDiverMarkers(divers, normalizedDiverPositions),
+    [divers, normalizedDiverPositions],
+  );
 
-  const primaryDiverId = divers[0]?.id?.trim() ?? '';
-  const primaryTelemetry = primaryDiverId ? normalizedDiverPositions[primaryDiverId] : undefined;
-  const diverPosition: [number, number] = primaryTelemetry
-    ? [primaryTelemetry.lat, primaryTelemetry.lon]
-    : [diverData.lat, diverData.lon];
-  const offsetStep = 0.00008;
-  const getDiverPosition = (diver: DiverUiConfig, index: number): [number, number] => {
-    const diverId = diver.id.trim();
-    const telemetry = diverId ? normalizedDiverPositions[diverId] : undefined;
-    if (telemetry) {
-      return [telemetry.lat, telemetry.lon];
-    }
-    if (index === 0) return diverPosition;
-    const ring = Math.ceil(index / 2);
-    const sign = index % 2 === 0 ? -1 : 1;
-    return [diverPosition[0] + ring * offsetStep * sign, diverPosition[1] + ring * offsetStep * sign];
-  };
+  const primaryDiverPosition = useMemo(
+    () => resolvePrimaryDiverPosition(divers, normalizedDiverPositions),
+    [divers, normalizedDiverPositions],
+  );
+  const diverPosition: [number, number] = primaryDiverPosition ?? [diverData.lat, diverData.lon];
+
+  const followDiverPosition = useMemo(
+    () => resolveFollowDiverPosition(divers, normalizedDiverPositions, followAgentId),
+    [divers, followAgentId, normalizedDiverPositions],
+  );
+  const isFollowing = Boolean(followAgentId && followDiverPosition);
+  const followPosition: [number, number] = followDiverPosition ?? diverPosition;
+  const decimatedTrackSegments = useMemo(() => {
+    const epsilonDeg = epsilonDegFromMetersPerPixel(metersPerPixel);
+    return decimateSegments(trackSegments, epsilonDeg);
+  }, [metersPerPixel, trackSegments]);
   const normalizeCourse = (value: number): number => ((value % 360) + 360) % 360;
-  const getDiverCourse = (diver: DiverUiConfig, index: number): number => {
-    const diverId = diver.id.trim();
-    const telemetry = diverId ? normalizedDiverPositions[diverId] : undefined;
-    if (telemetry && typeof telemetry.course === 'number' && Number.isFinite(telemetry.course)) {
-      return normalizeCourse(telemetry.course);
-    }
-    if (index === 0) {
-      return normalizeCourse(diverData.course);
-    }
-    return 0;
-  };
-
-  const isFollowing = Boolean(followAgentId);
-  const followAgentIndex = followAgentId ? divers.findIndex((diver) => diver.uid === followAgentId) : -1;
-  const followAgent = followAgentIndex >= 0 ? divers[followAgentIndex] : null;
-  const followPosition: [number, number] = followAgent
-    ? getDiverPosition(followAgent, followAgentIndex)
-    : diverPosition;
 
   const baseStationPosition: [number, number] | null = baseStationData
     ? [baseStationData.lat, baseStationData.lon]
@@ -1554,6 +1537,7 @@ const MapCanvas = ({
           onMapClick={handleMapClick}
           onMapDrag={onMapDrag}
           onMapScaleChange={onMapScaleChange}
+          onMetersPerPixelChange={setMetersPerPixel}
           onMapViewChange={onMapViewChange}
           onMapBoundsChange={onMapBoundsChange}
           onMapContextMenu={() => {
@@ -1569,7 +1553,7 @@ const MapCanvas = ({
 
         {/* Track */}
         {layers.track &&
-          trackSegments.map((segment, index) => (
+          decimatedTrackSegments.map((segment, index) => (
             <Polyline
               key={`track-segment-${segment.trackId}-${index}`}
               positions={segment.points}
@@ -1948,15 +1932,13 @@ const MapCanvas = ({
         {/* Diver */}
         {layers.diver &&
           showTelemetryObjects &&
-          divers.map((diver, index) => {
-            const position = getDiverPosition(diver, index);
-            const course = getDiverCourse(diver, index);
+          visibleDiverMarkers.map((diver) => {
             const isPinned = Boolean(followAgentId && diver.uid === followAgentId);
             return (
               <Marker
                 key={diver.uid}
-                position={position}
-                icon={createDiverIcon(course, isPinned, diver.marker_color, diver.marker_size_px)}
+                position={diver.position}
+                icon={createDiverIcon(diver.course, isPinned, diver.markerColor, diver.markerSizePx)}
               />
             );
           })}

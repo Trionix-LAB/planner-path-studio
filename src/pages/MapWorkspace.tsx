@@ -46,6 +46,7 @@ import {
   createElectronRwltComTelemetryProvider,
   createElectronZimaTelemetryProvider,
   createDefaultDivers,
+  createEquipmentLogger,
   createMissionRepository,
   resolveDraftLoadMode,
   createSimulationTelemetryProvider,
@@ -72,6 +73,7 @@ import {
   type TelemetryConnectionState,
   type TelemetryFix,
   type TrackRecorderState,
+  type EquipmentLogger,
   type DraftLoadMode,
 } from '@/features/mission';
 import {
@@ -97,6 +99,7 @@ import {
 } from '@/features/export';
 import { platform } from '@/platform';
 import { toast } from '@/hooks/use-toast';
+import { useThrottledValue } from '@/hooks/useThrottledValue';
 import { arrayBufferToBase64, base64ToBlob, base64ToUint8Array } from '@/features/map/rasterOverlays/base64';
 import { assertBoundsWithinEpsg4326, isBoundsWithinEpsg4326 } from '@/features/map/rasterOverlays/bounds';
 import { parseGeoTiffMetadata, parseTiffCoreMetadata } from '@/features/map/rasterOverlays/parseGeoTiff';
@@ -123,6 +126,7 @@ const BASE_STATION_AGENT_ID = 'base-station';
 const OVERLAYS_DIR = 'overlays';
 const OVERLAYS_RASTER_DIR = `${OVERLAYS_DIR}/rasters`;
 const OVERLAYS_VECTOR_DIR = `${OVERLAYS_DIR}/vectors`;
+const EQUIPMENT_LOGS_DIR = 'logs/equipment';
 const createOverlayId = (): string =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -624,6 +628,19 @@ type EquipmentNavigationSourceOption = {
   schemaId: string | null;
 };
 
+type EquipmentLoggingTarget = {
+  deviceInstanceId: string;
+  schemaId: DeviceProviderSourceId;
+  profileName: string;
+  label: string;
+};
+
+type EquipmentLogDownloadItem = {
+  id: string;
+  label: string;
+  path: string;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -716,6 +733,14 @@ const normalizeNavigationSourceId = (value: unknown): NavigationSourceId | null 
   return normalized.length > 0 ? normalized : null;
 };
 
+const normalizeStorePath = (path: string): string => path.replace(/\\+/g, '/').replace(/\/+$/g, '');
+
+const buildEquipmentLogPath = (rootPath: string, deviceInstanceId: string): string =>
+  `${normalizeStorePath(rootPath)}/${EQUIPMENT_LOGS_DIR}/${deviceInstanceId}.log`;
+
+const buildTrackCsvPath = (rootPath: string, trackFile: string): string =>
+  `${normalizeStorePath(rootPath)}/${trackFile.replace(/^\/+/, '')}`;
+
 const isMissionFileMissingError = (error: unknown): boolean => {
   return error instanceof Error && /Mission file not found/i.test(error.message);
 };
@@ -767,6 +792,8 @@ const MapWorkspace = () => {
     const selectedProfile =
       normalized.profiles.find((profile) => profile.id === normalized.selected_profile_id) ?? normalized.profiles[0] ?? null;
     const instanceOptions: EquipmentNavigationSourceOption[] = [];
+    const loggingTargets: EquipmentLoggingTarget[] = [];
+    const activeProfileName = selectedProfile?.name.trim() || 'Без названия профиля';
     if (selectedProfile) {
       for (const instanceId of selectedProfile.device_instance_ids) {
         const instance = normalized.device_instances[instanceId];
@@ -779,10 +806,20 @@ const MapWorkspace = () => {
           label: instanceLabel,
           schemaId: instance.schema_id,
         });
+        if (instance.schema_id !== 'zima2r' && instance.schema_id !== 'gnss-udp' && instance.schema_id !== 'gnss-com') {
+          continue;
+        }
+        loggingTargets.push({
+          deviceInstanceId: instance.id,
+          schemaId: instance.schema_id,
+          profileName: activeProfileName,
+          label: instanceLabel,
+        });
       }
     }
     setSelectedEquipmentProfileName(selectedProfile?.name ?? 'Не выбрано');
     setSelectedEquipmentNavigationOptions(instanceOptions);
+    setEquipmentLoggingTargets(loggingTargets);
     setEquipmentEnabledBySource((prev) => {
       const next: Record<string, boolean> = {};
       for (const option of instanceOptions) {
@@ -891,6 +928,8 @@ const MapWorkspace = () => {
   const [selectedEquipmentNavigationOptions, setSelectedEquipmentNavigationOptions] = useState<
     EquipmentNavigationSourceOption[]
   >([]);
+  const [equipmentLoggingTargets, setEquipmentLoggingTargets] = useState<EquipmentLoggingTarget[]>([]);
+  const [equipmentLogDownloadItems, setEquipmentLogDownloadItems] = useState<EquipmentLogDownloadItem[]>([]);
   const [simulateConnectionError, setSimulateConnectionError] = useState(false);
   const [diverData, setDiverData] = useState(DEFAULT_DIVER_DATA);
   const [hasPrimaryTelemetry, setHasPrimaryTelemetry] = useState(false);
@@ -1016,6 +1055,11 @@ const MapWorkspace = () => {
   const simulationFixRef = useRef<DiverTelemetryState | null>(null);
   const lastRecordedPrimaryFixAtRef = useRef<number>(0);
   const lastRecordedFixByAgentRef = useRef<Record<string, number>>({});
+  const activeTrackWriterIdsRef = useRef<Set<string>>(new Set());
+  const trackWriterPointCountRef = useRef<Record<string, number>>({});
+  const equipmentLoggersRef = useRef<Map<string, EquipmentLogger>>(new Map());
+  const equipmentRawUnsubscribersRef = useRef<Array<() => void>>([]);
+  const equipmentLoggingSessionSignatureRef = useRef<string | null>(null);
   const missionDiversRef = useRef<DiverUiConfig[]>(createDefaultDivers(1));
   const appSettingsRef = useRef<AppSettingsV1>(DEFAULT_APP_SETTINGS);
   const appSettingsReadyRef = useRef(false);
@@ -1080,9 +1124,10 @@ const MapWorkspace = () => {
   });
 
   const hiddenTrackIdSet = useMemo(() => new Set(hiddenTrackIds), [hiddenTrackIds]);
+  const throttledTrackPointsByTrackId = useThrottledValue(trackPointsByTrackId, 500);
 
   const trackSegments = useMemo(() => {
-    const segments = buildTrackSegments(trackPointsByTrackId);
+    const segments = buildTrackSegments(throttledTrackPointsByTrackId);
     const fallbackColor = styles.track.color;
     const trackMetaById = new Map(missionDocument?.tracks.map((track) => [track.id, track]) ?? []);
 
@@ -1091,7 +1136,7 @@ const MapWorkspace = () => {
       const color = meta?.color ?? fallbackColor;
       return { trackId: segment.trackId, points: segment.points, color };
     });
-  }, [missionDocument?.tracks, styles.track.color, trackPointsByTrackId]);
+  }, [missionDocument?.tracks, styles.track.color, throttledTrackPointsByTrackId]);
   const visibleTrackSegments = useMemo(
     () => filterVisibleTrackSegments(trackSegments, hiddenTrackIdSet),
     [hiddenTrackIdSet, trackSegments],
@@ -1330,6 +1375,72 @@ const MapWorkspace = () => {
     if (!isElectronRuntime) return simulationEnabled;
     return navigationSourceOptions.some((option) => Boolean(equipmentEnabledBySource[option.id]));
   }, [equipmentEnabledBySource, isElectronRuntime, navigationSourceOptions, simulationEnabled]);
+  const equipmentLoggingSessionSignature = useMemo(() => {
+    if (!missionRootPath || equipmentLoggingTargets.length === 0) return null;
+    const targetsSignature = equipmentLoggingTargets
+      .map((target) => `${target.schemaId}:${target.deviceInstanceId}:${target.profileName}`)
+      .sort()
+      .join('|');
+    return `${normalizeStorePath(missionRootPath)}::${targetsSignature}`;
+  }, [equipmentLoggingTargets, missionRootPath]);
+
+  const stopEquipmentLoggingSession = useCallback(async () => {
+    const unsubscribers = equipmentRawUnsubscribersRef.current.splice(0);
+    unsubscribers.forEach((unsubscribe) => unsubscribe());
+
+    const activeLoggers = Array.from(equipmentLoggersRef.current.values());
+    equipmentLoggersRef.current.clear();
+    equipmentLoggingSessionSignatureRef.current = null;
+    await Promise.all(activeLoggers.map((logger) => logger.stop()));
+  }, []);
+
+  const startEquipmentLoggingSession = useCallback(
+    (rootPath: string, targets: EquipmentLoggingTarget[], signature: string) => {
+      const loggersBySchema = new Map<DeviceProviderSourceId, EquipmentLogger[]>();
+      const loggerByInstanceId = new Map<string, EquipmentLogger>();
+
+      for (const target of targets) {
+        const logger = createEquipmentLogger({
+          rootPath,
+          deviceInstanceId: target.deviceInstanceId,
+          profileName: target.profileName,
+          fileStore: platform.fileStore,
+        });
+        const schemaLoggers = loggersBySchema.get(target.schemaId) ?? [];
+        schemaLoggers.push(logger);
+        loggersBySchema.set(target.schemaId, schemaLoggers);
+        loggerByInstanceId.set(target.deviceInstanceId, logger);
+      }
+
+      const unsubscribers: Array<() => void> = [];
+      unsubscribers.push(
+        zimaTelemetryProvider.onRawPacket((packet) => {
+          if (packet.schema_id !== 'zima2r') return;
+          const schemaLoggers = loggersBySchema.get('zima2r') ?? [];
+          schemaLoggers.forEach((logger) => logger.write(packet.raw));
+        }),
+      );
+      unsubscribers.push(
+        gnssTelemetryProvider.onRawPacket((packet) => {
+          if (packet.schema_id !== 'gnss-udp') return;
+          const schemaLoggers = loggersBySchema.get('gnss-udp') ?? [];
+          schemaLoggers.forEach((logger) => logger.write(packet.raw));
+        }),
+      );
+      unsubscribers.push(
+        gnssComTelemetryProvider.onRawPacket((packet) => {
+          if (packet.schema_id !== 'gnss-com') return;
+          const schemaLoggers = loggersBySchema.get('gnss-com') ?? [];
+          schemaLoggers.forEach((logger) => logger.write(packet.raw));
+        }),
+      );
+
+      equipmentRawUnsubscribersRef.current = unsubscribers;
+      equipmentLoggersRef.current = loggerByInstanceId;
+      equipmentLoggingSessionSignatureRef.current = signature;
+    },
+    [gnssComTelemetryProvider, gnssTelemetryProvider, zimaTelemetryProvider],
+  );
 
 
   const settingsValue = useMemo<AppUiDefaults>(
@@ -2379,6 +2490,9 @@ const MapWorkspace = () => {
       if (options?.closeActiveTrack) {
         cancelPendingWalStage();
         cancelPendingAutosave();
+        await repository.finalizeAllTracks(snapshot.recordingState.trackPointsByTrackId);
+        activeTrackWriterIdsRef.current = new Set();
+        trackWriterPointCountRef.current = {};
       }
 
       const finalizedRecordingState = options?.closeActiveTrack
@@ -2749,6 +2863,52 @@ const MapWorkspace = () => {
     // If mission had active_tracks saved, they are already restored by hydration.
     // No additional start events needed.
   }, [isDraft, isLoaded, shouldAutoStartRecording]);
+
+  useEffect(() => {
+    if (!missionDocument || !missionRootPath) {
+      activeTrackWriterIdsRef.current = new Set();
+      trackWriterPointCountRef.current = {};
+      return;
+    }
+
+    const previousActiveTrackIds = activeTrackWriterIdsRef.current;
+    const nextActiveTrackIds = new Set(Object.values(missionDocument.active_tracks));
+
+    for (const trackId of nextActiveTrackIds) {
+      if (previousActiveTrackIds.has(trackId)) continue;
+      const track = missionDocument.tracks.find((item) => item.id === trackId);
+      if (!track) continue;
+      repository.registerTrackWriter(trackId, buildTrackCsvPath(missionRootPath, track.file));
+      trackWriterPointCountRef.current[trackId] = (trackPointsByTrackId[trackId] ?? []).length;
+    }
+
+    for (const trackId of previousActiveTrackIds) {
+      if (nextActiveTrackIds.has(trackId)) continue;
+      const allPoints = trackPointsByTrackId[trackId] ?? [];
+      void repository.finalizeTrack(trackId, allPoints).catch(() => {
+        // Finalization is best-effort; checkpoint save still runs on schedule.
+      });
+      delete trackWriterPointCountRef.current[trackId];
+    }
+
+    activeTrackWriterIdsRef.current = nextActiveTrackIds;
+  }, [missionDocument, missionRootPath, repository, trackPointsByTrackId]);
+
+  useEffect(() => {
+    if (!missionDocument) return;
+    const activeTrackIds = new Set(Object.values(missionDocument.active_tracks));
+    for (const trackId of activeTrackIds) {
+      const points = trackPointsByTrackId[trackId] ?? [];
+      const previousCount = trackWriterPointCountRef.current[trackId] ?? 0;
+      if (points.length < previousCount) {
+        trackWriterPointCountRef.current[trackId] = points.length;
+        continue;
+      }
+      if (points.length === previousCount) continue;
+      repository.appendTrackPoints(trackId, points.slice(previousCount));
+      trackWriterPointCountRef.current[trackId] = points.length;
+    }
+  }, [missionDocument, repository, trackPointsByTrackId]);
 
   useEffect(() => {
     if (!isLoaded || !missionDocument || !missionRootPath) return;
@@ -3229,6 +3389,88 @@ const MapWorkspace = () => {
     if (!isElectronRuntime || !showSettings) return;
     void loadActiveEquipmentProfile();
   }, [isElectronRuntime, loadActiveEquipmentProfile, showSettings]);
+
+  const shouldCollectEquipmentLogs =
+    isLoaded &&
+    Boolean(missionRootPath) &&
+    equipmentLoggingTargets.length > 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    const syncEquipmentLogging = async () => {
+      if (!shouldCollectEquipmentLogs || !missionRootPath || !equipmentLoggingSessionSignature) {
+        if (equipmentLoggingSessionSignatureRef.current !== null) {
+          await stopEquipmentLoggingSession();
+        }
+        return;
+      }
+
+      if (equipmentLoggingSessionSignatureRef.current === equipmentLoggingSessionSignature) {
+        return;
+      }
+
+      await stopEquipmentLoggingSession();
+      if (cancelled) return;
+      startEquipmentLoggingSession(missionRootPath, equipmentLoggingTargets, equipmentLoggingSessionSignature);
+    };
+
+    void syncEquipmentLogging();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    equipmentLoggingSessionSignature,
+    equipmentLoggingTargets,
+    missionRootPath,
+    shouldCollectEquipmentLogs,
+    startEquipmentLoggingSession,
+    stopEquipmentLoggingSession,
+  ]);
+
+  useEffect(
+    () => () => {
+      void stopEquipmentLoggingSession();
+    },
+    [stopEquipmentLoggingSession],
+  );
+
+  useEffect(() => {
+    if (!showSettings || !missionRootPath || equipmentLoggingTargets.length === 0) {
+      setEquipmentLogDownloadItems([]);
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: number | null = null;
+    const refresh = async () => {
+      const entries = await Promise.all(
+        equipmentLoggingTargets.map(async (target) => {
+          const path = buildEquipmentLogPath(missionRootPath, target.deviceInstanceId);
+          const exists = await platform.fileStore.exists(path);
+          if (!exists) return null;
+          return {
+            id: target.deviceInstanceId,
+            label: target.label,
+            path,
+          } satisfies EquipmentLogDownloadItem;
+        }),
+      );
+      if (cancelled) return;
+      setEquipmentLogDownloadItems(entries.filter((item): item is EquipmentLogDownloadItem => item !== null));
+    };
+
+    void refresh();
+    intervalId = window.setInterval(() => {
+      void refresh();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [equipmentLoggingTargets, missionRootPath, showSettings]);
 
   useEffect(() => {
     if (connectionStatus === 'ok') {
@@ -3789,6 +4031,28 @@ const MapWorkspace = () => {
     const title = sourceOption?.label ?? sourceId;
     toast({ title: `${title}: ${enabled ? 'включено' : 'выключено'}` });
   };
+
+  const handleDownloadEquipmentLog = useCallback(async (item: EquipmentLogDownloadItem) => {
+    const content = await platform.fileStore.readText(item.path);
+    if (content === null) {
+      toast({ title: 'Лог недоступен', description: `Файл не найден: ${item.path}` });
+      return;
+    }
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const missionPart = safeFilename(missionName ?? missionDocument?.name ?? 'mission');
+    const labelPart = safeFilename(item.label || item.id);
+    const filename = `${missionPart}-${labelPart}.log`;
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, [missionDocument?.name, missionName]);
 
   const handleExport = async (request: ExportRequest) => {
     if (!missionRootPath || !missionDocument) {
@@ -4453,6 +4717,8 @@ const MapWorkspace = () => {
             : []
         }
         onToggleEquipment={isElectronRuntime ? handleToggleEquipmentConnection : undefined}
+        equipmentLogs={equipmentLogDownloadItems}
+        onDownloadEquipmentLog={handleDownloadEquipmentLog}
         onOpenEquipment={handleOpenEquipmentScreen}
       />
 

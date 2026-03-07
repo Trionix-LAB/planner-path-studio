@@ -220,6 +220,15 @@ describe('LeftPanel base station controls (T-99)', () => {
         isDraft={false}
         isRecordingEnabled={true}
         objects={[]}
+        vectorOverlays={[
+          {
+            id: 'vector-1',
+            name: 'Vector 1',
+            visible: true,
+            opacity: 1,
+            zIndex: 1,
+          },
+        ]}
         selectedObjectId={null}
         onObjectSelect={vi.fn()}
         sectionsCollapsed={{
@@ -241,5 +250,72 @@ describe('LeftPanel base station controls (T-99)', () => {
       vectors: true,
       objects: false,
     });
+  });
+});
+
+describe('LeftPanel overlay sections visibility (T-117)', () => {
+  const renderPanel = (options?: {
+    rasterOverlays?: Array<{ id: string; name: string; visible: boolean; opacity: number; zIndex: number }>;
+    vectorOverlays?: Array<{ id: string; name: string; color?: string; visible: boolean; opacity: number; zIndex: number }>;
+  }) =>
+    render(
+      <LeftPanel
+        layers={{
+          basemap: true,
+          track: true,
+          routes: true,
+          markers: true,
+          baseStation: true,
+          grid: false,
+          scaleBar: true,
+          diver: true,
+        }}
+        onLayerToggle={vi.fn()}
+        divers={[diver]}
+        trackStatusByAgentId={{}}
+        baseStationTrackStatus="stopped"
+        selectedAgentId={null}
+        pinnedAgentId={null}
+        onAgentSelect={vi.fn()}
+        onAgentToggleRecording={vi.fn()}
+        onBaseStationTrackAction={vi.fn()}
+        isDraft={false}
+        isRecordingEnabled={true}
+        objects={[]}
+        selectedObjectId={null}
+        onObjectSelect={vi.fn()}
+        rasterOverlays={options?.rasterOverlays ?? []}
+        vectorOverlays={options?.vectorOverlays ?? []}
+      />,
+    );
+
+  it('does not render raster section when raster overlays are empty', () => {
+    renderPanel();
+    expect(screen.queryByText('Растры')).not.toBeInTheDocument();
+  });
+
+  it('does not render vector section when vector overlays are empty', () => {
+    renderPanel();
+    expect(screen.queryByText('Векторные слои')).not.toBeInTheDocument();
+  });
+
+  it('renders raster section when there is at least one raster overlay', () => {
+    renderPanel({
+      rasterOverlays: [{ id: 'raster-1', name: 'Raster 1', visible: true, opacity: 1, zIndex: 1 }],
+    });
+    expect(screen.getByText('Растры')).toBeInTheDocument();
+  });
+
+  it('renders vector section when there is at least one vector overlay', () => {
+    renderPanel({
+      vectorOverlays: [{ id: 'vector-1', name: 'Vector 1', visible: true, opacity: 1, zIndex: 1, color: '#0f766e' }],
+    });
+    expect(screen.getByText('Векторные слои')).toBeInTheDocument();
+  });
+
+  it('does not render both overlay sections when both arrays are empty', () => {
+    renderPanel({ rasterOverlays: [], vectorOverlays: [] });
+    expect(screen.queryByText('Растры')).not.toBeInTheDocument();
+    expect(screen.queryByText('Векторные слои')).not.toBeInTheDocument();
   });
 });

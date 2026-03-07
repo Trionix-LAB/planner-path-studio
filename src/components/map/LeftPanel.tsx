@@ -514,233 +514,233 @@ const LeftPanel = ({
         </div>
       ) : null}
 
-      <div className="border-t border-sidebar-border mt-1" />
+      {rasterOverlays.length > 0 ? (
+        <>
+          <div className="border-t border-sidebar-border mt-1" />
 
-      <div className="panel-header flex items-center gap-1">
-        <span className="flex-1">Растры</span>
-        {rasterOverlays.length > 0 && onRasterOverlayToggleAll ? (
-          <button
-            type="button"
-            className="h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
-            aria-label={isAllRastersHidden ? 'Показать все растры' : 'Скрыть все растры'}
-            title={isAllRastersHidden ? 'Показать все растры' : 'Скрыть все растры'}
-            onClick={onRasterOverlayToggleAll}
-          >
-            {isAllRastersHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
-          aria-label={sectionCollapsed.rasters ? 'Развернуть секцию Растры' : 'Свернуть секцию Растры'}
-          title={sectionCollapsed.rasters ? 'Развернуть' : 'Свернуть'}
-          onClick={() => toggleSection('rasters')}
-        >
-          {sectionCollapsed.rasters ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-        </button>
-      </div>
-      {!sectionCollapsed.rasters ? (
-        <div className="p-1.5 space-y-1.5">
-        {rasterOverlays.length > 0 ? (
-          <div className="space-y-1 max-h-36 overflow-y-auto">
-            {rasterOverlays
-              .slice()
-              .sort((a, b) => b.zIndex - a.zIndex)
-              .map((overlay) => (
-                <div key={overlay.id} className="p-1 rounded bg-sidebar-accent/70 text-[11px]">
-                  <div className="flex items-center gap-1">
-                    <span className="truncate flex-1">{overlay.name}</span>
-                    <button
-                      type="button"
-                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
-                      onClick={() => onRasterOverlayCenter?.(overlay.id)}
-                      title="Переместиться к растру"
-                      aria-label={`Переместиться к растру ${overlay.name}`}
-                    >
-                      <LocateFixed className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
-                      onClick={() => onRasterOverlayToggle?.(overlay.id)}
-                      title={overlay.visible ? 'Скрыть растр' : 'Показать растр'}
-                      aria-label={overlay.visible ? `Скрыть растр ${overlay.name}` : `Показать растр ${overlay.name}`}
-                    >
-                      {overlay.visible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                    <button
-                      type="button"
-                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
-                      onClick={() => onRasterOverlayMove?.(overlay.id, 1)}
-                      title="Выше"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
-                      onClick={() => onRasterOverlayMove?.(overlay.id, -1)}
-                      title="Ниже"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      className="h-5 w-5 rounded hover:bg-destructive/20"
-                      onClick={() => onRasterOverlayDelete?.(overlay.id)}
-                      title="Удалить"
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={Math.round(overlay.opacity * 100)}
-                    className="w-full"
-                    onChange={(event) =>
-                      onRasterOverlayOpacityChange?.(
-                        overlay.id,
-                        Math.max(0, Math.min(1, Number(event.target.value) / 100)),
-                      )
-                    }
-                  />
-                </div>
-              ))}
+          <div className="panel-header flex items-center gap-1">
+            <span className="flex-1">Растры</span>
+            {onRasterOverlayToggleAll ? (
+              <button
+                type="button"
+                className="h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+                aria-label={isAllRastersHidden ? 'Показать все растры' : 'Скрыть все растры'}
+                title={isAllRastersHidden ? 'Показать все растры' : 'Скрыть все растры'}
+                onClick={onRasterOverlayToggleAll}
+              >
+                {isAllRastersHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
+              aria-label={sectionCollapsed.rasters ? 'Развернуть секцию Растры' : 'Свернуть секцию Растры'}
+              title={sectionCollapsed.rasters ? 'Развернуть' : 'Свернуть'}
+              onClick={() => toggleSection('rasters')}
+            >
+              {sectionCollapsed.rasters ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
           </div>
-        ) : (
-          <div className="text-[11px] text-muted-foreground">Нет импортированных растров</div>
-        )}
-        </div>
+          {!sectionCollapsed.rasters ? (
+            <div className="p-1.5 space-y-1.5">
+              <div className="space-y-1 max-h-36 overflow-y-auto">
+                {rasterOverlays
+                  .slice()
+                  .sort((a, b) => b.zIndex - a.zIndex)
+                  .map((overlay) => (
+                    <div key={overlay.id} className="p-1 rounded bg-sidebar-accent/70 text-[11px]">
+                      <div className="flex items-center gap-1">
+                        <span className="truncate flex-1">{overlay.name}</span>
+                        <button
+                          type="button"
+                          className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                          onClick={() => onRasterOverlayCenter?.(overlay.id)}
+                          title="Переместиться к растру"
+                          aria-label={`Переместиться к растру ${overlay.name}`}
+                        >
+                          <LocateFixed className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                          onClick={() => onRasterOverlayToggle?.(overlay.id)}
+                          title={overlay.visible ? 'Скрыть растр' : 'Показать растр'}
+                          aria-label={overlay.visible ? `Скрыть растр ${overlay.name}` : `Показать растр ${overlay.name}`}
+                        >
+                          {overlay.visible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                          onClick={() => onRasterOverlayMove?.(overlay.id, 1)}
+                          title="Выше"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                          onClick={() => onRasterOverlayMove?.(overlay.id, -1)}
+                          title="Ниже"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="h-5 w-5 rounded hover:bg-destructive/20"
+                          onClick={() => onRasterOverlayDelete?.(overlay.id)}
+                          title="Удалить"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={Math.round(overlay.opacity * 100)}
+                        className="w-full"
+                        onChange={(event) =>
+                          onRasterOverlayOpacityChange?.(
+                            overlay.id,
+                            Math.max(0, Math.min(1, Number(event.target.value) / 100)),
+                          )
+                        }
+                      />
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : null}
 
-      <div className="border-t border-sidebar-border mt-1" />
+      {vectorOverlays.length > 0 ? (
+        <>
+          <div className="border-t border-sidebar-border mt-1" />
 
-      <div className="panel-header flex items-center gap-1">
-        <span className="flex-1">Векторные слои</span>
-        {vectorOverlays.length > 0 && onVectorOverlayToggleAll ? (
-          <button
-            type="button"
-            className="h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
-            aria-label={isAllVectorsHidden ? 'Показать все векторные слои' : 'Скрыть все векторные слои'}
-            title={isAllVectorsHidden ? 'Показать все векторные слои' : 'Скрыть все векторные слои'}
-            onClick={onVectorOverlayToggleAll}
-          >
-            {isAllVectorsHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
-          aria-label={sectionCollapsed.vectors ? 'Развернуть секцию Векторные слои' : 'Свернуть секцию Векторные слои'}
-          title={sectionCollapsed.vectors ? 'Развернуть' : 'Свернуть'}
-          onClick={() => toggleSection('vectors')}
-        >
-          {sectionCollapsed.vectors ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-        </button>
-      </div>
-      {!sectionCollapsed.vectors ? (
-        <div className="p-1.5 space-y-1.5">
-        {vectorOverlays.length > 0 ? (
-          <div className="space-y-1 max-h-36 overflow-y-auto">
-            {vectorOverlays
-              .slice()
-              .sort((a, b) => b.zIndex - a.zIndex)
-              .map((overlay) => (
-                <div
-                  key={overlay.id}
-                  className="p-1 rounded bg-sidebar-accent/70 text-[11px]"
-                  onContextMenu={(event) => {
-                    if (!onVectorOverlayColorChange) return;
-                    event.preventDefault();
-                    vectorColorInputRefs.current[overlay.id]?.click();
-                  }}
-                >
-                  <div className="flex items-center gap-1">
-                    <span
-                      className="h-2.5 w-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: overlay.color ?? '#0f766e' }}
-                      aria-hidden
-                    />
-                    <span className="truncate flex-1">{overlay.name}</span>
-                    <button
-                      type="button"
-                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
-                      onClick={() => onVectorOverlayCenter?.(overlay.id)}
-                      title="Переместиться к слою"
-                      aria-label={`Переместиться к слою ${overlay.name}`}
-                    >
-                      <LocateFixed className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
-                      onClick={() => onVectorOverlayToggle?.(overlay.id)}
-                      title={overlay.visible ? 'Скрыть слой' : 'Показать слой'}
-                      aria-label={overlay.visible ? `Скрыть слой ${overlay.name}` : `Показать слой ${overlay.name}`}
-                    >
-                      {overlay.visible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                    <button
-                      type="button"
-                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
-                      onClick={() => onVectorOverlayMove?.(overlay.id, 1)}
-                      title="Выше"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      className="h-5 w-5 rounded hover:bg-sidebar-accent"
-                      onClick={() => onVectorOverlayMove?.(overlay.id, -1)}
-                      title="Ниже"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      className="h-5 w-5 rounded hover:bg-destructive/20"
-                      onClick={() => onVectorOverlayDelete?.(overlay.id)}
-                      title="Удалить"
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={Math.round(overlay.opacity * 100)}
-                    className="w-full"
-                    onChange={(event) =>
-                      onVectorOverlayOpacityChange?.(
-                        overlay.id,
-                        Math.max(0, Math.min(1, Number(event.target.value) / 100)),
-                      )
-                    }
-                  />
-                  {onVectorOverlayColorChange ? (
-                    <input
-                      ref={(node) => {
-                        vectorColorInputRefs.current[overlay.id] = node;
-                      }}
-                      type="color"
-                      value={overlay.color ?? '#0f766e'}
-                      className="sr-only"
-                      aria-label={`Цвет слоя ${overlay.name}`}
-                      onChange={(event) => onVectorOverlayColorChange(overlay.id, event.target.value)}
-                    />
-                  ) : null}
-                </div>
-              ))}
+          <div className="panel-header flex items-center gap-1">
+            <span className="flex-1">Векторные слои</span>
+            {onVectorOverlayToggleAll ? (
+              <button
+                type="button"
+                className="h-6 w-6 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+                aria-label={isAllVectorsHidden ? 'Показать все векторные слои' : 'Скрыть все векторные слои'}
+                title={isAllVectorsHidden ? 'Показать все векторные слои' : 'Скрыть все векторные слои'}
+                onClick={onVectorOverlayToggleAll}
+              >
+                {isAllVectorsHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="h-5 w-5 inline-flex items-center justify-center rounded-sm hover:bg-sidebar-accent"
+              aria-label={sectionCollapsed.vectors ? 'Развернуть секцию Векторные слои' : 'Свернуть секцию Векторные слои'}
+              title={sectionCollapsed.vectors ? 'Развернуть' : 'Свернуть'}
+              onClick={() => toggleSection('vectors')}
+            >
+              {sectionCollapsed.vectors ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
           </div>
-        ) : (
-          <div className="text-[11px] text-muted-foreground">Нет импортированных векторных слоев</div>
-        )}
-        </div>
+          {!sectionCollapsed.vectors ? (
+            <div className="p-1.5 space-y-1.5">
+              <div className="space-y-1 max-h-36 overflow-y-auto">
+                {vectorOverlays
+                  .slice()
+                  .sort((a, b) => b.zIndex - a.zIndex)
+                  .map((overlay) => (
+                    <div
+                      key={overlay.id}
+                      className="p-1 rounded bg-sidebar-accent/70 text-[11px]"
+                      onContextMenu={(event) => {
+                        if (!onVectorOverlayColorChange) return;
+                        event.preventDefault();
+                        vectorColorInputRefs.current[overlay.id]?.click();
+                      }}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: overlay.color ?? '#0f766e' }}
+                          aria-hidden
+                        />
+                        <span className="truncate flex-1">{overlay.name}</span>
+                        <button
+                          type="button"
+                          className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                          onClick={() => onVectorOverlayCenter?.(overlay.id)}
+                          title="Переместиться к слою"
+                          aria-label={`Переместиться к слою ${overlay.name}`}
+                        >
+                          <LocateFixed className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                          onClick={() => onVectorOverlayToggle?.(overlay.id)}
+                          title={overlay.visible ? 'Скрыть слой' : 'Показать слой'}
+                          aria-label={overlay.visible ? `Скрыть слой ${overlay.name}` : `Показать слой ${overlay.name}`}
+                        >
+                          {overlay.visible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                          onClick={() => onVectorOverlayMove?.(overlay.id, 1)}
+                          title="Выше"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="h-5 w-5 rounded hover:bg-sidebar-accent"
+                          onClick={() => onVectorOverlayMove?.(overlay.id, -1)}
+                          title="Ниже"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="h-5 w-5 rounded hover:bg-destructive/20"
+                          onClick={() => onVectorOverlayDelete?.(overlay.id)}
+                          title="Удалить"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={Math.round(overlay.opacity * 100)}
+                        className="w-full"
+                        onChange={(event) =>
+                          onVectorOverlayOpacityChange?.(
+                            overlay.id,
+                            Math.max(0, Math.min(1, Number(event.target.value) / 100)),
+                          )
+                        }
+                      />
+                      {onVectorOverlayColorChange ? (
+                        <input
+                          ref={(node) => {
+                            vectorColorInputRefs.current[overlay.id] = node;
+                          }}
+                          type="color"
+                          value={overlay.color ?? '#0f766e'}
+                          className="sr-only"
+                          aria-label={`Цвет слоя ${overlay.name}`}
+                          onChange={(event) => onVectorOverlayColorChange(overlay.id, event.target.value)}
+                        />
+                      ) : null}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       <div className="border-t border-sidebar-border mt-1" />
