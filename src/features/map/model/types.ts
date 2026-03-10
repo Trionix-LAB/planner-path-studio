@@ -5,7 +5,7 @@ export type GeoPoint = {
   lon: number;
 };
 
-export type MapObjectType = "route" | "zone" | "marker" | "lane" | "measure";
+export type MapObjectType = "route" | "zone" | "marker" | "rwlt_buoy" | "lane" | "measure";
 
 export type MapObjectGeometry =
   | { type: "route"; points: GeoPoint[] }
@@ -20,6 +20,7 @@ export type MapObject = {
   visible: boolean;
   color?: string;
   laneColor?: string;
+  markerSizePx?: number;
 
   // Optional while the app is still MVP/mocked.
   geometry?: MapObjectGeometry;
@@ -30,4 +31,10 @@ export type MapObject = {
   laneWidth?: number;
   laneBearingDeg?: number;
   laneStart?: GeoPoint;
+  rwltBuoyId?: number;
+  rwltAntennaDepthM?: number;
+  rwltBatteryV?: number | null;
+  rwltSogMps?: number;
+  rwltCourseDeg?: number;
+  rwltUpdatedAt?: number;
 };

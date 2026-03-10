@@ -46,6 +46,8 @@ import {
   createElectronRwltComTelemetryProvider,
   createElectronZimaTelemetryProvider,
   createDefaultDivers,
+  DIVER_BEACON_ID_MAX,
+  DIVER_BEACON_ID_MIN,
   createEquipmentLogger,
   createMissionRepository,
   resolveDraftLoadMode,
@@ -116,13 +118,18 @@ import {
   type VectorOverlayMapData,
 } from '@/features/map/vectorOverlays/cache';
 import { resolveFlyToZoomFor50mGrid } from '@/components/map/flyToZoom';
+import { clampDiverMarkerSizePx } from '@/features/mission/model/diverMarkerSize';
 
 const DRAFT_ROOT_PATH = 'draft/current';
 const DRAFT_MISSION_NAME = 'Черновик';
 const CONNECTION_TIMEOUT_MS = 5000;
 const WAL_STAGE_DELAY_MS = 250;
 const AUTOSAVE_DELAY_MS = 900;
+const RWLT_BUOY_EARTH_RADIUS_M = 6_371_000;
 const BASE_STATION_AGENT_ID = 'base-station';
+const RWLT_BUOY_OBJECT_ID_PREFIX = 'rwlt-buoy-';
+const DEFAULT_RWLT_BUOY_MARKER_SIZE_PX = 24;
+const DEFAULT_RWLT_BUOY_MARKER_COLOR = '#1d4ed8';
 const OVERLAYS_DIR = 'overlays';
 const OVERLAYS_RASTER_DIR = `${OVERLAYS_DIR}/rasters`;
 const OVERLAYS_VECTOR_DIR = `${OVERLAYS_DIR}/vectors`;
@@ -376,6 +383,7 @@ type WorkspaceSnapshot = {
   baseStationNavigationSource: NavigationSourceId | null;
   baseStationTrackColor: string;
   baseStationMarkerSizePx: number;
+  rwltBuoys: NonNullable<MissionUiState['rwlt_buoys']>;
   hiddenTrackIds: string[];
   baseStationTelemetry: BaseStationTelemetryState | null;
   mapView: MissionUiState['map_view'] | null;
@@ -551,6 +559,7 @@ const toMissionUiFromDefaults = (defaults: AppUiDefaults): MissionUiState => ({
     navigation_source: null,
     track_color: defaults.styles.track.color,
   },
+  rwlt_buoys: [],
   coordinates: { precision: defaults.coordinates.precision },
   measurements: {
     grid: { ...defaults.measurements.grid },
@@ -602,8 +611,19 @@ type RwltBuoyState = {
   lon: number;
   antennaDepthM: number;
   batteryV: number | null;
+  sogMps: number;
+  courseDeg: number;
   updatedAt: number;
 };
+
+type RwltBuoyUiConfig = {
+  buoyId: number;
+  name: string;
+  markerColor: string;
+  markerSizePx: number;
+};
+
+type RwltIdMode = 'unknown' | 'zero-based' | 'one-based';
 
 type DiverTelemetryState = {
   lat: number;
@@ -733,6 +753,34 @@ const normalizeNavigationSourceId = (value: unknown): NavigationSourceId | null 
   return normalized.length > 0 ? normalized : null;
 };
 
+const clampRwltBuoyMarkerSizePx = (value: unknown, fallback = DEFAULT_RWLT_BUOY_MARKER_SIZE_PX): number => {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return clampDiverMarkerSizePx(Number.isFinite(n) ? n : fallback, fallback);
+};
+
+const normalizeRwltBuoyMarkerColor = (
+  value: unknown,
+  fallback = DEFAULT_RWLT_BUOY_MARKER_COLOR,
+): string => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) return trimmed.toLowerCase();
+  return fallback;
+};
+
+const getDefaultRwltBuoyName = (buoyId: number): string => `Буй ${buoyId}`;
+
+const toRwltBuoyObjectId = (buoyId: number): string => `${RWLT_BUOY_OBJECT_ID_PREFIX}${buoyId}`;
+
+const parseRwltBuoyObjectId = (objectId: string | null | undefined): number | null => {
+  if (typeof objectId !== 'string') return null;
+  if (!objectId.startsWith(RWLT_BUOY_OBJECT_ID_PREFIX)) return null;
+  const buoyIdRaw = objectId.slice(RWLT_BUOY_OBJECT_ID_PREFIX.length);
+  const buoyId = Number.parseInt(buoyIdRaw, 10);
+  if (!Number.isInteger(buoyId) || buoyId < 1 || buoyId > 4) return null;
+  return buoyId;
+};
+
 const normalizeStorePath = (path: string): string => path.replace(/\\+/g, '/').replace(/\/+$/g, '');
 
 const buildEquipmentLogPath = (rootPath: string, deviceInstanceId: string): string =>
@@ -753,13 +801,72 @@ const getElectronLifecycleApi = (): ElectronLifecycleApi | null => {
   return api;
 };
 
-const normalizeBeaconBindingKey = (value: unknown): string | null => {
+const normalizeConfiguredBeaconBindingKey = (value: unknown): string | null => {
   if (typeof value !== 'string' && typeof value !== 'number') return null;
   const normalized = String(value).trim();
   if (!normalized) return null;
   const n = Number(normalized);
-  if (!Number.isInteger(n) || n < 0 || n > 15) return null;
+  if (!Number.isInteger(n) || n < DIVER_BEACON_ID_MIN || n > DIVER_BEACON_ID_MAX) return null;
   return String(n);
+};
+
+const normalizeZimaTelemetryBeaconBindingKey = (value: unknown): string | null => {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+  const n = Number(normalized);
+  if (!Number.isInteger(n)) return null;
+  if (n >= 0 && n <= 15) return String(n + 1);
+  if (n >= DIVER_BEACON_ID_MIN && n <= DIVER_BEACON_ID_MAX) return String(n);
+  return null;
+};
+
+const inferRwltBuoyIdMode = (mode: RwltIdMode, rawBuoyId: number): RwltIdMode => {
+  if (mode !== 'unknown') return mode;
+  if (rawBuoyId === 0) return 'zero-based';
+  if (rawBuoyId === 4) return 'one-based';
+  return 'unknown';
+};
+
+const toCanonicalRwltBuoyId = (rawBuoyId: number, mode: RwltIdMode): number | null => {
+  if (!Number.isInteger(rawBuoyId)) return null;
+  if (mode === 'zero-based') {
+    if (rawBuoyId < 0 || rawBuoyId > 3) return null;
+    return rawBuoyId + 1;
+  }
+  if (mode === 'one-based') {
+    if (rawBuoyId < 1 || rawBuoyId > 4) return null;
+    return rawBuoyId;
+  }
+  if (rawBuoyId === 0) return 1;
+  if (rawBuoyId >= 1 && rawBuoyId <= 4) return rawBuoyId;
+  return null;
+};
+
+const remapRwltBuoyStateIdsToOneBased = (stateById: Record<number, RwltBuoyState>): Record<number, RwltBuoyState> => {
+  const next: Record<number, RwltBuoyState> = {};
+  for (const item of Object.values(stateById)) {
+    const nextId =
+      Number.isInteger(item.buoyId) && item.buoyId >= 1 && item.buoyId <= 3
+        ? item.buoyId + 1
+        : item.buoyId;
+    if (!Number.isInteger(nextId) || nextId < 1 || nextId > 4) continue;
+    next[nextId] = { ...item, buoyId: nextId };
+  }
+  return next;
+};
+
+const remapRwltBuoyUiIdsToOneBased = (uiById: Record<number, RwltBuoyUiConfig>): Record<number, RwltBuoyUiConfig> => {
+  const next: Record<number, RwltBuoyUiConfig> = {};
+  for (const item of Object.values(uiById)) {
+    const nextId =
+      Number.isInteger(item.buoyId) && item.buoyId >= 1 && item.buoyId <= 3
+        ? item.buoyId + 1
+        : item.buoyId;
+    if (!Number.isInteger(nextId) || nextId < 1 || nextId > 4) continue;
+    next[nextId] = { ...item, buoyId: nextId };
+  }
+  return next;
 };
 
 const isSameTelemetryState = (
@@ -777,6 +884,40 @@ const isSameTelemetryState = (
     a.depth === b.depth &&
     a.received_at === b.received_at
   );
+};
+
+const toRadians = (deg: number): number => (deg * Math.PI) / 180;
+const toDegrees = (rad: number): number => (rad * 180) / Math.PI;
+
+const computeRwltBuoySogCog = (
+  previous: Pick<RwltBuoyState, 'lat' | 'lon' | 'updatedAt'> | null,
+  current: Pick<RwltBuoyState, 'lat' | 'lon' | 'updatedAt'>,
+): { sogMps: number; courseDeg: number } => {
+  if (!previous) return { sogMps: 0, courseDeg: 0 };
+
+  const dtMs = current.updatedAt - previous.updatedAt;
+  if (!Number.isFinite(dtMs) || dtMs <= 0) return { sogMps: 0, courseDeg: 0 };
+
+  const lat1 = toRadians(previous.lat);
+  const lat2 = toRadians(current.lat);
+  const dLat = lat2 - lat1;
+  const dLon = toRadians(current.lon - previous.lon);
+
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+  const a = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = RWLT_BUOY_EARTH_RADIUS_M * c;
+  const sogMps = Number.isFinite(distance) && distance > 0 ? distance / (dtMs / 1000) : 0;
+
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  const rawCourse = toDegrees(Math.atan2(y, x));
+  const courseDeg = Number.isFinite(rawCourse) ? ((rawCourse % 360) + 360) % 360 : 0;
+  if (!Number.isFinite(sogMps) || sogMps <= 0) {
+    return { sogMps: 0, courseDeg };
+  }
+  return { sogMps, courseDeg };
 };
 
 const MapWorkspace = () => {
@@ -945,6 +1086,7 @@ const MapWorkspace = () => {
   const [vectorOverlays, setVectorOverlays] = useState<VectorOverlayUi[]>([]);
   const [vectorOverlayDataById, setVectorOverlayDataById] = useState<Record<string, VectorOverlayMapData>>({});
   const [rwltBuoys, setRwltBuoys] = useState<Record<number, RwltBuoyState>>({});
+  const [rwltBuoyUiById, setRwltBuoyUiById] = useState<Record<number, RwltBuoyUiConfig>>({});
   const [baseStationTelemetry, setBaseStationTelemetry] = useState<BaseStationTelemetryState | null>(null);
   const [layers, setLayers] = useState<LayersState>(DEFAULT_LAYERS);
   const [objects, setObjects] = useState<MapObject[]>([]);
@@ -1052,6 +1194,8 @@ const MapWorkspace = () => {
   const rwltBaseFixRef = useRef<DiverTelemetryState | null>(null);
   const rwltPingerAgentFixRef = useRef<DiverTelemetryState | null>(null);
   const rwltDiverFixByIdRef = useRef<Record<string, DiverTelemetryState>>({});
+  const rwltBuoyIdModeRef = useRef<RwltIdMode>('unknown');
+  const rwltDiverIdOffsetRef = useRef<0 | 1>(0);
   const simulationFixRef = useRef<DiverTelemetryState | null>(null);
   const lastRecordedPrimaryFixAtRef = useRef<number>(0);
   const lastRecordedFixByAgentRef = useRef<Record<string, number>>({});
@@ -1064,17 +1208,41 @@ const MapWorkspace = () => {
   const appSettingsRef = useRef<AppSettingsV1>(DEFAULT_APP_SETTINGS);
   const appSettingsReadyRef = useRef(false);
   const handleRwltBuoyUpdate = useCallback((msg: RwltPrwlaMessage) => {
-    setRwltBuoys((prev) => ({
-      ...prev,
-      [msg.buoyId]: {
-        buoyId: msg.buoyId,
+    const modeBefore = rwltBuoyIdModeRef.current;
+    const modeAfter = inferRwltBuoyIdMode(modeBefore, msg.buoyId);
+    if (modeBefore !== modeAfter) {
+      rwltBuoyIdModeRef.current = modeAfter;
+      if (modeBefore === 'unknown' && modeAfter === 'zero-based') {
+        setRwltBuoyUiById((prev) => remapRwltBuoyUiIdsToOneBased(prev));
+      }
+    }
+
+    const canonicalBuoyId = toCanonicalRwltBuoyId(msg.buoyId, rwltBuoyIdModeRef.current);
+    if (canonicalBuoyId === null) return;
+
+    setRwltBuoys((prev) => {
+      const sourceById =
+        modeBefore === 'unknown' && modeAfter === 'zero-based' ? remapRwltBuoyStateIdsToOneBased(prev) : prev;
+      const updatedAt = Date.now();
+      const current = {
+        buoyId: canonicalBuoyId,
         lat: msg.lat,
         lon: msg.lon,
         antennaDepthM: msg.antennaDepthM,
         batteryV: msg.batteryV,
-        updatedAt: Date.now(),
-      },
-    }));
+        updatedAt,
+      };
+      const previous = sourceById[canonicalBuoyId] ?? null;
+      const motion = computeRwltBuoySogCog(previous, current);
+      return {
+        ...sourceById,
+        [canonicalBuoyId]: {
+          ...current,
+          sogMps: motion.sogMps,
+          courseDeg: motion.courseDeg,
+        },
+      };
+    });
   }, []);
   const rwltComTelemetryProvider = useMemo(
     () =>
@@ -1082,7 +1250,22 @@ const MapWorkspace = () => {
         timeoutMs: CONNECTION_TIMEOUT_MS,
         readConfig: readElectronRwltComConfig,
         resolveDiver: (tId) => {
-          const match = missionDiversRef.current.find((diver) => diver.beacon_id === String(tId));
+          const tid = Number(tId);
+          if (!Number.isInteger(tid)) return null;
+
+          if (rwltDiverIdOffsetRef.current === 0 && tid === 0) {
+            rwltDiverIdOffsetRef.current = 1;
+          }
+
+          const preferredBeaconId = String(rwltDiverIdOffsetRef.current === 1 ? tid + 1 : tid);
+          let match = missionDiversRef.current.find((diver) => diver.beacon_id === preferredBeaconId);
+
+          // Compatibility for streams that send IDs offset by -1 but start from 1.
+          if (!match && rwltDiverIdOffsetRef.current === 0 && tid >= 1 && tid <= 15) {
+            const fallbackBeaconId = String(tid + 1);
+            match = missionDiversRef.current.find((diver) => diver.beacon_id === fallbackBeaconId);
+          }
+
           return match ? { uid: match.uid, id: match.id } : null;
         },
         onBuoyUpdate: handleRwltBuoyUpdate,
@@ -1100,6 +1283,7 @@ const MapWorkspace = () => {
     baseStationNavigationSource: null,
     baseStationTrackColor: DEFAULT_BASE_STATION_TRACK_COLOR,
     baseStationMarkerSizePx: DEFAULT_BASE_STATION_MARKER_SIZE_PX,
+    rwltBuoys: [],
     hiddenTrackIds: [],
     rasterOverlays: [],
     vectorOverlays: [],
@@ -1174,6 +1358,35 @@ const MapWorkspace = () => {
         .sort((a, b) => a.buoyId - b.buoyId),
     [rwltBuoys],
   );
+  const rwltBuoyObjects = useMemo<MapObject[]>(
+    () =>
+      rwltBuoysForMap.map((buoy) => {
+        const settings = rwltBuoyUiById[buoy.buoyId];
+        return {
+          id: toRwltBuoyObjectId(buoy.buoyId),
+          type: 'rwlt_buoy',
+          name: settings?.name?.trim() || getDefaultRwltBuoyName(buoy.buoyId),
+          visible: true,
+          color: normalizeRwltBuoyMarkerColor(settings?.markerColor),
+          markerSizePx: clampRwltBuoyMarkerSizePx(settings?.markerSizePx),
+          rwltBuoyId: buoy.buoyId,
+          rwltAntennaDepthM: buoy.antennaDepthM,
+          rwltBatteryV: buoy.batteryV,
+          rwltSogMps: buoy.sogMps,
+          rwltCourseDeg: buoy.courseDeg,
+          rwltUpdatedAt: buoy.updatedAt,
+          geometry: {
+            type: 'marker',
+            point: {
+              lat: buoy.lat,
+              lon: buoy.lon,
+            },
+          },
+        };
+      }),
+    [rwltBuoysForMap, rwltBuoyUiById],
+  );
+  const mapObjects = useMemo<MapObject[]>(() => [...objects, ...rwltBuoyObjects], [objects, rwltBuoyObjects]);
   const activeTrackNumber = useMemo(() => {
     if (!missionDocument) return 0;
     if (!missionDocument.active_track_id) return missionDocument.tracks.length;
@@ -1249,8 +1462,8 @@ const MapWorkspace = () => {
   const isFollowing = Boolean(pinnedAgentId);
 
   const selectedObject = useMemo(
-    () => objects.find((object) => object.id === selectedObjectId) ?? null,
-    [objects, selectedObjectId],
+    () => mapObjects.find((object) => object.id === selectedObjectId) ?? null,
+    [mapObjects, selectedObjectId],
   );
   const selectedZoneLaneCount = useMemo(() => {
     if (!selectedObject || selectedObject.type !== 'zone') return null;
@@ -1266,6 +1479,26 @@ const MapWorkspace = () => {
     if (!selectedObject || selectedObject.type !== 'zone') return false;
     return Boolean(outdatedZoneIds[selectedObject.id]);
   }, [outdatedZoneIds, selectedObject]);
+  const selectedRwltBuoyHudData = useMemo(() => {
+    if (!selectedObject || selectedObject.type !== 'rwlt_buoy') return null;
+    if (selectedObject.geometry?.type !== 'marker') return null;
+    const { lat, lon } = selectedObject.geometry.point;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return {
+      lat,
+      lon,
+      speed: Number.isFinite(selectedObject.rwltSogMps ?? NaN) ? (selectedObject.rwltSogMps as number) : 0,
+      course: Number.isFinite(selectedObject.rwltCourseDeg ?? NaN) ? Math.round(selectedObject.rwltCourseDeg as number) : 0,
+      depth: Number.isFinite(selectedObject.rwltAntennaDepthM ?? NaN) ? (selectedObject.rwltAntennaDepthM as number) : 0,
+    };
+  }, [selectedObject]);
+  useEffect(() => {
+    if (!selectedObjectId) return;
+    const exists = mapObjects.some((object) => object.id === selectedObjectId);
+    if (!exists) {
+      setSelectedObjectId(null);
+    }
+  }, [mapObjects, selectedObjectId]);
 
   const navigationSourceOptions = useMemo<EquipmentNavigationSourceOption[]>(
     () =>
@@ -1351,11 +1584,6 @@ const MapWorkspace = () => {
     () => isSourceEnabled(primaryNavigationSource),
     [isSourceEnabled, primaryNavigationSource],
   );
-  const showRwltBuoys = useMemo(() => {
-    return navigationSourceOptions.some(
-      (option) => option.schemaId === 'rwlt-com' && Boolean(equipmentEnabledBySource[option.id]),
-    );
-  }, [equipmentEnabledBySource, navigationSourceOptions]);
   const realtimeVisibility = useMemo(
     () =>
       computeRealtimeVisibilityState({
@@ -1527,6 +1755,14 @@ const MapWorkspace = () => {
       baseStationNavigationSource,
       baseStationTrackColor,
       baseStationMarkerSizePx,
+      rwltBuoys: Object.values(rwltBuoyUiById)
+        .map((item) => ({
+          buoy_id: item.buoyId,
+          name: item.name,
+          marker_color: item.markerColor,
+          marker_size_px: item.markerSizePx,
+        }))
+        .sort((a, b) => a.buoy_id - b.buoy_id),
       hiddenTrackIds,
       baseStationTelemetry,
       mapView,
@@ -1554,6 +1790,7 @@ const MapWorkspace = () => {
     baseStationNavigationSource,
     baseStationTrackColor,
     baseStationMarkerSizePx,
+    rwltBuoyUiById,
     hiddenTrackIds,
     baseStationTelemetry,
     mapView,
@@ -2462,6 +2699,7 @@ const MapWorkspace = () => {
         baseStationNavigationSource: snapshot.baseStationNavigationSource,
         baseStationTrackColor: snapshot.baseStationTrackColor,
         baseStationMarkerSizePx: snapshot.baseStationMarkerSizePx,
+        rwltBuoys: snapshot.rwltBuoys,
         hiddenTrackIds: snapshot.hiddenTrackIds,
         baseStationTelemetry: snapshot.baseStationTelemetry,
         mapView: snapshot.mapView,
@@ -2545,6 +2783,8 @@ const MapWorkspace = () => {
     rwltBaseFixRef.current = null;
     rwltPingerAgentFixRef.current = null;
     rwltDiverFixByIdRef.current = {};
+    rwltBuoyIdModeRef.current = 'unknown';
+    rwltDiverIdOffsetRef.current = 0;
     simulationFixRef.current = null;
     setRwltBuoys({});
     lastRecordedPrimaryFixAtRef.current = 0;
@@ -2602,6 +2842,22 @@ const MapWorkspace = () => {
         ? baseStationUi.marker_size_px
         : DEFAULT_BASE_STATION_MARKER_SIZE_PX,
     );
+    const nextRwltBuoyUiById: Record<number, RwltBuoyUiConfig> = {};
+    const rawRwltBuoys = bundle.mission.ui?.rwlt_buoys;
+    if (Array.isArray(rawRwltBuoys)) {
+      for (const item of rawRwltBuoys) {
+        const buoyIdRaw = typeof item?.buoy_id === 'number' ? item.buoy_id : Number(item?.buoy_id);
+        if (!Number.isInteger(buoyIdRaw) || buoyIdRaw < 1 || buoyIdRaw > 4) continue;
+        const nameRaw = typeof item?.name === 'string' ? item.name.trim() : '';
+        nextRwltBuoyUiById[buoyIdRaw] = {
+          buoyId: buoyIdRaw,
+          name: nameRaw || getDefaultRwltBuoyName(buoyIdRaw),
+          markerColor: normalizeRwltBuoyMarkerColor(item?.marker_color),
+          markerSizePx: clampRwltBuoyMarkerSizePx(item?.marker_size_px),
+        };
+      }
+    }
+    setRwltBuoyUiById(nextRwltBuoyUiById);
     setHiddenTrackIds(
       Array.isArray(bundle.mission.ui?.hidden_track_ids)
         ? bundle.mission.ui?.hidden_track_ids.filter((id): id is string => typeof id === 'string')
@@ -2934,6 +3190,7 @@ const MapWorkspace = () => {
     baseStationNavigationSource,
     baseStationTrackColor,
     baseStationMarkerSizePx,
+    rwltBuoyUiById,
     hiddenTrackIds,
     baseStationTelemetry,
     trackPointsByTrackId,
@@ -2995,7 +3252,7 @@ const MapWorkspace = () => {
       } else if (providerSource === 'simulation') {
         telemetry = simulationFixRef.current;
       } else {
-        const beaconKey = normalizeBeaconBindingKey(diver.beacon_id ?? diver.id);
+        const beaconKey = normalizeConfiguredBeaconBindingKey(diver.beacon_id ?? diver.id);
         if (beaconKey) {
           telemetry = zimaRemFixByBeaconRef.current[beaconKey] ?? null;
         }
@@ -3169,7 +3426,7 @@ const MapWorkspace = () => {
         if (fix.source === 'AZMLOC') {
           zimaAzmLocFixRef.current = telemetryState;
         } else if (fix.source === 'AZMREM') {
-          const beaconKey = normalizeBeaconBindingKey(fix.beaconId ?? fix.remoteAddress);
+          const beaconKey = normalizeZimaTelemetryBeaconBindingKey(fix.beaconId ?? fix.remoteAddress);
           if (beaconKey) {
             zimaRemFixByBeaconRef.current[beaconKey] = telemetryState;
           }
@@ -3353,6 +3610,8 @@ const MapWorkspace = () => {
         rwltBaseFixRef.current = null;
         rwltPingerAgentFixRef.current = null;
         rwltDiverFixByIdRef.current = {};
+        rwltBuoyIdModeRef.current = 'unknown';
+        rwltDiverIdOffsetRef.current = 0;
       }
       return;
     }
@@ -3362,6 +3621,8 @@ const MapWorkspace = () => {
       rwltBaseFixRef.current = null;
       rwltPingerAgentFixRef.current = null;
       rwltDiverFixByIdRef.current = {};
+      rwltBuoyIdModeRef.current = 'unknown';
+      rwltDiverIdOffsetRef.current = 0;
     }
   }, [
     equipmentEnabledBySource,
@@ -3727,6 +3988,11 @@ const MapWorkspace = () => {
     },
     [baseStationTrackColor, isDraft, isRecordingControlsEnabled, styles.track.color],
   );
+
+  const handleAgentSelect = useCallback((agentUid: string) => {
+    setSelectedAgentId(agentUid);
+    setSelectedObjectId(null);
+  }, []);
 
   const handleAgentPin = useCallback((agentUid: string) => {
     setPinnedAgentId((prev) => (prev === agentUid ? null : agentUid));
@@ -4268,6 +4534,35 @@ const MapWorkspace = () => {
 
   const handleObjectUpdate = useCallback(
     (id: string, updates: Partial<MapObject>) => {
+      const rwltBuoyId = parseRwltBuoyObjectId(id);
+      if (rwltBuoyId !== null) {
+        setRwltBuoyUiById((prev) => {
+          const current = prev[rwltBuoyId];
+          const nextName =
+            typeof updates.name === 'string'
+              ? updates.name.trim() || getDefaultRwltBuoyName(rwltBuoyId)
+              : current?.name ?? getDefaultRwltBuoyName(rwltBuoyId);
+          const nextMarkerColor =
+            updates.color !== undefined
+              ? normalizeRwltBuoyMarkerColor(updates.color)
+              : current?.markerColor ?? DEFAULT_RWLT_BUOY_MARKER_COLOR;
+          const nextMarkerSizePx =
+            updates.markerSizePx !== undefined
+              ? clampRwltBuoyMarkerSizePx(updates.markerSizePx)
+              : current?.markerSizePx ?? DEFAULT_RWLT_BUOY_MARKER_SIZE_PX;
+          return {
+            ...prev,
+            [rwltBuoyId]: {
+              buoyId: rwltBuoyId,
+              name: nextName,
+              markerColor: nextMarkerColor,
+              markerSizePx: nextMarkerSizePx,
+            },
+          };
+        });
+        return;
+      }
+
       const zoneBeforeUpdate = objects.find((obj) => obj.id === id && obj.type === 'zone');
       const nextUpdates = { ...updates };
 
@@ -4289,6 +4584,11 @@ const MapWorkspace = () => {
 
   const handleObjectDelete = useCallback(
     (id: string) => {
+      if (parseRwltBuoyObjectId(id) !== null) {
+        setSelectedObjectId((prev) => (prev === id ? null : prev));
+        return;
+      }
+
       const target = objects.find((obj) => obj.id === id);
       if (target?.type === 'zone') {
         const laneCount = countZoneLanes(laneFeatures, id);
@@ -4493,14 +4793,14 @@ const MapWorkspace = () => {
             baseStationTrackStatus={trackStatusByAgentId[BASE_STATION_AGENT_ID] ?? 'stopped'}
             selectedAgentId={selectedAgentId}
             pinnedAgentId={pinnedAgentId}
-            onAgentSelect={setSelectedAgentId}
+            onAgentSelect={handleAgentSelect}
             onAgentCenter={handleAgentCenter}
             onAgentToggleRecording={handleAgentToggleRecording}
             onBaseStationTrackAction={handleBaseStationTrackAction}
             onAgentPin={handleAgentPin}
             isDraft={isDraft}
             isRecordingEnabled={isRecordingControlsEnabled}
-            objects={objects}
+            objects={mapObjects}
             rasterOverlays={rasterOverlays.map((overlay) => ({
               id: overlay.id,
               name: overlay.name,
@@ -4549,7 +4849,7 @@ const MapWorkspace = () => {
             segmentLengthsMode={segmentLengthsMode}
             styles={styles}
             mapView={mapView}
-            objects={objects}
+            objects={mapObjects}
             selectedObjectId={selectedObjectId}
             centerRequest={centerRequest}
             diverData={diverData}
@@ -4570,7 +4870,6 @@ const MapWorkspace = () => {
             trackSegments={visibleTrackSegments}
             rasterOverlays={rasterOverlaysForMap}
             vectorOverlays={vectorOverlaysForMap}
-            rwltBuoys={showRwltBuoys ? rwltBuoysForMap : []}
             followAgentId={pinnedAgentId}
             connectionStatus={connectionStatus}
             connectionLostSeconds={connectionLostSeconds}
@@ -4597,8 +4896,8 @@ const MapWorkspace = () => {
         }
         right={
           <RightPanel
-            diverData={selectedAgentDiverData}
-            hasTelemetryData={hasSelectedAgentTelemetry}
+            diverData={selectedRwltBuoyHudData ?? selectedAgentDiverData}
+            hasTelemetryData={selectedRwltBuoyHudData ? true : hasSelectedAgentTelemetry}
             hasTelemetryHistory={hasPrimaryTelemetryHistory}
             coordPrecision={coordPrecision}
             coordinateInputCrs={coordinateInputCrs}
@@ -4606,9 +4905,9 @@ const MapWorkspace = () => {
             styles={styles}
             connectionStatus={connectionStatus}
             isConnectionEnabled={isPrimarySourceEnabled}
-            selectedAgent={selectedAgent}
-            selectedAgentTrackStatus={selectedAgentTrackStatus}
-            selectedAgentActiveTrackNumber={selectedAgentActiveTrackNumber}
+            selectedAgent={selectedRwltBuoyHudData ? null : selectedAgent}
+            selectedAgentTrackStatus={selectedRwltBuoyHudData ? 'stopped' : selectedAgentTrackStatus}
+            selectedAgentActiveTrackNumber={selectedRwltBuoyHudData ? 0 : selectedAgentActiveTrackNumber}
             missionDocument={missionDocument}
             trackStatusByAgentId={trackStatusByAgentId}
             hiddenTrackIds={hiddenTrackIds}
@@ -4617,7 +4916,7 @@ const MapWorkspace = () => {
             onObjectUpdate={handleObjectUpdate}
             onCoordinateInputCrsChange={handleCoordinateInputCrsChange}
             onCoordinateInputFormatChange={handleCoordinateInputFormatChange}
-            onObjectDelete={handleObjectDelete}
+            onObjectDelete={selectedObject?.type === 'rwlt_buoy' ? undefined : handleObjectDelete}
             onRegenerateLanes={handleRegenerateLanes}
             onPickLaneEdge={beginPickLaneEdge}
             onPickLaneStart={beginPickLaneStart}

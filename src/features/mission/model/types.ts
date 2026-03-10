@@ -118,6 +118,12 @@ export type MissionUiState = {
     updated_at?: IsoUtcString;
     source_id?: NavigationSourceId | null;
   };
+  rwlt_buoys?: Array<{
+    buoy_id: number;
+    name: string;
+    marker_color?: string;
+    marker_size_px: number;
+  }>;
 };
 
 export type MissionDocument = {

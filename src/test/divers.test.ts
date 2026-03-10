@@ -5,13 +5,13 @@ describe('divers model (R-017 — beacon id)', () => {
   it('creates default diver with separate beacon id', () => {
     const diver = createDefaultDiver(0);
     expect(diver.id).toBe('1');
-    expect(diver.beacon_id).toBe('0');
+    expect(diver.beacon_id).toBe('1');
   });
 
-  it('increments default beacon ids from zero', () => {
+  it('increments default beacon ids from one', () => {
     const diver = createDefaultDiver(1);
     expect(diver.id).toBe('2');
-    expect(diver.beacon_id).toBe('1');
+    expect(diver.beacon_id).toBe('2');
   });
 
   it('keeps explicit beacon id and agent id independent', () => {

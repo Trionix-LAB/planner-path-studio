@@ -6,7 +6,7 @@ import type { DiverUiConfig } from '@/features/mission';
 const diver: DiverUiConfig = {
   uid: 'agent-1',
   id: '1',
-  beacon_id: '0',
+  beacon_id: '1',
   title: 'Маяк 1',
   marker_color: '#0ea5e9',
   marker_size_px: 32,

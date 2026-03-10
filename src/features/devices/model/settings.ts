@@ -518,6 +518,12 @@ export const normalizeDeviceConfig = (schema: DeviceSchema, raw: unknown): Devic
   for (const field of schema.fields) {
     config[field.key] = normalizeFieldValue(field, source[field.key] ?? getFieldDefault(field));
   }
+  if (schema.id === 'gnss-com' || schema.id === 'rwlt-com') {
+    const autoDetectPort = parseBooleanWithFallback(config.autoDetectPort, true);
+    if (autoDetectPort) {
+      config.comPort = '';
+    }
+  }
   return config;
 };
 
@@ -816,12 +822,14 @@ export const buildEquipmentRuntime = (
       const defaultAutoDetectPort = readSchemaBooleanDefault(gnssComSchema, 'autoDetectPort', true);
       const defaultComPort = String(readSchemaFieldDefault(gnssComSchema, 'comPort', '')).trim();
       const defaultBaudRate = parseIntWithFallback(readSchemaFieldDefault(gnssComSchema, 'baudRate', 115200), 115200);
+      const autoDetectPort = parseBooleanWithFallback(gnssComConfig.autoDetectPort, defaultAutoDetectPort);
+      const comPort = String(gnssComConfig.comPort ?? defaultComPort).trim();
 
       runtime.gnss_com = {
         interface: 'serial',
         protocol: 'nmea0183',
-        autoDetectPort: parseBooleanWithFallback(gnssComConfig.autoDetectPort, defaultAutoDetectPort),
-        comPort: String(gnssComConfig.comPort ?? defaultComPort).trim(),
+        autoDetectPort,
+        comPort: autoDetectPort ? '' : comPort,
         baudRate: parseIntWithFallback(gnssComConfig.baudRate, defaultBaudRate),
         instance_id: gnssComInstance.id,
         instance_name: gnssComInstance.name ?? null,
@@ -840,12 +848,14 @@ export const buildEquipmentRuntime = (
       const rawMode = String(readSchemaFieldDefault(rwltComSchema, 'mode', 'pinger')).trim().toLowerCase();
       const defaultMode = rawMode === 'divers' ? 'divers' : 'pinger';
       const modeValue = String(rwltComConfig.mode ?? defaultMode).trim().toLowerCase();
+      const autoDetectPort = parseBooleanWithFallback(rwltComConfig.autoDetectPort, defaultAutoDetectPort);
+      const comPort = String(rwltComConfig.comPort ?? defaultComPort).trim();
 
       runtime.rwlt_com = {
         interface: 'serial',
         protocol: 'unav',
-        autoDetectPort: parseBooleanWithFallback(rwltComConfig.autoDetectPort, defaultAutoDetectPort),
-        comPort: String(rwltComConfig.comPort ?? defaultComPort).trim(),
+        autoDetectPort,
+        comPort: autoDetectPort ? '' : comPort,
         baudRate: parseIntWithFallback(rwltComConfig.baudRate, defaultBaudRate),
         mode: modeValue === 'divers' ? 'divers' : 'pinger',
         instance_id: rwltComInstance.id,

@@ -105,6 +105,7 @@ const getObjectColor = (obj: MapObject): string => {
   if (obj.color) return obj.color;
   if (obj.type === 'zone') return 'hsl(38, 92%, 50%)';
   if (obj.type === 'marker') return 'hsl(142, 71%, 45%)';
+  if (obj.type === 'rwlt_buoy') return '#1d4ed8';
   return 'hsl(199, 89%, 48%)';
 };
 
@@ -786,7 +787,7 @@ const LeftPanel = ({
                 <LocateFixed className="w-3.5 h-3.5" />
               </button>
             )}
-            {onObjectDelete && (
+            {onObjectDelete && obj.type !== 'rwlt_buoy' && (
               <button
                 type="button"
                 className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"

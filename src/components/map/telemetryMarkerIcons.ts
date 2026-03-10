@@ -150,14 +150,16 @@ export const createBaseStationIcon = (
   });
 };
 
-export const createRwltBuoyIcon = (buoyId: number): L.DivIcon => {
-  const size = 24;
-  const label = Number.isInteger(buoyId) ? String(buoyId) : '?';
+export const createRwltBuoyIcon = (buoyId: number, sizePx = 24, color = '#1d4ed8'): L.DivIcon => {
+  const size = clampDiverMarkerSizePx(sizePx, 24);
+  const markerColor = normalizeHexColor(color, '#1d4ed8');
+  const label = Number.isInteger(buoyId) && buoyId > 0 ? String(buoyId) : '?';
+  const fontSize = Math.max(10, Math.round(size * 0.46));
   return L.divIcon({
     className: 'rwlt-buoy-marker',
     html: `
-      <div style="position:relative;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;">
-        <div style="width:${size}px;height:${size}px;border-radius:9999px;background:#ffffff;border:2px solid #1d4ed8;box-shadow:0 1px 4px rgba(15,23,42,0.25);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#1d4ed8;line-height:1;">
+      <div style="position:relative;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;" data-marker-color="${markerColor}">
+        <div style="width:${size}px;height:${size}px;border-radius:9999px;background:#ffffff;border:2px solid ${markerColor};box-shadow:0 1px 4px rgba(15,23,42,0.25);display:flex;align-items:center;justify-content:center;font-size:${fontSize}px;font-weight:700;color:${markerColor};line-height:1;">
           ${label}
         </div>
       </div>

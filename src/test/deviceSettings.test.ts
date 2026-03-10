@@ -216,6 +216,58 @@ describe('equipment settings', () => {
     expect(autoModeSkipsComPortValidation.comPort).toBeUndefined();
   });
 
+  it('normalizes settings for gnss-com/rwlt-com auto mode by dropping stale comPort', () => {
+    const schemas = loadDeviceSchemas();
+    const base = createDefaultEquipmentSettings(schemas);
+    const gnssComInstanceId = 'profile-zima-gnss-gnss-com-auto-normalize';
+    const rwltComInstanceId = 'profile-zima-gnss-rwlt-com-auto-normalize';
+
+    const normalized = normalizeEquipmentSettings(
+      {
+        ...base,
+        selected_profile_id: 'profile-zima-gnss',
+        profiles: base.profiles.map((item) =>
+          item.id === 'profile-zima-gnss'
+            ? {
+                ...item,
+                device_instance_ids: [...item.device_instance_ids, gnssComInstanceId, rwltComInstanceId],
+              }
+            : item,
+        ),
+        device_instances: {
+          ...base.device_instances,
+          [gnssComInstanceId]: {
+            id: gnssComInstanceId,
+            schema_id: 'gnss-com',
+            name: 'GNSS COM Auto',
+            is_primary: true,
+            config: {
+              autoDetectPort: true,
+              comPort: 'COM11',
+              baudRate: 115200,
+            },
+          },
+          [rwltComInstanceId]: {
+            id: rwltComInstanceId,
+            schema_id: 'rwlt-com',
+            name: 'RWLT COM Auto',
+            is_primary: true,
+            config: {
+              autoDetectPort: true,
+              comPort: 'COM12',
+              baudRate: 38400,
+              mode: 'pinger',
+            },
+          },
+        },
+      },
+      schemas,
+    );
+
+    expect(normalized.device_instances[gnssComInstanceId].config.comPort).toBe('');
+    expect(normalized.device_instances[rwltComInstanceId].config.comPort).toBe('');
+  });
+
   it('skips validation for disabled dependent fields', () => {
     const zimaSchema = loadDeviceSchemas().find((schema) => schema.id === 'zima2r');
     expect(zimaSchema).toBeTruthy();
@@ -379,7 +431,7 @@ describe('equipment settings', () => {
     });
   });
 
-  it('builds runtime for gnss-com instance with auto port detection', () => {
+  it('builds runtime for gnss-com instance with auto port detection and clears stale comPort', () => {
     const schemas = loadDeviceSchemas();
     const base = createDefaultEquipmentSettings(schemas);
     const profile = base.profiles.find((item) => item.id === 'profile-zima-gnss');
@@ -405,7 +457,7 @@ describe('equipment settings', () => {
             is_primary: true,
             config: {
               autoDetectPort: true,
-              comPort: '',
+              comPort: 'COM42',
               baudRate: 38400,
             },
           },
@@ -468,6 +520,52 @@ describe('equipment settings', () => {
       mode: 'divers',
       instance_id: rwltComInstanceId,
       instance_name: 'RWLT COM',
+    });
+  });
+
+  it('builds runtime for rwlt-com auto mode and clears stale comPort', () => {
+    const schemas = loadDeviceSchemas();
+    const base = createDefaultEquipmentSettings(schemas);
+
+    const rwltComInstanceId = 'profile-zima-gnss-rwlt-com-auto-1';
+
+    const runtime = buildEquipmentRuntime(
+      {
+        ...base,
+        selected_profile_id: 'profile-zima-gnss',
+        profiles: base.profiles.map((item) =>
+          item.id === 'profile-zima-gnss'
+            ? { ...item, device_instance_ids: [...item.device_instance_ids, rwltComInstanceId] }
+            : item,
+        ),
+        device_instances: {
+          ...base.device_instances,
+          [rwltComInstanceId]: {
+            id: rwltComInstanceId,
+            schema_id: 'rwlt-com',
+            name: 'RWLT COM Auto',
+            is_primary: true,
+            config: {
+              autoDetectPort: true,
+              comPort: 'COM77',
+              baudRate: 38400,
+              mode: 'pinger',
+            },
+          },
+        },
+      },
+      schemas,
+    );
+
+    expect(runtime.rwlt_com).toEqual({
+      interface: 'serial',
+      protocol: 'unav',
+      autoDetectPort: true,
+      comPort: '',
+      baudRate: 38400,
+      mode: 'pinger',
+      instance_id: rwltComInstanceId,
+      instance_name: 'RWLT COM Auto',
     });
   });
 });

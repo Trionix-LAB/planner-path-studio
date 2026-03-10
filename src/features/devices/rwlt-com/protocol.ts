@@ -220,7 +220,7 @@ const parsePrwla = (raw: string, fields: string[]): ParsedRwltMessage => {
   const buoyId = parseInteger(fields[1]);
   const lat = parseNumber(fields[2]);
   const lon = parseNumber(fields[3]);
-  if (buoyId === null || buoyId < 1 || buoyId > 4 || lat === null || lon === null) {
+  if (buoyId === null || buoyId < 0 || buoyId > 4 || lat === null || lon === null) {
     return { kind: 'UNKNOWN', raw };
   }
   if (!isValidLatLon(lat, lon) || (lat === 0 && lon === 0)) {

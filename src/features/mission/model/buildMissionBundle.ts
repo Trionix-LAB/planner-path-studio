@@ -66,6 +66,7 @@ export type BuildMissionBundleInput = {
   baseStationNavigationSource: NavigationSourceId | null;
   baseStationTrackColor: string;
   baseStationMarkerSizePx: number;
+  rwltBuoys: NonNullable<MissionUiState['rwlt_buoys']>;
   hiddenTrackIds: string[];
   baseStationTelemetry: BaseStationTelemetryState | null;
   mapView: MissionUiState['map_view'] | null;
@@ -122,6 +123,7 @@ export const buildMissionBundle = (input: BuildMissionBundleInput): MissionBundl
             }
           : {}),
       },
+      rwlt_buoys: input.rwltBuoys,
       ...(input.mapView ? { map_view: input.mapView } : {}),
       coordinates: { precision: input.coordPrecision },
       measurements: {

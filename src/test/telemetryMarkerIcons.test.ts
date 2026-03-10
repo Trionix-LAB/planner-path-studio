@@ -54,10 +54,11 @@ describe('telemetry marker icons', () => {
     expect(getAttr(html, 'data-course-arrow')).toBeNull();
   });
 
-  it('renders rwlt buoy marker with buoy number', () => {
-    const icon = createRwltBuoyIcon(3);
+  it('renders rwlt buoy marker with buoy number and custom color', () => {
+    const icon = createRwltBuoyIcon(3, 24, '#ff5500');
     const html = getHtml(icon);
     expect((icon.options as { className?: string }).className).toBe('rwlt-buoy-marker');
+    expect(getAttr(html, 'data-marker-color')).toBe('#ff5500');
     expect(html).toMatch(/>\s*3\s*</);
   });
 });

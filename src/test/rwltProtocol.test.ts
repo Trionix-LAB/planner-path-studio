@@ -63,6 +63,11 @@ describe('rwlt protocol parser', () => {
     if (buoy.kind !== 'PRWLA') return;
     expect(buoy.buoyId).toBe(1);
     expect(buoy.batteryV).toBeCloseTo(12.4, 3);
+
+    const legacyBuoy = parseRwltLine(withChecksum('PRWLA,0,59.9001,30.3001,1.5,12.2,0,3.0,24.8'));
+    expect(legacyBuoy.kind).toBe('PRWLA');
+    if (legacyBuoy.kind !== 'PRWLA') return;
+    expect(legacyBuoy.buoyId).toBe(0);
   });
 
   it('returns UNKNOWN for invalid PRWLA and checksum errors', () => {

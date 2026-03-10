@@ -92,6 +92,7 @@ type LaneVertexDisplayRow = {
 const getDefaultColor = (type: MapObject['type'], styles: AppUiDefaults['styles']): string => {
   if (type === 'zone') return styles.survey_area.stroke_color;
   if (type === 'marker') return styles.marker.color;
+  if (type === 'rwlt_buoy') return '#1d4ed8';
   if (type === 'lane') return styles.lane.color;
   if (type === 'measure') return '#f97316';
   return styles.route.color;
@@ -105,6 +106,12 @@ const normalizeHexColor = (value: string, fallback: string): string => {
     return trimmed.toLowerCase();
   }
   return fallback;
+};
+
+const clampMarkerSizePx = (value: unknown, fallback: number): number => {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, Math.min(256, Math.trunc(n)));
 };
 
 const formatRouteLength = (meters: number): string => {
@@ -168,7 +175,7 @@ const toEditableMarkerPoint = (
   targetCrs: CrsId,
   targetFormat: CoordinateInputFormat,
 ): { lat: string; lon: string } => {
-  if (object.type !== 'marker' || object.geometry?.type !== 'marker') {
+  if ((object.type !== 'marker' && object.type !== 'rwlt_buoy') || object.geometry?.type !== 'marker') {
     return { lat: '', lon: '' };
   }
   const converted = convertPoint(object.geometry.point, 'wgs84', targetCrs);
@@ -448,10 +455,12 @@ const MapObjectProperties = ({
   zoneLaneCount,
   zoneLaneFeatures,
 }: MapObjectPropertiesProps) => {
+  const isRwltBuoy = object.type === 'rwlt_buoy';
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [laneAngle, setLaneAngle] = useState('0');
   const [laneWidth, setLaneWidth] = useState('5');
+  const [markerSizePx, setMarkerSizePx] = useState('24');
   const [zoneVisible, setZoneVisible] = useState(true);
   const [color, setColor] = useState('#0ea5e9');
   const [laneColor, setLaneColor] = useState('#22c55e');
@@ -507,9 +516,27 @@ const MapObjectProperties = ({
   }, [coordinateInputFormat]);
 
   useEffect(() => {
+    const previousObject = previousObjectRef.current;
     const objectChanged = previousObjectRef.current !== object;
     const stylesChanged = previousStylesRef.current !== styles;
     if (!objectChanged && !stylesChanged) return;
+
+    const isRwltTelemetryOnlyUpdate =
+      isRwltBuoy &&
+      !stylesChanged &&
+      isDirty &&
+      previousObject?.type === 'rwlt_buoy' &&
+      previousObject.id === object.id &&
+      previousObject.name === object.name &&
+      clampMarkerSizePx(previousObject.markerSizePx, 24) === clampMarkerSizePx(object.markerSizePx, 24);
+
+    // Keep user-entered marker size/name while live telemetry updates the same buoy.
+    if (isRwltTelemetryOnlyUpdate) {
+      previousObjectRef.current = object;
+      previousStylesRef.current = styles;
+      return;
+    }
+
     previousObjectRef.current = object;
     previousStylesRef.current = styles;
 
@@ -519,6 +546,7 @@ const MapObjectProperties = ({
     setNote(object.note ?? '');
     setLaneAngle(String(object.laneAngle ?? 0));
     setLaneWidth(String(object.laneWidth ?? 5));
+    setMarkerSizePx(String(clampMarkerSizePx(object.markerSizePx, 24)));
     setZoneVisible(object.visible);
     setColor(normalizeHexColor(object.color ?? fallbackColor, fallbackColor));
     setLaneColor(normalizeHexColor(object.laneColor ?? fallbackLaneColor, fallbackLaneColor));
@@ -533,7 +561,7 @@ const MapObjectProperties = ({
     setIsLaneVerticesDialogOpen(false);
     setIsMarkerCoordinatesDialogOpen(false);
     setIsDirty(false);
-  }, [object, styles, coordinateInputCrs, coordinateInputFormat]);
+  }, [object, styles, coordinateInputCrs, coordinateInputFormat, isRwltBuoy, isDirty]);
 
   const handleSave = () => {
     const fallbackColor = getDefaultColor(object.type, styles);
@@ -545,6 +573,10 @@ const MapObjectProperties = ({
 
     if (object.type === 'route' || object.type === 'marker' || object.type === 'measure') {
       updates.note = note;
+    }
+
+    if (isRwltBuoy) {
+      updates.markerSizePx = clampMarkerSizePx(markerSizePx, clampMarkerSizePx(object.markerSizePx, 24));
     }
 
     if (object.type === 'route' && object.geometry?.type === 'route') {
@@ -825,6 +857,21 @@ const MapObjectProperties = ({
                     ? 'Описание измерения...'
                     : 'Заметка о маршруте...'
               }
+            />
+          </div>
+        )}
+
+        {isRwltBuoy && (
+          <div className="space-y-1.5">
+            <Label htmlFor="obj-rwlt-size" className="text-xs text-muted-foreground">Размер маркера (px)</Label>
+            <Input
+              id="obj-rwlt-size"
+              className="h-9 text-sm"
+              type="number"
+              min="1"
+              max="256"
+              value={markerSizePx}
+              onChange={(e) => handleFieldChange(setMarkerSizePx, e.target.value)}
             />
           </div>
         )}
@@ -1253,9 +1300,7 @@ const MapObjectProperties = ({
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="text-base">Координаты маркера</DialogTitle>
-            <DialogDescription className="sr-only">
-              Ввод координат маркера с конвертацией в WGS84
-            </DialogDescription>
+            <DialogDescription className="sr-only">Ввод координат маркера с конвертацией в WGS84</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <div className="space-y-1.5">
@@ -1331,9 +1376,7 @@ const MapObjectProperties = ({
             {markerPreviewWgs84.error && (
               <div className="text-xs text-destructive">{markerPreviewWgs84.error}</div>
             )}
-            {markerCoordinateError && (
-              <div className="text-xs text-destructive">{markerCoordinateError}</div>
-            )}
+            {markerCoordinateError && <div className="text-xs text-destructive">{markerCoordinateError}</div>}
             <Button
               type="button"
               className="w-full h-10 text-sm"

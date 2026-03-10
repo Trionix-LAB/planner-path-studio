@@ -227,6 +227,22 @@ const DEFAULT_RWLT_COM_CONFIG = {
 
 const GNSS_COM_SIM_REGISTRY_PATH = path.join(os.tmpdir(), 'planner-gnss-com-sim.json');
 const RWLT_COM_SIM_REGISTRY_PATH = path.join(os.tmpdir(), 'planner-rwlt-com-sim.json');
+const GNSS_COM_SIM_MANUFACTURER = 'Planner GNSS-COM Simulator';
+const RWLT_COM_SIM_MANUFACTURER = 'Planner RWLT-COM Simulator';
+
+const isProcessAlive = (pidValue) => {
+  const pid = Number(pidValue);
+  if (!Number.isInteger(pid) || pid < 1) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'EPERM') {
+      return true;
+    }
+    return false;
+  }
+};
 
 const normalizeInputPath = (value) => {
   if (typeof value !== 'string') throw new Error('Invalid path');
@@ -429,9 +445,10 @@ const normalizeGnssConfig = (input) => {
 
 const normalizeGnssComConfig = (input) => {
   const source = input && typeof input === 'object' ? input : {};
+  const autoDetectPort = normalizeBoolean(source.autoDetectPort, DEFAULT_GNSS_COM_CONFIG.autoDetectPort);
   return {
-    autoDetectPort: normalizeBoolean(source.autoDetectPort, DEFAULT_GNSS_COM_CONFIG.autoDetectPort),
-    comPort: normalizeText(source.comPort, DEFAULT_GNSS_COM_CONFIG.comPort),
+    autoDetectPort,
+    comPort: autoDetectPort ? '' : normalizeText(source.comPort, DEFAULT_GNSS_COM_CONFIG.comPort),
     baudRate: normalizePositiveInt(source.baudRate, DEFAULT_GNSS_COM_CONFIG.baudRate, 4_000_000),
     scanTimeoutMs: normalizePositiveInt(source.scanTimeoutMs, DEFAULT_GNSS_COM_CONFIG.scanTimeoutMs, 10_000),
   };
@@ -440,9 +457,10 @@ const normalizeGnssComConfig = (input) => {
 const normalizeRwltComConfig = (input) => {
   const source = input && typeof input === 'object' ? input : {};
   const modeRaw = normalizeText(source.mode, DEFAULT_RWLT_COM_CONFIG.mode).toLowerCase();
+  const autoDetectPort = normalizeBoolean(source.autoDetectPort, DEFAULT_RWLT_COM_CONFIG.autoDetectPort);
   return {
-    autoDetectPort: normalizeBoolean(source.autoDetectPort, DEFAULT_RWLT_COM_CONFIG.autoDetectPort),
-    comPort: normalizeText(source.comPort, DEFAULT_RWLT_COM_CONFIG.comPort),
+    autoDetectPort,
+    comPort: autoDetectPort ? '' : normalizeText(source.comPort, DEFAULT_RWLT_COM_CONFIG.comPort),
     baudRate: normalizePositiveInt(source.baudRate, DEFAULT_RWLT_COM_CONFIG.baudRate, 4_000_000),
     scanTimeoutMs: normalizePositiveInt(source.scanTimeoutMs, DEFAULT_RWLT_COM_CONFIG.scanTimeoutMs, 10_000),
     mode: modeRaw === 'divers' ? 'divers' : 'pinger',
@@ -535,6 +553,9 @@ const listSerialPorts = async () => {
     try {
       const raw = await fs.readFile(registryPath, 'utf8');
       const parsed = JSON.parse(raw);
+      if (!isProcessAlive(parsed?.pid)) {
+        return [];
+      }
       const appPortPath = normalizeText(parsed?.appPortPath, '');
       if (!appPortPath) return [];
       try {
@@ -595,14 +616,14 @@ const listSerialPorts = async () => {
 
   const gnssRegistryPorts = readSimulatorRegistryPorts(
     GNSS_COM_SIM_REGISTRY_PATH,
-    'Planner GNSS-COM Simulator',
+    GNSS_COM_SIM_MANUFACTURER,
   );
   const rwltRegistryPorts = readSimulatorRegistryPorts(
     RWLT_COM_SIM_REGISTRY_PATH,
-    'Planner RWLT-COM Simulator',
+    RWLT_COM_SIM_MANUFACTURER,
   );
-  const gnssTmpPorts = findSimulatorTmpPorts('gnss-com', 'Planner GNSS-COM Simulator');
-  const rwltTmpPorts = findSimulatorTmpPorts('rwlt-com', 'Planner RWLT-COM Simulator');
+  const gnssTmpPorts = findSimulatorTmpPorts('gnss-com', GNSS_COM_SIM_MANUFACTURER);
+  const rwltTmpPorts = findSimulatorTmpPorts('rwlt-com', RWLT_COM_SIM_MANUFACTURER);
 
   const [hardware, gnssRegistry, rwltRegistry, gnssTmp, rwltTmp] = await Promise.all([
     hardwarePorts,
@@ -620,6 +641,32 @@ const listSerialPorts = async () => {
     seenPaths.add(pathValue);
     return true;
   });
+};
+
+const prioritizePortsByManufacturer = (ports, preferredManufacturer) => {
+  if (!Array.isArray(ports) || ports.length === 0) return [];
+  const preferred = normalizeText(preferredManufacturer, '').toLowerCase();
+  if (!preferred) return [...ports];
+  const preferredPorts = [];
+  const otherPorts = [];
+
+  for (const entry of ports) {
+    const manufacturer = normalizeText(entry?.manufacturer, '').toLowerCase();
+    if (manufacturer === preferred) {
+      preferredPorts.push(entry);
+      continue;
+    }
+    otherPorts.push(entry);
+  }
+
+  return [...preferredPorts, ...otherPorts];
+};
+
+const findFirstPortByManufacturer = (ports, manufacturerName) => {
+  const target = normalizeText(manufacturerName, '').toLowerCase();
+  if (!target) return '';
+  const match = ports.find((entry) => normalizeText(entry?.manufacturer, '').toLowerCase() === target);
+  return normalizeText(match?.path, '');
 };
 
 const looksLikeNmeaLine = (line) => {
@@ -1037,7 +1084,12 @@ const createGnssComBridge = () => {
     // In auto mode COM port value from UI must not bias selection.
     const candidates = [];
     const seenPaths = new Set();
-    for (const entry of ports) {
+    const orderedPorts = prioritizePortsByManufacturer(ports, GNSS_COM_SIM_MANUFACTURER);
+    const preferredSimulatorPort = findFirstPortByManufacturer(orderedPorts, GNSS_COM_SIM_MANUFACTURER);
+    if (preferredSimulatorPort) {
+      return preferredSimulatorPort;
+    }
+    for (const entry of orderedPorts) {
       const pathValue = normalizeText(entry.path, '');
       if (!pathValue || seenPaths.has(pathValue)) continue;
       seenPaths.add(pathValue);
@@ -1150,11 +1202,33 @@ const createRwltComBridge = () => {
     return { status, config };
   };
 
-  const hasRwltDataOnPort = async (portPath, baudRate, timeoutMs) => {
+  const sendModeCommand = async (port, mode) => {
+    const command = `${buildRwltModeCommand(mode)}\r\n`;
+    await new Promise((resolve, reject) => {
+      port.write(command, 'ascii', (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        port.drain((drainError) => {
+          if (drainError) {
+            reject(drainError);
+            return;
+          }
+          resolve();
+        });
+      });
+    });
+  };
+
+  const hasRwltDataOnPort = async (portPath, baudRate, timeoutMs, mode) => {
     let probePort = null;
     let probeBuffer = '';
     try {
       probePort = await openSerialPort(portPath, baudRate);
+      await sendModeCommand(probePort, mode).catch(() => {
+        // Mode command is best effort for probing.
+      });
       return await new Promise((resolve) => {
         let finished = false;
         const finish = async (result) => {
@@ -1255,7 +1329,12 @@ const createRwltComBridge = () => {
     // In auto mode COM port value from UI must not bias selection.
     const candidates = [];
     const seenPaths = new Set();
-    for (const entry of ports) {
+    const orderedPorts = prioritizePortsByManufacturer(ports, RWLT_COM_SIM_MANUFACTURER);
+    const preferredSimulatorPort = findFirstPortByManufacturer(orderedPorts, RWLT_COM_SIM_MANUFACTURER);
+    if (preferredSimulatorPort) {
+      return preferredSimulatorPort;
+    }
+    for (const entry of orderedPorts) {
       const pathValue = normalizeText(entry.path, '');
       if (!pathValue || seenPaths.has(pathValue)) continue;
       seenPaths.add(pathValue);
@@ -1269,31 +1348,12 @@ const createRwltComBridge = () => {
     for (const entry of candidates) {
       const pathValue = normalizeText(entry.path, '');
       if (!pathValue) continue;
-      const hasRwlt = await hasRwltDataOnPort(pathValue, nextConfig.baudRate, nextConfig.scanTimeoutMs);
+      const hasRwlt = await hasRwltDataOnPort(pathValue, nextConfig.baudRate, nextConfig.scanTimeoutMs, nextConfig.mode);
       if (hasRwlt) {
         return pathValue;
       }
     }
     throw new Error(`Не найден COM-порт с потоком RWLT (проверено портов: ${candidates.length})`);
-  };
-
-  const sendModeCommand = async (port, mode) => {
-    const command = `${buildRwltModeCommand(mode)}\r\n`;
-    await new Promise((resolve, reject) => {
-      port.write(command, 'ascii', (error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        port.drain((drainError) => {
-          if (drainError) {
-            reject(drainError);
-            return;
-          }
-          resolve();
-        });
-      });
-    });
   };
 
   const start = async (input) => {
