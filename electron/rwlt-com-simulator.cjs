@@ -13,6 +13,7 @@ const DEFAULT_SIMULATOR_CONFIG = {
   virtualPort: true,
   virtualSetupTimeoutMs: 7000,
   rwltMode: 'pinger',
+  allowRuntimeModeSwitch: false,
   diverTargetIds: [1, 2],
 };
 
@@ -87,6 +88,21 @@ const parseDiverTargetIds = (value, fallback) => {
     .map((part) => Number(part.trim()))
     .filter((n) => Number.isInteger(n) && n >= 0 && n <= 255);
   return parsed.length > 0 ? parsed : fallback;
+};
+
+const resolveRwltModeFromCommand = (line) => {
+  const trimmed = normalizeText(line, '');
+  if (!trimmed.startsWith('$')) return null;
+  const payloadRaw = trimmed.slice(1);
+  const payload = payloadRaw.includes('*') ? payloadRaw.slice(0, payloadRaw.lastIndexOf('*')) : payloadRaw;
+  const fields = payload.split(',');
+  const sentenceId = normalizeText(fields[0], '').toUpperCase();
+  if (sentenceId !== 'PUNV0' && sentenceId !== 'PUWV0') return null;
+  const primaryModeRaw = normalizeText(fields[11] ?? '', '').toLowerCase();
+  const modeRaw = primaryModeRaw || normalizeText(fields[10] ?? '', '').toLowerCase();
+  if (modeRaw === '1' || modeRaw === 'divers') return 'divers';
+  if (modeRaw === '0' || modeRaw === 'pinger') return 'pinger';
+  return null;
 };
 
 const stripQuotes = (value) => {
@@ -267,6 +283,10 @@ const normalizeSimulatorConfig = (input) => {
       30_000,
     ),
     rwltMode: normalizeRwltMode(source.rwltMode, DEFAULT_SIMULATOR_CONFIG.rwltMode),
+    allowRuntimeModeSwitch: normalizeBoolean(
+      source.allowRuntimeModeSwitch,
+      DEFAULT_SIMULATOR_CONFIG.allowRuntimeModeSwitch,
+    ),
     diverTargetIds: parseDiverTargetIds(source.diverTargetIds, DEFAULT_SIMULATOR_CONFIG.diverTargetIds),
   };
 };
@@ -577,15 +597,10 @@ const createRwltComSimulator = () => {
   };
 
   const applyModeCommand = (line) => {
-    const trimmed = normalizeText(line, '');
-    if (!trimmed.startsWith('$')) return;
-    const payloadRaw = trimmed.slice(1);
-    const payload = payloadRaw.includes('*') ? payloadRaw.slice(0, payloadRaw.lastIndexOf('*')) : payloadRaw;
-    const fields = payload.split(',');
-    const sentenceId = normalizeText(fields[0], '').toUpperCase();
-    if (sentenceId !== 'PUNV0' && sentenceId !== 'PUWV0') return;
-    const modeRaw = normalizeText(fields[10], '');
-    runtimeRwltMode = modeRaw === '1' ? 'divers' : 'pinger';
+    if (!config.allowRuntimeModeSwitch) return;
+    const nextMode = resolveRwltModeFromCommand(line);
+    if (!nextMode) return;
+    runtimeRwltMode = nextMode;
   };
 
   const buildFrame = () => {
@@ -872,4 +887,5 @@ const createRwltComSimulator = () => {
 module.exports = {
   createRwltComSimulator,
   parseScenario,
+  resolveRwltModeFromCommand,
 };

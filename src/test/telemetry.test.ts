@@ -895,6 +895,58 @@ describe('electron rwlt-com telemetry provider', () => {
     setElectronApi(undefined);
   });
 
+  it('does not emit pinger agent fixes from PUWV3-only stream without GGA/RMC', async () => {
+    const api = createMockGnssApi();
+    setElectronApi({ rwltCom: api });
+
+    const provider = createElectronRwltComTelemetryProvider({
+      readConfig: async () => ({
+        autoDetectPort: true,
+        comPort: '',
+        baudRate: 38400,
+        mode: 'pinger',
+        navigationSourceId: 'rwlt-instance-pinger-no-rmc',
+      }),
+      resolveDiver: (tId) => (tId === 1 ? { uid: 'diver-uid-1', id: '1' } : null),
+      onBuoyUpdate: () => {
+        // noop
+      },
+    });
+
+    const onFix = vi.fn();
+    provider.onFix(onFix);
+    provider.start();
+    provider.setEnabled(true);
+    await flushMicrotasks();
+
+    api.emitData({
+      message: `${withChecksum('PUWV3,1,59.9000,30.3000,12.5,270.0,2.3,5')}\r\n`,
+      receivedAt: 1739318403200,
+    });
+    api.emitData({
+      message: `${withChecksum('PUWV3,1,59.9001,30.3000,12.2,275.0,2.3,5')}\r\n`,
+      receivedAt: 1739318404200,
+    });
+    api.emitData({
+      message: `${withChecksum('PUWV5,59.9001,30.3001,180.0,4.5')}\r\n`,
+      receivedAt: 1739318404300,
+    });
+
+    const emittedFixes = onFix.mock.calls.map((call) => call[0]);
+    const agentFixes = emittedFixes.filter((fix) => fix.entity_type === 'agent');
+    expect(agentFixes).toHaveLength(0);
+    expect(onFix).toHaveBeenCalledTimes(1);
+    expect(onFix.mock.calls[0]?.[0]).toMatchObject({
+      source: 'RWLT',
+      entity_type: 'base_station',
+      navigation_source_id: 'rwlt-instance-pinger-no-rmc',
+    });
+
+    provider.stop();
+    await flushMicrotasks();
+    setElectronApi(undefined);
+  });
+
   it('emits diver fixes in divers mode with resolver mapping and per-diver SOG', async () => {
     const api = createMockGnssApi();
     setElectronApi({ rwltCom: api });

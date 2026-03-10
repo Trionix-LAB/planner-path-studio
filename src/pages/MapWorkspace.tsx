@@ -3233,6 +3233,9 @@ const MapWorkspace = () => {
   const syncDiverTelemetry = useCallback(() => {
     const divers = missionDiversRef.current;
     const nextById: Record<string, DiverTelemetryState> = {};
+    const firstRwltDiverId =
+      divers.find((item) => resolveProviderSource(item.navigation_source) === 'rwlt-com')?.id.trim() ?? '';
+    const hasRwltDiverFix = Object.keys(rwltDiverFixByIdRef.current).length > 0;
 
     divers.forEach((diver) => {
       const source = diver.navigation_source;
@@ -3241,6 +3244,7 @@ const MapWorkspace = () => {
       }
       const providerSource = resolveProviderSource(source);
       if (!providerSource) return;
+      const diverKey = diver.id.trim();
       let telemetry: DiverTelemetryState | null = null;
 
       if (providerSource === 'gnss-udp') {
@@ -3248,7 +3252,13 @@ const MapWorkspace = () => {
       } else if (providerSource === 'gnss-com') {
         telemetry = gnssComFixRef.current;
       } else if (providerSource === 'rwlt-com') {
-        telemetry = rwltDiverFixByIdRef.current[diver.id.trim()] ?? rwltPingerAgentFixRef.current;
+        telemetry = rwltDiverFixByIdRef.current[diverKey] ?? null;
+
+        // RWLT pinger has only one agent; apply fallback only to the first RWLT diver
+        // and only while no explicit diver fixes have been received.
+        if (!telemetry && !hasRwltDiverFix && diverKey && diverKey === firstRwltDiverId) {
+          telemetry = rwltPingerAgentFixRef.current;
+        }
       } else if (providerSource === 'simulation') {
         telemetry = simulationFixRef.current;
       } else {
@@ -3258,7 +3268,6 @@ const MapWorkspace = () => {
         }
       }
 
-      const diverKey = diver.id.trim();
       if (telemetry && diverKey) {
         nextById[diverKey] = telemetry;
       }
@@ -3439,6 +3448,7 @@ const MapWorkspace = () => {
         if (fix.entity_type === 'base_station') {
           rwltBaseFixRef.current = telemetryState;
         } else if (fix.entity_type === 'diver' && typeof fix.entity_id === 'string') {
+          rwltPingerAgentFixRef.current = null;
           const diver = missionDiversRef.current.find((item) => item.uid === fix.entity_id);
           if (diver) {
             const diverKey = diver.id.trim();
@@ -3448,6 +3458,7 @@ const MapWorkspace = () => {
           }
         } else {
           rwltPingerAgentFixRef.current = telemetryState;
+          rwltDiverFixByIdRef.current = {};
         }
       } else {
         simulationFixRef.current = telemetryState;

@@ -39,6 +39,8 @@ Options:
   --mode <mode>          stream | single | playback
   --message-mode <mode>  mix | valid | broken
   --rwlt-mode <mode>     pinger | divers (default pinger)
+  --allow-runtime-mode-switch <bool>
+                         Allow runtime mode switch by incoming PUNV0/PUWV0 (default false)
   --diver-ids <list>     comma-separated diver target IDs, e.g. 1,2,3
   --replay <path>        Scenario file (json/yaml-like)
   --virtual <bool>       Auto-create virtual COM pair via socat (default true)
@@ -80,6 +82,7 @@ const main = async () => {
     baudRate: args.baud ?? args['baud-rate'],
     rateHz: args.rate,
     rwltMode: typeof args['rwlt-mode'] === 'string' ? args['rwlt-mode'] : 'pinger',
+    allowRuntimeModeSwitch: toBoolean(args['allow-runtime-mode-switch']),
     diverTargetIds: typeof args['diver-ids'] === 'string' ? args['diver-ids'] : '',
     virtualPort: typeof args.virtual === 'string' ? toBoolean(args.virtual) : true,
     autoDetectPort: toBoolean(args.auto),

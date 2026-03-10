@@ -229,6 +229,8 @@ const GNSS_COM_SIM_REGISTRY_PATH = path.join(os.tmpdir(), 'planner-gnss-com-sim.
 const RWLT_COM_SIM_REGISTRY_PATH = path.join(os.tmpdir(), 'planner-rwlt-com-sim.json');
 const GNSS_COM_SIM_MANUFACTURER = 'Planner GNSS-COM Simulator';
 const RWLT_COM_SIM_MANUFACTURER = 'Planner RWLT-COM Simulator';
+const SERIAL_PORT_OPEN_LOCK_RETRY_ATTEMPTS = 5;
+const SERIAL_PORT_OPEN_LOCK_RETRY_DELAY_MS = 120;
 
 const isProcessAlive = (pidValue) => {
   const pid = Number(pidValue);
@@ -891,16 +893,18 @@ const createGnssUdpBridge = () => {
   };
 };
 
-const openSerialPort = async (portPath, baudRate) => {
+const openSerialPort = async (portPath, baudRate, options = {}) => {
   const SerialPortCtor = getSerialPortCtor();
   if (!SerialPortCtor) {
     throw new Error('Модуль serialport не установлен');
   }
 
+  const lock = typeof options.lock === 'boolean' ? options.lock : true;
   const port = new SerialPortCtor({
     path: portPath,
     baudRate,
     autoOpen: false,
+    lock,
   });
 
   await new Promise((resolve, reject) => {
@@ -914,6 +918,35 @@ const openSerialPort = async (portPath, baudRate) => {
   });
 
   return port;
+};
+
+const isSerialPortLockError = (error) => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /Cannot lock port|Resource temporarily unavailable|EAGAIN|EBUSY|EACCES/i.test(message);
+};
+
+const delay = async (ms) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const openSerialPortWithRetry = async (portPath, baudRate, options = {}) => {
+  const attempts = Number.isInteger(options.attempts) && options.attempts > 0 ? options.attempts : 1;
+  const delayMs = Number.isFinite(options.delayMs) && options.delayMs >= 0 ? options.delayMs : 0;
+  const lock = typeof options.lock === 'boolean' ? options.lock : true;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await openSerialPort(portPath, baudRate, { lock });
+    } catch (error) {
+      if (attempt >= attempts || !isSerialPortLockError(error)) {
+        throw error;
+      }
+      await delay(delayMs);
+    }
+  }
+
+  throw new Error('Не удалось открыть COM-порт');
 };
 
 const closeSerialPort = async (port) => {
@@ -1118,7 +1151,10 @@ const createGnssComBridge = () => {
     let openedPort = null;
     try {
       const resolvedPortPath = await resolvePortPath(config);
-      openedPort = await openSerialPort(resolvedPortPath, config.baudRate);
+      openedPort = await openSerialPortWithRetry(resolvedPortPath, config.baudRate, {
+        attempts: SERIAL_PORT_OPEN_LOCK_RETRY_ATTEMPTS,
+        delayMs: SERIAL_PORT_OPEN_LOCK_RETRY_DELAY_MS,
+      });
       serialPort = openedPort;
       activePortPath = resolvedPortPath;
 
@@ -1363,7 +1399,10 @@ const createRwltComBridge = () => {
     let openedPort = null;
     try {
       const resolvedPortPath = await resolvePortPath(config);
-      openedPort = await openSerialPort(resolvedPortPath, config.baudRate);
+      openedPort = await openSerialPortWithRetry(resolvedPortPath, config.baudRate, {
+        attempts: SERIAL_PORT_OPEN_LOCK_RETRY_ATTEMPTS,
+        delayMs: SERIAL_PORT_OPEN_LOCK_RETRY_DELAY_MS,
+      });
       serialPort = openedPort;
       activePortPath = resolvedPortPath;
 
@@ -1405,6 +1444,8 @@ const createRwltComBridge = () => {
       const message =
         /No such file or directory|ENOENT/i.test(rawMessage)
           ? 'Выбранный COM-порт недоступен. Перезапустите симулятор RWLT и выберите актуальный порт.'
+          : isSerialPortLockError(error)
+            ? 'Выбранный COM-порт занят другим процессом. Закройте приложение, использующее порт, и повторите подключение.'
           : rawMessage;
       emitError(message);
       throw new Error(message);
