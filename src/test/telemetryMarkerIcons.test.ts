@@ -1,4 +1,4 @@
-import { createBaseStationIcon, createDiverIcon } from '@/components/map/telemetryMarkerIcons';
+import { createBaseStationIcon, createDiverIcon, createRwltBuoyIcon } from '@/components/map/telemetryMarkerIcons';
 
 const getHtml = (icon: { options: { html?: string | false | HTMLElement } }): string => {
   const html = icon.options.html;
@@ -52,5 +52,13 @@ describe('telemetry marker icons', () => {
     const icon = createBaseStationIcon(null, 40);
     const html = getHtml(icon);
     expect(getAttr(html, 'data-course-arrow')).toBeNull();
+  });
+
+  it('renders rwlt buoy marker with buoy number and custom color', () => {
+    const icon = createRwltBuoyIcon(3, 24, '#ff5500');
+    const html = getHtml(icon);
+    expect((icon.options as { className?: string }).className).toBe('rwlt-buoy-marker');
+    expect(getAttr(html, 'data-marker-color')).toBe('#ff5500');
+    expect(html).toMatch(/>\s*3\s*</);
   });
 });

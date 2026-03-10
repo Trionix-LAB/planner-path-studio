@@ -22,6 +22,7 @@
     "zima:sim": "node tools/zima-sim.cjs",
     "gnss:sim": "node tools/gnss-sim.cjs",
     "gnss-com:sim": "node tools/gnss-com-sim.cjs",
+    "rwlt-com:sim": "node tools/rwlt-com-sim.cjs",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
     "audit": "npm audit"
   },

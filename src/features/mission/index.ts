@@ -31,6 +31,7 @@ export type { OutdatedZoneIds } from './model/zoneLanes';
 export {
   createElectronGnssComTelemetryProvider,
   createElectronGnssTelemetryProvider,
+  createElectronRwltComTelemetryProvider,
   createElectronZimaTelemetryProvider,
   createNoopTelemetryProvider,
   createSimulationTelemetryProvider,
@@ -45,7 +46,13 @@ export type { EquipmentLogger, EquipmentLoggerOptions } from './model/equipmentL
 export { filterVisibleTrackSegments } from './model/trackVisibility';
 export type { ColoredTrackSegment } from './model/trackVisibility';
 export { useMissionAutosave } from './hooks/useMissionAutosave';
-export { createDefaultDiver, createDefaultDivers, normalizeDivers } from './model/divers';
+export {
+  createDefaultDiver,
+  createDefaultDivers,
+  normalizeDivers,
+  DIVER_BEACON_ID_MIN,
+  DIVER_BEACON_ID_MAX,
+} from './model/divers';
 export {
   MISSION_SCHEMA_VERSION,
   type CreateMissionInput,

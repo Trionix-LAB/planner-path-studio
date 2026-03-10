@@ -7,6 +7,8 @@ import {
 const DEFAULT_DIVER_MARKER_COLOR = '#0ea5e9';
 const DEFAULT_DIVER_TRACK_COLOR = '#a855f7';
 const DEFAULT_NAVIGATION_SOURCE: NavigationSourceId = 'zima2r';
+export const DIVER_BEACON_ID_MIN = 1;
+export const DIVER_BEACON_ID_MAX = 16;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -30,14 +32,19 @@ const normalizeNavigationSource = (value: unknown, fallback: NavigationSourceId)
 const normalizeBeaconId = (value: unknown, fallback: string): string => {
   const normalized = normalizeText(value, fallback);
   const n = Number(normalized);
-  if (!Number.isInteger(n) || n < 0 || n > 15) return fallback;
+  if (!Number.isInteger(n) || n < DIVER_BEACON_ID_MIN || n > DIVER_BEACON_ID_MAX) return fallback;
   return String(n);
 };
 
 export const createDefaultDiver = (index: number): DiverUiConfig => ({
   uid: crypto.randomUUID(),
   id: `${index + 1}`,
-  beacon_id: String(Math.max(0, Math.min(15, index))),
+  beacon_id: String(
+    Math.max(
+      DIVER_BEACON_ID_MIN,
+      Math.min(DIVER_BEACON_ID_MAX, index + DIVER_BEACON_ID_MIN),
+    ),
+  ),
   title: `Маяк ${index + 1}`,
   marker_color: DEFAULT_DIVER_MARKER_COLOR,
   marker_size_px: DIVER_MARKER_SIZE_DEFAULT_PX,

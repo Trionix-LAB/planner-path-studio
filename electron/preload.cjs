@@ -57,6 +57,17 @@ const CHANNELS = {
       error: 'planner:gnssCom:error',
     },
   },
+  rwltCom: {
+    start: 'planner:rwltCom:start',
+    stop: 'planner:rwltCom:stop',
+    status: 'planner:rwltCom:status',
+    listPorts: 'planner:rwltCom:listPorts',
+    events: {
+      data: 'planner:rwltCom:data',
+      status: 'planner:rwltCom:statusChanged',
+      error: 'planner:rwltCom:error',
+    },
+  },
 };
 
 const subscribe = (channel, listener) => {
@@ -140,6 +151,15 @@ const api = {
     onData: (listener) => subscribe(CHANNELS.gnssCom.events.data, listener),
     onStatus: (listener) => subscribe(CHANNELS.gnssCom.events.status, listener),
     onError: (listener) => subscribe(CHANNELS.gnssCom.events.error, listener),
+  },
+  rwltCom: {
+    start: (config) => ipcRenderer.invoke(CHANNELS.rwltCom.start, config),
+    stop: () => ipcRenderer.invoke(CHANNELS.rwltCom.stop),
+    status: () => ipcRenderer.invoke(CHANNELS.rwltCom.status),
+    listPorts: () => ipcRenderer.invoke(CHANNELS.rwltCom.listPorts),
+    onData: (listener) => subscribe(CHANNELS.rwltCom.events.data, listener),
+    onStatus: (listener) => subscribe(CHANNELS.rwltCom.events.status, listener),
+    onError: (listener) => subscribe(CHANNELS.rwltCom.events.error, listener),
   },
 };
 

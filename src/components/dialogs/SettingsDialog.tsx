@@ -29,7 +29,12 @@ import {
   type AppTheme,
   type AppUiDefaults,
 } from '@/features/settings';
-import type { DiverUiConfig, NavigationSourceId } from '@/features/mission';
+import {
+  DIVER_BEACON_ID_MAX,
+  DIVER_BEACON_ID_MIN,
+  type DiverUiConfig,
+  type NavigationSourceId,
+} from '@/features/mission';
 import {
   clampDiverMarkerSizePx,
   DIVER_MARKER_SIZE_DEFAULT_PX,
@@ -174,7 +179,7 @@ const SettingsDialog = ({
 
   const handleAddDiver = () => {
     const index = diversDraft.length;
-    const defaultBeaconId = String(Math.max(0, Math.min(15, index)));
+    const defaultBeaconId = String(Math.max(DIVER_BEACON_ID_MIN, Math.min(DIVER_BEACON_ID_MAX, index + 1)));
     updateDivers([
       ...diversDraft,
       {
@@ -853,7 +858,7 @@ const SettingsDialog = ({
                               disabled={!isBeaconIdEnabled}
                               onChange={(e) => updateDiver(index, { beacon_id: e.target.value })}
                             />
-                            <div className="text-xs text-muted-foreground">Диапазон: 0-15</div>
+                            <div className="text-xs text-muted-foreground">Диапазон: 1-16</div>
                           </div>
                           <div className="space-y-1.5">
                             <Label>Заголовок</Label>

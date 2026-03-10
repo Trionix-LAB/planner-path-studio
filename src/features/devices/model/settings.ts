@@ -518,6 +518,12 @@ export const normalizeDeviceConfig = (schema: DeviceSchema, raw: unknown): Devic
   for (const field of schema.fields) {
     config[field.key] = normalizeFieldValue(field, source[field.key] ?? getFieldDefault(field));
   }
+  if (schema.id === 'gnss-com' || schema.id === 'rwlt-com') {
+    const autoDetectPort = parseBooleanWithFallback(config.autoDetectPort, true);
+    if (autoDetectPort) {
+      config.comPort = '';
+    }
+  }
   return config;
 };
 
@@ -700,8 +706,8 @@ export const validateDeviceConfig = (schema: DeviceSchema, config: DeviceConfig)
     const rawValue = config[field.key];
     const value = rawValue ?? field.defaultValue;
 
-    // GNSS-COM manual mode requires selecting any non-empty real port name/path.
-    if (schema.id === 'gnss-com' && field.key === 'comPort') {
+    // GNSS-COM/RWLT-COM manual mode requires selecting any non-empty real port name/path.
+    if ((schema.id === 'gnss-com' || schema.id === 'rwlt-com') && field.key === 'comPort') {
       if (String(value ?? '').trim().length === 0) {
         errors[field.key] = 'Выберите COM-порт';
       }
@@ -816,15 +822,44 @@ export const buildEquipmentRuntime = (
       const defaultAutoDetectPort = readSchemaBooleanDefault(gnssComSchema, 'autoDetectPort', true);
       const defaultComPort = String(readSchemaFieldDefault(gnssComSchema, 'comPort', '')).trim();
       const defaultBaudRate = parseIntWithFallback(readSchemaFieldDefault(gnssComSchema, 'baudRate', 115200), 115200);
+      const autoDetectPort = parseBooleanWithFallback(gnssComConfig.autoDetectPort, defaultAutoDetectPort);
+      const comPort = String(gnssComConfig.comPort ?? defaultComPort).trim();
 
       runtime.gnss_com = {
         interface: 'serial',
         protocol: 'nmea0183',
-        autoDetectPort: parseBooleanWithFallback(gnssComConfig.autoDetectPort, defaultAutoDetectPort),
-        comPort: String(gnssComConfig.comPort ?? defaultComPort).trim(),
+        autoDetectPort,
+        comPort: autoDetectPort ? '' : comPort,
         baudRate: parseIntWithFallback(gnssComConfig.baudRate, defaultBaudRate),
         instance_id: gnssComInstance.id,
         instance_name: gnssComInstance.name ?? null,
+      };
+    }
+  }
+
+  const rwltComInstance = pickPrimaryInstanceForSchema(activeProfile, settings, 'rwlt-com');
+  if (rwltComInstance) {
+    const rwltComSchema = schemas.find((schema) => schema.id === 'rwlt-com');
+    if (rwltComSchema) {
+      const rwltComConfig = rwltComInstance.config ?? {};
+      const defaultAutoDetectPort = readSchemaBooleanDefault(rwltComSchema, 'autoDetectPort', true);
+      const defaultComPort = String(readSchemaFieldDefault(rwltComSchema, 'comPort', '')).trim();
+      const defaultBaudRate = parseIntWithFallback(readSchemaFieldDefault(rwltComSchema, 'baudRate', 38400), 38400);
+      const rawMode = String(readSchemaFieldDefault(rwltComSchema, 'mode', 'pinger')).trim().toLowerCase();
+      const defaultMode = rawMode === 'divers' ? 'divers' : 'pinger';
+      const modeValue = String(rwltComConfig.mode ?? defaultMode).trim().toLowerCase();
+      const autoDetectPort = parseBooleanWithFallback(rwltComConfig.autoDetectPort, defaultAutoDetectPort);
+      const comPort = String(rwltComConfig.comPort ?? defaultComPort).trim();
+
+      runtime.rwlt_com = {
+        interface: 'serial',
+        protocol: 'unav',
+        autoDetectPort,
+        comPort: autoDetectPort ? '' : comPort,
+        baudRate: parseIntWithFallback(rwltComConfig.baudRate, defaultBaudRate),
+        mode: modeValue === 'divers' ? 'divers' : 'pinger',
+        instance_id: rwltComInstance.id,
+        instance_name: rwltComInstance.name ?? null,
       };
     }
   }

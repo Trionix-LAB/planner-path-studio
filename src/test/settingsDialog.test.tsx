@@ -9,7 +9,7 @@ const baseDefaults = createDefaultAppSettings().defaults;
 const buildDiver = (navigationSource: DiverUiConfig['navigation_source']): DiverUiConfig => ({
   uid: 'agent-1',
   id: '1',
-  beacon_id: '0',
+  beacon_id: '1',
   title: 'Маяк 1',
   marker_color: '#0ea5e9',
   marker_size_px: 32,
@@ -59,7 +59,7 @@ const renderDialog = async ({
 };
 
 const getBeaconIdInput = (): HTMLInputElement => {
-  const rangeHint = screen.getByText('Диапазон: 0-15');
+  const rangeHint = screen.getByText('Диапазон: 1-16');
   const field = rangeHint.parentElement?.querySelector('input');
   if (!field) {
     throw new Error('Beacon input not found');

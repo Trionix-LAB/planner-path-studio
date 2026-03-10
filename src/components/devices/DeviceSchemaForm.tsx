@@ -228,14 +228,18 @@ const DeviceSchemaForm = ({
   onChange,
 }: DeviceSchemaFormProps) => {
   const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [gnssComPorts, setGnssComPorts] = useState<string[]>([]);
+  const [serialComPorts, setSerialComPorts] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadPorts = async () => {
-      if (schema.id !== 'gnss-com') {
-        if (!cancelled) setGnssComPorts([]);
+      const serialSchemaId =
+        schema.id === 'gnss-com' || schema.id === 'rwlt-com'
+          ? schema.id
+          : null;
+      if (!serialSchemaId) {
+        if (!cancelled) setSerialComPorts([]);
         return;
       }
 
@@ -244,11 +248,14 @@ const DeviceSchemaForm = ({
           gnssCom?: {
             listPorts?: () => Promise<Array<{ path?: string } | string>>;
           };
+          rwltCom?: {
+            listPorts?: () => Promise<Array<{ path?: string } | string>>;
+          };
         };
       }).electronAPI;
-      const listPorts = electronApi?.gnssCom?.listPorts;
+      const listPorts = serialSchemaId === 'gnss-com' ? electronApi?.gnssCom?.listPorts : electronApi?.rwltCom?.listPorts;
       if (typeof listPorts !== 'function') {
-        if (!cancelled) setGnssComPorts([]);
+        if (!cancelled) setSerialComPorts([]);
         return;
       }
 
@@ -264,9 +271,9 @@ const DeviceSchemaForm = ({
             return '';
           })
           .filter((item) => item.length > 0);
-        setGnssComPorts(Array.from(new Set(normalized)));
+        setSerialComPorts(Array.from(new Set(normalized)));
       } catch {
-        if (!cancelled) setGnssComPorts([]);
+        if (!cancelled) setSerialComPorts([]);
       }
     };
 
@@ -331,10 +338,10 @@ const DeviceSchemaForm = ({
             className="space-y-2"
           >
             <Label className="text-sm font-medium">{field.label}</Label>
-            {schema.id === 'gnss-com' && field.key === 'comPort' ? (
+            {(schema.id === 'gnss-com' || schema.id === 'rwlt-com') && field.key === 'comPort' ? (
               <ComPortCombobox
                 value={String(fieldValue)}
-                ports={gnssComPorts}
+                ports={serialComPorts}
                 disabled={controlDisabled}
                 onChange={(next) => onChange(field.key, next)}
               />

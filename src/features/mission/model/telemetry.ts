@@ -1,8 +1,9 @@
 import { parseZimaLine } from '@/features/devices/zima2r/protocol';
 import { parseNmeaLine } from '@/features/devices/gnss-udp/protocol';
+import { parseRwltLine, type RwltPrwlaMessage } from '@/features/devices/rwlt-com/protocol';
 
 export type TelemetryConnectionState = 'ok' | 'timeout' | 'error';
-export type TelemetryEntityType = 'agent' | 'base_station';
+export type TelemetryEntityType = 'agent' | 'base_station' | 'diver';
 
 export type TelemetryFix = {
   lat: number;
@@ -14,7 +15,7 @@ export type TelemetryFix = {
   received_at: number;
   remoteAddress?: number | null;
   beaconId?: string | null;
-  source?: 'AZMLOC' | 'AZMREM' | 'GNSS' | 'SIM';
+  source?: 'AZMLOC' | 'AZMREM' | 'GNSS' | 'RWLT' | 'SIM';
   entity_type?: TelemetryEntityType;
   entity_id?: string;
   navigation_source_id?: string;
@@ -100,6 +101,32 @@ type ElectronGnssComApi = {
 type ElectronGnssComTelemetryOptions = {
   timeoutMs?: number;
   readConfig: () => Promise<ElectronGnssComConfig | null>;
+};
+
+type ElectronRwltComBridgeConfig = {
+  autoDetectPort: boolean;
+  comPort: string;
+  baudRate: number;
+  mode: 'pinger' | 'divers';
+};
+
+type ElectronRwltComConfig = ElectronRwltComBridgeConfig & {
+  navigationSourceId: string;
+};
+
+type ElectronRwltComApi = {
+  start: (config: ElectronRwltComBridgeConfig) => Promise<unknown>;
+  stop: () => Promise<unknown>;
+  onData: (listener: (payload: { message?: string; receivedAt?: number; portPath?: string }) => void) => () => void;
+  onStatus: (listener: (payload: { status?: string }) => void) => () => void;
+  onError: (listener: (payload: { message?: string }) => void) => () => void;
+};
+
+type ElectronRwltComTelemetryOptions = {
+  timeoutMs?: number;
+  readConfig: () => Promise<ElectronRwltComConfig | null>;
+  resolveDiver: (tId: number) => { uid: string; id: string } | null;
+  onBuoyUpdate: (buoy: RwltPrwlaMessage) => void;
 };
 
 type SimulationTelemetryOptions = {
@@ -1192,6 +1219,302 @@ export const createElectronGnssComTelemetryProvider = (
       rawPacketListeners.add(listener);
       return () => {
         rawPacketListeners.delete(listener);
+      };
+    },
+    onConnectionState: (listener) => {
+      connectionListeners.add(listener);
+      return () => {
+        connectionListeners.delete(listener);
+      };
+    },
+  };
+};
+
+export const createElectronRwltComTelemetryProvider = (
+  options: ElectronRwltComTelemetryOptions,
+): TelemetryProvider => {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let enabled = false;
+  let simulateConnectionError = false;
+  let started = false;
+  let connected = false;
+  let connectionState: TelemetryConnectionState = 'timeout';
+  let lastFixAt = 0;
+  let lineBuffer = '';
+  let lastPingerDepth = 0;
+  let lastPingerGroundPoint: GroundTrackPoint | null = null;
+  const lastDiverGroundPointByTargetId = new Map<number, GroundTrackPoint>();
+  let activeMode: 'pinger' | 'divers' = 'pinger';
+  let activeNavigationSourceId = 'rwlt-com';
+
+  let timeoutIntervalId: number | null = null;
+  let unsubscribeData: (() => void) | null = null;
+  let unsubscribeStatus: (() => void) | null = null;
+  let unsubscribeError: (() => void) | null = null;
+
+  const fixListeners = new Set<(fix: TelemetryFix) => void>();
+  const connectionListeners = new Set<(nextState: TelemetryConnectionState) => void>();
+
+  const emitConnectionState = (nextState: TelemetryConnectionState) => {
+    if (connectionState === nextState) return;
+    connectionState = nextState;
+    connectionListeners.forEach((listener) => listener(nextState));
+  };
+
+  const emitFix = (fix: TelemetryFix) => {
+    fixListeners.forEach((listener) => listener(fix));
+  };
+
+  const clearIntervals = () => {
+    if (timeoutIntervalId !== null) {
+      window.clearInterval(timeoutIntervalId);
+      timeoutIntervalId = null;
+    }
+  };
+
+  const getApi = (): ElectronRwltComApi | null => {
+    const api = (window as unknown as { electronAPI?: { rwltCom?: ElectronRwltComApi } }).electronAPI?.rwltCom;
+    return api ?? null;
+  };
+
+  const emitPingerAgentFix = (
+    lat: number,
+    lon: number,
+    receivedAt: number,
+  ) => {
+    const currentPoint: GroundTrackPoint = { lat, lon, receivedAt };
+    const groundMotion = computeGroundMotion(lastPingerGroundPoint, currentPoint);
+    lastPingerGroundPoint = currentPoint;
+
+    lastFixAt = receivedAt;
+    emitConnectionState('ok');
+    emitFix({
+      lat,
+      lon,
+      speed: groundMotion.speed,
+      course: normalizeCourseDeg(groundMotion.course),
+      heading: null,
+      depth: lastPingerDepth,
+      received_at: receivedAt,
+      source: 'RWLT',
+      entity_type: 'agent',
+      entity_id: 'rwlt-pinger-agent',
+      navigation_source_id: activeNavigationSourceId,
+    });
+  };
+
+  const handleData = (payload: { message?: string; receivedAt?: number }) => {
+    if (!enabled || simulateConnectionError) return;
+    const message = payload.message ?? '';
+    if (!message) return;
+
+    const { lines, rest } = splitBufferedLines(lineBuffer, message);
+    lineBuffer = rest.slice(-MAX_BUFFERED_NMEA_BYTES);
+
+    for (const line of lines) {
+      const parsed = parseRwltLine(line);
+      const receivedAt = payload.receivedAt ?? Date.now();
+
+      if (parsed.kind === 'PRWLA') {
+        options.onBuoyUpdate(parsed);
+        continue;
+      }
+
+      if (parsed.kind === 'PUWV5') {
+        lastFixAt = receivedAt;
+        emitConnectionState('ok');
+        emitFix({
+          lat: parsed.lat,
+          lon: parsed.lon,
+          speed: parsed.speedKmh !== null ? Math.max(0, parsed.speedKmh / 3.6) : 0,
+          course: normalizeCourseDeg(parsed.courseDeg ?? 0),
+          heading: null,
+          depth: 0,
+          received_at: receivedAt,
+          source: 'RWLT',
+          entity_type: 'base_station',
+          entity_id: 'base-station',
+          navigation_source_id: activeNavigationSourceId,
+        });
+        continue;
+      }
+
+      if (activeMode === 'pinger') {
+        if (parsed.kind === 'GGA' && parsed.hasFix && isValidLatLon(parsed.lat, parsed.lon)) {
+          lastPingerDepth = parsed.depthM;
+          emitPingerAgentFix(parsed.lat, parsed.lon, receivedAt);
+        } else if (parsed.kind === 'RMC' && parsed.hasFix && isValidLatLon(parsed.lat, parsed.lon)) {
+          emitPingerAgentFix(parsed.lat, parsed.lon, receivedAt);
+        }
+        continue;
+      }
+
+      if (parsed.kind !== 'PUWV3') {
+        continue;
+      }
+      if (!isValidLatLon(parsed.lat, parsed.lon)) {
+        continue;
+      }
+      const diver = options.resolveDiver(parsed.targetId);
+      if (!diver) {
+        continue;
+      }
+
+      const currentPoint: GroundTrackPoint = { lat: parsed.lat, lon: parsed.lon, receivedAt };
+      const groundMotion = computeGroundMotion(lastDiverGroundPointByTargetId.get(parsed.targetId) ?? null, currentPoint);
+      lastDiverGroundPointByTargetId.set(parsed.targetId, currentPoint);
+
+      lastFixAt = receivedAt;
+      emitConnectionState('ok');
+      emitFix({
+        lat: parsed.lat,
+        lon: parsed.lon,
+        speed: groundMotion.speed,
+        course: normalizeCourseDeg(parsed.courseDeg ?? groundMotion.course),
+        heading: null,
+        depth: parsed.depthM,
+        received_at: receivedAt,
+        source: 'RWLT',
+        entity_type: 'diver',
+        entity_id: diver.uid,
+        navigation_source_id: activeNavigationSourceId,
+      });
+    }
+  };
+
+  const startTimeoutWatchdog = () => {
+    clearIntervals();
+    timeoutIntervalId = window.setInterval(() => {
+      if (!enabled || simulateConnectionError) return;
+      if (lastFixAt === 0) return;
+      if (Date.now() - lastFixAt > timeoutMs) {
+        emitConnectionState('timeout');
+      }
+    }, 1000);
+  };
+
+  const disconnectBridge = () => {
+    const api = getApi();
+    connected = false;
+    lastFixAt = 0;
+    lineBuffer = '';
+    lastPingerDepth = 0;
+    lastPingerGroundPoint = null;
+    lastDiverGroundPointByTargetId.clear();
+    activeMode = 'pinger';
+    activeNavigationSourceId = 'rwlt-com';
+    clearIntervals();
+    if (api) {
+      void api.stop().catch(() => {
+        // ignore
+      });
+    }
+  };
+
+  const detachListeners = () => {
+    if (unsubscribeData) {
+      unsubscribeData();
+      unsubscribeData = null;
+    }
+    if (unsubscribeStatus) {
+      unsubscribeStatus();
+      unsubscribeStatus = null;
+    }
+    if (unsubscribeError) {
+      unsubscribeError();
+      unsubscribeError = null;
+    }
+  };
+
+  const connectBridge = async () => {
+    if (!started || !enabled || connected || simulateConnectionError) return;
+    const api = getApi();
+    if (!api) {
+      emitConnectionState('error');
+      return;
+    }
+
+    try {
+      const config = await options.readConfig();
+      if (!config) {
+        emitConnectionState('error');
+        return;
+      }
+
+      activeMode = config.mode;
+      activeNavigationSourceId = config.navigationSourceId;
+      await api.start({
+        autoDetectPort: config.autoDetectPort,
+        comPort: config.comPort,
+        baudRate: config.baudRate,
+        mode: config.mode,
+      });
+      connected = true;
+      startTimeoutWatchdog();
+    } catch {
+      connected = false;
+      emitConnectionState('error');
+    }
+  };
+
+  const stop = () => {
+    started = false;
+    disconnectBridge();
+    detachListeners();
+  };
+
+  const start = () => {
+    if (started) return;
+    started = true;
+
+    const api = getApi();
+    if (!api) {
+      emitConnectionState('error');
+      return;
+    }
+
+    unsubscribeData = api.onData((payload) => handleData(payload));
+    unsubscribeStatus = api.onStatus((payload) => {
+      if (!payload?.status) return;
+      if (payload.status === 'error') {
+        emitConnectionState('error');
+      }
+    });
+    unsubscribeError = api.onError(() => {
+      emitConnectionState('error');
+    });
+
+    void connectBridge();
+  };
+
+  return {
+    start,
+    stop,
+    setEnabled: (nextEnabled: boolean) => {
+      enabled = nextEnabled;
+      if (!enabled) {
+        disconnectBridge();
+        emitConnectionState('timeout');
+        return;
+      }
+      if (started) {
+        void connectBridge();
+      }
+    },
+    setSimulateConnectionError: (nextValue: boolean) => {
+      simulateConnectionError = nextValue;
+      if (simulateConnectionError) {
+        emitConnectionState('error');
+        return;
+      }
+      if (enabled) {
+        emitConnectionState('timeout');
+      }
+    },
+    onFix: (listener) => {
+      fixListeners.add(listener);
+      return () => {
+        fixListeners.delete(listener);
       };
     },
     onConnectionState: (listener) => {

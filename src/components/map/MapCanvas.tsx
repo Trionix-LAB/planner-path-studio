@@ -31,7 +31,7 @@ import { getDefaultZoneLanePanelIconPosition, getDefaultZoneLanePanelPosition } 
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import CachedTileLayer from './CachedTileLayer';
-import { createBaseStationIcon, createDiverIcon } from './telemetryMarkerIcons';
+import { createBaseStationIcon, createDiverIcon, createRwltBuoyIcon } from './telemetryMarkerIcons';
 import { resolveFlyToZoomFor50mGrid } from './flyToZoom';
 import {
   buildVisibleDiverMarkers,
@@ -542,6 +542,7 @@ const getObjectColor = (obj: MapObject, defaults: AppUiDefaults['styles']): stri
   if (obj.color) return obj.color;
   if (obj.type === 'zone') return defaults.survey_area.stroke_color;
   if (obj.type === 'marker') return defaults.marker.color;
+  if (obj.type === 'rwlt_buoy') return '#1d4ed8';
   if (obj.type === 'lane') return defaults.lane.color;
   return defaults.route.color;
 };
@@ -1118,7 +1119,7 @@ const MapCanvas = ({
         routes.push({ obj, points: obj.geometry.points.map(toTuple) });
       } else if (obj.geometry.type === "zone") {
         zones.push({ obj, points: obj.geometry.points.map(toTuple) });
-      } else if (obj.geometry.type === "marker") {
+      } else if (obj.geometry.type === "marker" && (obj.type === 'marker' || obj.type === 'rwlt_buoy')) {
         markers.push({ obj, point: toTuple(obj.geometry.point) });
       } else if (obj.geometry.type === 'measure') {
         const [a, b] = obj.geometry.points;
@@ -1687,42 +1688,59 @@ const MapCanvas = ({
 
         {/* Markers */}
         {layers.markers &&
-          renderObjects.markers.map(({ obj, point }) => (
-            <Marker
-              key={obj.id}
-              position={point}
-              icon={getMarkerIcon(getObjectColor(obj, styles), selectedObjectId === obj.id)}
-              draggable={activeTool === 'select'}
-              bubblingMouseEvents={false}
-              eventHandlers={{
-                mousedown: (e) => {
-                  L.DomEvent.stopPropagation(e);
-                },
-                click: (e) => {
-                  L.DomEvent.stopPropagation(e);
-                  onObjectSelect(obj.id);
-                },
-                dblclick: (e) => {
-                  L.DomEvent.stopPropagation(e);
-                  onObjectDoubleClick(obj.id);
-                },
-                contextmenu: (e) => handleObjectContextMenu(e, obj.id),
-                dragstart: () => {
-                  armMapClickSuppression();
-                },
-                dragend: (e) => {
-                  armMapClickSuppression();
-                  const m = e.target as L.Marker;
-                  updateMarkerPosition(obj.id, m.getLatLng());
-                  window.setTimeout(() => onObjectSelect(obj.id), 0);
-                },
-                mouseover: () => setHoveredObjectId(obj.id),
-                mouseout: () => setHoveredObjectId(null),
-              }}
-            >
-              <Tooltip direction="top" offset={[12, -14]}>{obj.name}</Tooltip>
-            </Marker>
-          ))}
+          renderObjects.markers.map(({ obj, point }) => {
+            const isRwltBuoy = obj.type === 'rwlt_buoy';
+            if (isRwltBuoy && !showTelemetryObjects) {
+              return null;
+            }
+            const markerSize = typeof obj.markerSizePx === 'number' ? obj.markerSizePx : 24;
+            const markerColor = getObjectColor(obj, styles);
+            const icon = isRwltBuoy
+              ? createRwltBuoyIcon(obj.rwltBuoyId ?? 1, markerSize, markerColor)
+              : getMarkerIcon(markerColor, selectedObjectId === obj.id);
+            return (
+              <Marker
+                key={obj.id}
+                position={point}
+                icon={icon}
+                draggable={activeTool === 'select' && !isRwltBuoy}
+                bubblingMouseEvents={false}
+                eventHandlers={{
+                  mousedown: (e) => {
+                    L.DomEvent.stopPropagation(e);
+                  },
+                  click: (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    onObjectSelect(obj.id);
+                  },
+                  dblclick: (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    onObjectDoubleClick(obj.id);
+                  },
+                  contextmenu: (e) => handleObjectContextMenu(e, obj.id),
+                  dragstart: () => {
+                    if (isRwltBuoy) return;
+                    armMapClickSuppression();
+                  },
+                  dragend: (e) => {
+                    if (isRwltBuoy) return;
+                    armMapClickSuppression();
+                    const m = e.target as L.Marker;
+                    updateMarkerPosition(obj.id, m.getLatLng());
+                    window.setTimeout(() => onObjectSelect(obj.id), 0);
+                  },
+                  mouseover: () => setHoveredObjectId(obj.id),
+                  mouseout: () => setHoveredObjectId(null),
+                }}
+              >
+                <Tooltip direction="top" offset={[12, -14]}>
+                  {isRwltBuoy
+                    ? `${obj.name} · ${obj.rwltBatteryV !== null && obj.rwltBatteryV !== undefined ? `${obj.rwltBatteryV.toFixed(1)} В` : '—'} · ${typeof obj.rwltAntennaDepthM === 'number' ? obj.rwltAntennaDepthM.toFixed(1) : '0.0'} м`
+                    : obj.name}
+                </Tooltip>
+              </Marker>
+            );
+          })}
 
         {/* Segment lengths */}
         {layers.routes &&
@@ -1960,7 +1978,7 @@ const MapCanvas = ({
                 }
               },
             },
-            ...(contextObject && contextObject.type !== 'lane'
+            ...(contextObject && contextObject.type !== 'lane' && contextObject.type !== 'rwlt_buoy'
               ? [
                 {
                   label: "Построить по координатам",
@@ -1994,15 +2012,19 @@ const MapCanvas = ({
                 },
               ]
               : []),
-            {
-              label: "Удалить",
-              action: () => {
-                if (objectMenuState.objectId && onObjectDelete) {
-                  onObjectDelete(objectMenuState.objectId);
-                }
-              },
-              variant: "destructive",
-            },
+            ...(contextObject?.type === 'rwlt_buoy'
+              ? []
+              : [
+                {
+                  label: "Удалить",
+                  action: () => {
+                    if (objectMenuState.objectId && onObjectDelete) {
+                      onObjectDelete(objectMenuState.objectId);
+                    }
+                  },
+                  variant: "destructive" as const,
+                },
+              ]),
           ]}
         />
       )}

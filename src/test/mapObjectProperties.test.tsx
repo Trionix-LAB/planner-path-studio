@@ -79,6 +79,21 @@ const mockMeasure: MapObject = {
   },
 };
 
+const mockRwltBuoy: MapObject = {
+  id: 'rwlt-buoy-1',
+  type: 'rwlt_buoy',
+  name: 'Буй 1',
+  visible: true,
+  markerSizePx: 24,
+  rwltBuoyId: 1,
+  rwltBatteryV: 12.4,
+  rwltAntennaDepthM: 1.5,
+  geometry: {
+    type: 'marker',
+    point: { lat: 59.9, lon: 30.3 },
+  },
+};
+
 const mockZoneLanes: LaneFeature[] = [
   {
     type: 'Feature',
@@ -413,5 +428,65 @@ describe('MapObjectProperties regeneration logic (T-61)', () => {
         laneColor: '#ff0000',
       }),
     );
+  });
+
+  it('saves rwlt buoy name, marker color and marker size', () => {
+    const onSave = vi.fn();
+
+    render(
+      <MapObjectProperties
+        object={mockRwltBuoy}
+        styles={mockStyles}
+        onSave={onSave}
+        onClose={() => {}}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'Буй Север' } });
+    fireEvent.change(screen.getByLabelText('Цвет'), { target: { value: '#ff5500' } });
+    fireEvent.change(screen.getByLabelText('Размер маркера (px)'), { target: { value: '36' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить изменения' }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      'rwlt-buoy-1',
+      expect.objectContaining({
+        name: 'Буй Север',
+        color: '#ff5500',
+        markerSizePx: 36,
+      }),
+    );
+  });
+
+  it('keeps rwlt buoy marker size input while telemetry rerenders same buoy', () => {
+    const onSave = vi.fn();
+    const { rerender } = render(
+      <MapObjectProperties
+        object={mockRwltBuoy}
+        styles={mockStyles}
+        onSave={onSave}
+        onClose={() => {}}
+      />,
+    );
+
+    const markerSizeInput = screen.getByLabelText('Размер маркера (px)') as HTMLInputElement;
+    fireEvent.change(markerSizeInput, { target: { value: '42' } });
+    expect(markerSizeInput.value).toBe('42');
+
+    rerender(
+      <MapObjectProperties
+        object={{
+          ...mockRwltBuoy,
+          rwltAntennaDepthM: 2.1,
+          rwltSogMps: 0.7,
+          rwltCourseDeg: 135,
+          rwltUpdatedAt: Date.now(),
+        }}
+        styles={mockStyles}
+        onSave={onSave}
+        onClose={() => {}}
+      />,
+    );
+
+    expect((screen.getByLabelText('Размер маркера (px)') as HTMLInputElement).value).toBe('42');
   });
 });
