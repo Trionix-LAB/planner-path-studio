@@ -6,6 +6,7 @@ import {
   didZoneLaneInputsChange,
   generateLanesFromZoneObject,
   markZoneLanesOutdated,
+  prepareZoneRegeneration,
   replaceZoneLanes,
 } from '@/features/mission';
 
@@ -64,6 +65,8 @@ const createLane = (id: string, parentAreaId: string, laneIndex: number): LaneFe
 describe('zone lanes state helpers', () => {
   it('treats geometry/lane params change as lane invalidation trigger', () => {
     const zone = createZone('zone-1');
+    zone.laneBearingDeg = 90;
+    zone.laneStart = { lat: 59.934, lon: 30.335 };
 
     expect(
       didZoneLaneInputsChange(zone, {
@@ -79,7 +82,27 @@ describe('zone lanes state helpers', () => {
     ).toBe(true);
     expect(didZoneLaneInputsChange(zone, { laneAngle: 90 })).toBe(true);
     expect(didZoneLaneInputsChange(zone, { laneWidth: 12 })).toBe(true);
+    expect(didZoneLaneInputsChange(zone, { laneBearingDeg: 120 })).toBe(true);
+    expect(didZoneLaneInputsChange(zone, { laneBearingDeg: undefined })).toBe(true);
+    expect(didZoneLaneInputsChange(zone, { laneStart: { lat: 59.935, lon: 30.336 } })).toBe(true);
+    expect(didZoneLaneInputsChange(zone, { laneStart: undefined })).toBe(true);
     expect(didZoneLaneInputsChange(zone, { name: 'Renamed zone' })).toBe(false);
+    expect(didZoneLaneInputsChange(zone, { laneBearingDeg: 90 })).toBe(false);
+    expect(didZoneLaneInputsChange(zone, { laneStart: { lat: 59.934, lon: 30.335 } })).toBe(false);
+  });
+
+  it('prepares zone regeneration by cloning zone even without updates', () => {
+    const zone = createZone('zone-1');
+    const route = createRoute('route-1');
+
+    const prepared = prepareZoneRegeneration([route, zone], zone.id);
+
+    expect(prepared.zone).not.toBeNull();
+    expect(prepared.zone).not.toBe(zone);
+    expect(prepared.zone).toEqual(zone);
+    expect(prepared.objects[0]).toBe(route);
+    expect(prepared.objects[1]).not.toBe(zone);
+    expect(prepared.objects[1]).toEqual(zone);
   });
 
   it('marks and clears outdated zones', () => {

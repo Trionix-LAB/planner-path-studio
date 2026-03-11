@@ -1019,8 +1019,9 @@ const MapObjectProperties = ({
             )}
 
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Угол галсов</Label>
+              <Label htmlFor="lane-angle" className="text-xs text-muted-foreground">Угол галсов</Label>
               <Input
+                id="lane-angle"
                 className="h-9 text-sm"
                 type="number"
                 min="0"

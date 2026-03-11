@@ -21,4 +21,9 @@ describe('lane angle helpers', () => {
     expect(parseLaneAngleInput('400')).toBe(0);
     expect(parseLaneAngleInput('abc', 210)).toBe(30);
   });
+  it('parses global angle as undirected axis', () => {
+    expect(parseLaneAngleInput('170')).toBe(170);
+    expect(parseLaneAngleInput('190')).toBe(10);
+    expect(parseLaneAngleInput('10')).toBe(10);
+  });
 });

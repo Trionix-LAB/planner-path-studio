@@ -387,6 +387,83 @@ describe('MapObjectProperties regeneration logic (T-61)', () => {
     }));
   });
 
+  it('resets zone lane inputs when the same zone is refreshed externally', () => {
+    const { rerender } = render(
+      <MapObjectProperties
+        object={mockZone}
+        styles={mockStyles}
+        onSave={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    const laneAngleInput = screen.getByLabelText('Угол галсов') as HTMLInputElement;
+    fireEvent.change(laneAngleInput, { target: { value: '77' } });
+    expect(laneAngleInput.value).toBe('77');
+
+    rerender(
+      <MapObjectProperties
+        object={{ ...mockZone }}
+        styles={mockStyles}
+        onSave={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    expect((screen.getByLabelText('Угол галсов') as HTMLInputElement).value).toBe('0');
+  });
+
+  it('keeps displayed lane angle global when edge orientation changes', () => {
+    const { rerender } = render(
+      <MapObjectProperties
+        object={mockZone}
+        styles={mockStyles}
+        onSave={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    expect((screen.getByLabelText('Угол галсов') as HTMLInputElement).value).toBe('0');
+
+    rerender(
+      <MapObjectProperties
+        object={{ ...mockZone, laneBearingDeg: 90 }}
+        styles={mockStyles}
+        onSave={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    expect((screen.getByLabelText('Угол галсов') as HTMLInputElement).value).toBe('0');
+  });
+
+  it('sends global lane angle when edge orientation is selected', () => {
+    const onRegenerateLanes = vi.fn();
+
+    render(
+      <MapObjectProperties
+        object={{ ...mockZone, laneAngle: 10, laneBearingDeg: 40 }}
+        styles={mockStyles}
+        onSave={() => {}}
+        onClose={() => {}}
+        onRegenerateLanes={onRegenerateLanes}
+      />,
+    );
+
+    const laneAngleInput = screen.getByLabelText('Угол галсов');
+    expect((laneAngleInput as HTMLInputElement).value).toBe('10');
+
+    fireEvent.change(laneAngleInput, { target: { value: '65' } });
+    fireEvent.click(screen.getByText('Перегенерировать галсы'));
+
+    expect(onRegenerateLanes).toHaveBeenCalledWith(
+      'zone-1',
+      expect.objectContaining({
+        laneAngle: 65,
+      }),
+    );
+  });
+
   it('removes redundant regenerate button from outdated warning', () => {
     render(
       <MapObjectProperties

@@ -254,9 +254,9 @@ const StartScreen = () => {
         </div>
 
         {/* Version */}
-        <div className="text-center mt-8 text-xs text-muted-foreground font-mono">
+        {/* <div className="text-center mt-8 text-xs text-muted-foreground font-mono">
           v1.0.0-mvp
-        </div>
+        </div> */}
       </div>
     </div>
   );

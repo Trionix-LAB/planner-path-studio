@@ -29,6 +29,26 @@ export const replaceZoneLanes = (
   nextLanes: LaneFeature[],
 ): LaneFeature[] => [...laneFeatures.filter((lane) => lane.properties.parent_area_id !== zoneId), ...nextLanes];
 
+export type PreparedZoneRegeneration = {
+  zone: MapObject | null;
+  objects: MapObject[];
+};
+
+export const prepareZoneRegeneration = (
+  objects: MapObject[],
+  zoneId: string,
+  updates?: Partial<MapObject>,
+): PreparedZoneRegeneration => {
+  let zone: MapObject | null = null;
+  const nextObjects = objects.map((obj) => {
+    if (obj.id !== zoneId || obj.type !== 'zone') return obj;
+    const nextZone = updates ? { ...obj, ...updates } : { ...obj };
+    zone = nextZone;
+    return nextZone;
+  });
+  return { zone, objects: nextObjects };
+};
+
 export const markZoneLanesOutdated = (outdatedZoneIds: OutdatedZoneIds, zoneId: string): OutdatedZoneIds => ({
   ...outdatedZoneIds,
   [zoneId]: true,
@@ -56,12 +76,20 @@ export const didZoneLaneInputsChange = (zone: MapObject, updates: Partial<MapObj
     return true;
   }
 
-  if (typeof updates.laneBearingDeg === 'number' && updates.laneBearingDeg !== zone.laneBearingDeg) {
-    return true;
+  if ('laneBearingDeg' in updates) {
+    if (updates.laneBearingDeg !== zone.laneBearingDeg) {
+      return true;
+    }
   }
 
-  if (updates.laneStart && (updates.laneStart.lat !== zone.laneStart?.lat || updates.laneStart.lon !== zone.laneStart?.lon)) {
-    return true;
+  if ('laneStart' in updates) {
+    const prevStart = zone.laneStart;
+    const nextStart = updates.laneStart;
+    if (!nextStart && prevStart) return true;
+    if (nextStart && !prevStart) return true;
+    if (nextStart && prevStart && (nextStart.lat !== prevStart.lat || nextStart.lon !== prevStart.lon)) {
+      return true;
+    }
   }
 
   return false;

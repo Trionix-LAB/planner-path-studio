@@ -1,6 +1,5 @@
 import type { GeoPoint } from '@/features/map/model/types';
 import type { LaneFeature } from './types';
-import { normalizeLaneAngleDeg } from './laneAngle';
 
 type PointXY = {
   x: number;
@@ -51,15 +50,6 @@ const bearingToUnitVector = (bearingDeg: number): PointXY => {
   return { x: x / length, y: y / length };
 };
 
-const rotate = (vector: PointXY, angleDeg: number): PointXY => {
-  const rad = angleDeg * DEG_TO_RAD;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  const x = vector.x * cos - vector.y * sin;
-  const y = vector.x * sin + vector.y * cos;
-  const length = Math.hypot(x, y) || 1;
-  return { x: x / length, y: y / length };
-};
 
 const toClosedRing = (points: GeoPoint[]): GeoPoint[] => {
   if (points.length < 3) return [];
@@ -98,40 +88,6 @@ const unprojectPoint = (point: PointXY, lat0: number, lon0: number): [number, nu
   return [lon, lat];
 };
 
-const principalDirection = (points: PointXY[]): PointXY => {
-  if (points.length < 2) return { x: 1, y: 0 };
-
-  let meanX = 0;
-  let meanY = 0;
-  for (const point of points) {
-    meanX += point.x;
-    meanY += point.y;
-  }
-  meanX /= points.length;
-  meanY /= points.length;
-
-  let sxx = 0;
-  let sxy = 0;
-  let syy = 0;
-  for (const point of points) {
-    const dx = point.x - meanX;
-    const dy = point.y - meanY;
-    sxx += dx * dx;
-    sxy += dx * dy;
-    syy += dy * dy;
-  }
-
-  if (Math.abs(sxx) < EPS && Math.abs(syy) < EPS && Math.abs(sxy) < EPS) {
-    return { x: 1, y: 0 };
-  }
-
-  const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);
-  const x = Math.cos(theta);
-  const y = Math.sin(theta);
-  const length = Math.hypot(x, y) || 1;
-  return { x: x / length, y: y / length };
-};
-
 const uniqueIntersections = (points: PointXY[], dir: PointXY): PointXY[] => {
   const sorted = [...points].sort((a, b) => dot(a, dir) - dot(b, dir));
   const result: PointXY[] = [];
@@ -155,11 +111,14 @@ export const generateLanesForZone = (input: ZoneLaneGenerationInput): LaneFeatur
   const { lat0, lon0 } = computeCenter(ring.slice(0, -1));
   const ringXY = ring.map((point) => projectPoint(point, lat0, lon0));
   const hullPoints = ringXY.slice(0, -1);
-  const baseAxis =
-    typeof input.laneBearingDeg === 'number' && Number.isFinite(input.laneBearingDeg)
-      ? bearingToUnitVector(toUndirectedBearingDeg(input.laneBearingDeg))
-      : principalDirection(hullPoints);
-  const laneDirection = rotate(baseAxis, normalizeLaneAngleDeg(input.laneAngleDeg));
+  // laneAngleDeg is an absolute (global) undirected bearing for lane orientation.
+  const absoluteLaneBearingDeg =
+    Number.isFinite(input.laneAngleDeg)
+      ? toUndirectedBearingDeg(input.laneAngleDeg)
+      : typeof input.laneBearingDeg === 'number' && Number.isFinite(input.laneBearingDeg)
+        ? toUndirectedBearingDeg(input.laneBearingDeg)
+        : 0;
+  const laneDirection = bearingToUnitVector(absoluteLaneBearingDeg);
   const normal = { x: -laneDirection.y, y: laneDirection.x };
   const laneStep = Number.isFinite(input.laneWidthM) ? Math.max(1, input.laneWidthM) : 5;
 

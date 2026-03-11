@@ -46,7 +46,7 @@ describe('lane generation', () => {
     );
   });
 
-  it('supports arbitrary lane angles (0, 30, 90) with expected orientation', () => {
+  it('supports arbitrary global lane angles (0, 30, 90) with expected orientation', () => {
     const lanes0 = generateLanesForZone({
       parentAreaId: 'zone-1',
       points: createRectangleZone(),
@@ -73,12 +73,12 @@ describe('lane generation', () => {
     expect(lanes30.length).toBeGreaterThan(0);
     expect(lanes90.length).toBeGreaterThan(0);
 
-    expect(estimateLaneBearing(lanes0[0].geometry.coordinates)).toBeCloseTo(90, 0);
-    expect(estimateLaneBearing(lanes30[0].geometry.coordinates)).toBeCloseTo(60, 0);
-    expect(estimateLaneBearing(lanes90[0].geometry.coordinates)).toBeCloseTo(0, 0);
+    expect(estimateLaneBearing(lanes0[0].geometry.coordinates)).toBeCloseTo(0, 0);
+    expect(estimateLaneBearing(lanes30[0].geometry.coordinates)).toBeCloseTo(30, 0);
+    expect(estimateLaneBearing(lanes90[0].geometry.coordinates)).toBeCloseTo(90, 0);
   });
 
-  it('supports lane bearing to override auto axis', () => {
+  it('does not treat lane bearing as lane-angle base axis', () => {
     const lanesNorthSouth = generateLanesForZone({
       parentAreaId: 'zone-1',
       points: createRectangleZone(),
@@ -98,7 +98,7 @@ describe('lane generation', () => {
     expect(lanesEastWest.length).toBeGreaterThan(0);
 
     expect(isMostlyEastWest(lanesNorthSouth[0].geometry.coordinates)).toBe(false);
-    expect(isMostlyEastWest(lanesEastWest[0].geometry.coordinates)).toBe(true);
+    expect(isMostlyEastWest(lanesEastWest[0].geometry.coordinates)).toBe(false);
   });
 
   it('orders lanes from the start side when start point is provided', () => {
@@ -125,9 +125,9 @@ describe('lane generation', () => {
 
     const southFirst = lanesFromSouth[0].geometry.coordinates;
     const northFirst = lanesFromNorth[0].geometry.coordinates;
-    const southFirstLat = (southFirst[0][1] + southFirst[1][1]) / 2;
-    const northFirstLat = (northFirst[0][1] + northFirst[1][1]) / 2;
-    expect(northFirstLat).toBeGreaterThan(southFirstLat);
+    const southFirstLon = (southFirst[0][0] + southFirst[1][0]) / 2;
+    const northFirstLon = (northFirst[0][0] + northFirst[1][0]) / 2;
+    expect(northFirstLon).toBeGreaterThan(southFirstLon);
   });
 
   it('generates fewer lanes when lane width grows', () => {

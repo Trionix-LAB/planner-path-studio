@@ -25,9 +25,10 @@ export {
   didZoneLaneInputsChange,
   generateLanesFromZoneObject,
   markZoneLanesOutdated,
+  prepareZoneRegeneration,
   replaceZoneLanes,
 } from './model/zoneLanes';
-export type { OutdatedZoneIds } from './model/zoneLanes';
+export type { OutdatedZoneIds, PreparedZoneRegeneration } from './model/zoneLanes';
 export {
   createElectronGnssComTelemetryProvider,
   createElectronGnssTelemetryProvider,

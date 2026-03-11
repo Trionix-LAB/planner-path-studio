@@ -60,6 +60,7 @@ import {
   markZoneLanesOutdated,
   buildMissionBundle,
   normalizeDivers,
+  prepareZoneRegeneration,
   toConvexZonePolygon,
   replaceZoneLanes,
   trackRecorderReduce,
@@ -110,6 +111,8 @@ import { computeBoundsFromTfw, parseTfw } from '@/features/map/rasterOverlays/pa
 import { moveRasterOverlayByDelta } from '@/features/map/rasterOverlays/reorder';
 import { parseDxfToWgs84, type DxfOverlayFeatureCollection } from '@/features/map/dxfOverlay/parseDxf';
 import { parseDwgToWgs84 } from '@/features/map/dwgOverlay/parseDwg';
+import { resolveHasSelectedAgentTelemetry, resolveSelectedAgentHudData } from '@/features/mission/model/hudSelection';
+import { normalizeLaneAngleDeg } from '@/features/mission/model/laneAngle';
 import type { RwltPrwlaMessage } from '@/features/devices/rwlt-com/protocol';
 import {
   parseVectorOverlayCache,
@@ -1412,10 +1415,14 @@ const MapWorkspace = () => {
     return missionDivers.find((d) => d.uid === selectedAgentId) ?? null;
   }, [baseStationNavigationSource, baseStationTrackColor, missionDivers, selectedAgentId, styles.track.color]);
   const selectedAgentTrackStatus = useMemo<'recording' | 'paused' | 'stopped'>(
-    () => (selectedAgentId ? trackStatusByAgentId[selectedAgentId] ?? 'stopped' : 'stopped'),
-    [selectedAgentId, trackStatusByAgentId],
+    () =>
+      selectedAgentId && (selectedAgentId === BASE_STATION_AGENT_ID || selectedAgent)
+        ? trackStatusByAgentId[selectedAgentId] ?? 'stopped'
+        : 'stopped',
+    [selectedAgent, selectedAgentId, trackStatusByAgentId],
   );
   const selectedAgentActiveTrackNumber = useMemo(() => {
+    if (selectedAgentId && selectedAgentId !== BASE_STATION_AGENT_ID && !selectedAgent) return 0;
     if (!selectedAgentId || !missionDocument) return 0;
     const activeTrackId = missionDocument.active_tracks[selectedAgentId];
     if (!activeTrackId) {
@@ -1425,39 +1432,34 @@ const MapWorkspace = () => {
     const agentTracks = missionDocument.tracks.filter((t) => t.agent_id === selectedAgentId);
     const idx = agentTracks.findIndex((t) => t.id === activeTrackId);
     return idx >= 0 ? idx + 1 : agentTracks.length;
-  }, [missionDocument, selectedAgentId]);
+  }, [missionDocument, selectedAgent, selectedAgentId]);
+  const selectedAgentTelemetryKey = selectedAgent?.id?.trim() ?? '';
 
   // HUD data for selected agent
-  const selectedAgentDiverData = useMemo(() => {
-    if (!selectedAgentId) return diverData;
-    if (selectedAgentId === BASE_STATION_AGENT_ID && baseStationTelemetry) {
-      return {
-        lat: baseStationTelemetry.lat,
-        lon: baseStationTelemetry.lon,
-        speed: baseStationTelemetry.speed,
-        course: Math.round(baseStationTelemetry.course),
-        depth: baseStationTelemetry.depth,
-      };
-    }
-    const telemetry = diverTelemetryById[selectedAgent?.id?.trim() ?? ''];
-    if (telemetry) {
-      return {
-        lat: telemetry.lat,
-        lon: telemetry.lon,
-        speed: telemetry.speed,
-        course: Math.round(telemetry.course),
-        depth: telemetry.depth,
-      };
-    }
-    return diverData;
-  }, [baseStationTelemetry, diverData, diverTelemetryById, selectedAgent, selectedAgentId]);
+  const selectedAgentDiverData = useMemo(
+    () =>
+      resolveSelectedAgentHudData({
+        selectedAgentId,
+        selectedAgentTelemetryKey,
+        baseStationAgentId: BASE_STATION_AGENT_ID,
+        baseStationTelemetry,
+        diverTelemetryById,
+        defaultHudData: DEFAULT_DIVER_DATA,
+      }),
+    [baseStationTelemetry, diverTelemetryById, selectedAgentId, selectedAgentTelemetryKey],
+  );
 
-  const hasSelectedAgentTelemetry = useMemo(() => {
-    if (selectedAgentId === BASE_STATION_AGENT_ID) return baseStationTelemetry !== null;
-    if (!selectedAgentId || !selectedAgent) return hasPrimaryTelemetry;
-    const key = selectedAgent.id.trim();
-    return key in diverTelemetryById;
-  }, [baseStationTelemetry, diverTelemetryById, hasPrimaryTelemetry, selectedAgent, selectedAgentId]);
+  const hasSelectedAgentTelemetry = useMemo(
+    () =>
+      resolveHasSelectedAgentTelemetry({
+        selectedAgentId,
+        selectedAgentTelemetryKey,
+        baseStationAgentId: BASE_STATION_AGENT_ID,
+        baseStationTelemetry,
+        diverTelemetryById,
+      }),
+    [baseStationTelemetry, diverTelemetryById, selectedAgentId, selectedAgentTelemetryKey],
+  );
 
   const isFollowing = Boolean(pinnedAgentId);
 
@@ -1492,6 +1494,13 @@ const MapWorkspace = () => {
       depth: Number.isFinite(selectedObject.rwltAntennaDepthM ?? NaN) ? (selectedObject.rwltAntennaDepthM as number) : 0,
     };
   }, [selectedObject]);
+  useEffect(() => {
+    if (!selectedAgentId || selectedAgentId === BASE_STATION_AGENT_ID) return;
+    const exists = missionDivers.some((diver) => diver.uid === selectedAgentId);
+    if (!exists) {
+      setSelectedAgentId(null);
+    }
+  }, [missionDivers, selectedAgentId]);
   useEffect(() => {
     if (!selectedObjectId) return;
     const exists = mapObjects.some((object) => object.id === selectedObjectId);
@@ -4627,15 +4636,12 @@ const MapWorkspace = () => {
 
   const handleRegenerateLanes = useCallback(
     (id: string, updates?: Partial<MapObject>) => {
-      let zone = objects.find((obj) => obj.id === id && obj.type === 'zone');
-      if (!zone) return;
+      const prepared = prepareZoneRegeneration(objects, id, updates);
+      if (!prepared.zone) return;
 
-      if (updates) {
-        zone = { ...zone, ...updates };
-        setObjects((prev) => prev.map((obj) => (obj.id === id ? { ...obj, ...updates } : obj)));
-      }
+      setObjects(prepared.objects);
 
-      const nextLanes = generateLanesFromZoneObject(zone);
+      const nextLanes = generateLanesFromZoneObject(prepared.zone);
       if (nextLanes.length === 0) {
         setOutdatedZoneIds((prev) => markZoneLanesOutdated(prev, id));
         showLaneGenerationError();
@@ -4664,10 +4670,13 @@ const MapWorkspace = () => {
 
   const handlePickedLaneEdge = useCallback(
     (zoneId: string, bearingDeg: number) => {
-      handleObjectUpdate(zoneId, { laneBearingDeg: bearingDeg });
+      handleRegenerateLanes(zoneId, {
+        laneBearingDeg: bearingDeg,
+        laneAngle: normalizeLaneAngleDeg(bearingDeg),
+      });
       setLanePickState({ mode: 'none', zoneId: null });
     },
-    [handleObjectUpdate],
+    [handleRegenerateLanes],
   );
 
   const handlePickedLaneStart = useCallback(
