@@ -5,7 +5,7 @@ import { getTileCache } from '@/features/map/offlineTiles/tileCache';
 import { resolveTileUrl } from '@/features/map/offlineTiles/tileUrl';
 import { resolveTileCandidate } from '@/features/map/offlineTiles/tileLoadStrategy';
 
-const PLACEHOLDER_TILE =
+const DEFAULT_PLACEHOLDER_TILE =
   'data:image/svg+xml;utf8,' +
   encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#0f172a"/><path d="M0 0L256 256M256 0L0 256" stroke="#334155" stroke-width="2"/></svg>',
@@ -20,6 +20,9 @@ interface CachedTileLayerProps {
   maxCacheBytes?: number;
   opacity?: number;
   zIndex?: number;
+  placeholderTileUrl?: string;
+  errorTileUrl?: string;
+  tileBackgroundColor?: string;
 }
 
 type TileSourceRequest = {
@@ -123,6 +126,9 @@ const CachedTileLayer = ({
   maxCacheBytes,
   opacity = 1,
   zIndex = 1,
+  placeholderTileUrl = DEFAULT_PLACEHOLDER_TILE,
+  errorTileUrl,
+  tileBackgroundColor = '#0f172a',
 }: CachedTileLayerProps) => {
   const map = useMap();
 
@@ -159,8 +165,8 @@ const CachedTileLayer = ({
         tile.decoding = 'async';
         tile.width = tileSize;
         tile.height = tileSize;
-        tile.style.backgroundColor = '#0f172a';
-        tile.src = PLACEHOLDER_TILE;
+        tile.style.backgroundColor = tileBackgroundColor;
+        tile.src = placeholderTileUrl;
         let isDone = false;
         const finish = () => {
           if (isDone) return;
@@ -180,7 +186,7 @@ const CachedTileLayer = ({
           revokeActiveObjectUrl();
           tile.onload = null;
           tile.onerror = () => {
-            tile.src = PLACEHOLDER_TILE;
+            tile.src = errorTileUrl ?? placeholderTileUrl;
           };
           tile.src = url;
         };
@@ -199,7 +205,7 @@ const CachedTileLayer = ({
               URL.revokeObjectURL(objectUrl);
               activeObjectUrl = null;
             }
-            tile.src = PLACEHOLDER_TILE;
+            tile.src = errorTileUrl ?? placeholderTileUrl;
             onDecodeError?.();
           };
           tile.src = objectUrl;
@@ -253,7 +259,7 @@ const CachedTileLayer = ({
             const request = resolveSourceRequestAtZoom(coords, startSourceZoom);
             const normalized = normalizeTileCoords(request.z, request.x, request.y);
             if (!normalized) {
-              tile.src = PLACEHOLDER_TILE;
+              tile.src = errorTileUrl ?? placeholderTileUrl;
               return;
             }
 
@@ -298,9 +304,9 @@ const CachedTileLayer = ({
               return;
             }
 
-            tile.src = PLACEHOLDER_TILE;
+            tile.src = errorTileUrl ?? placeholderTileUrl;
           } catch {
-            tile.src = PLACEHOLDER_TILE;
+            tile.src = errorTileUrl ?? placeholderTileUrl;
           }
         };
 
@@ -317,7 +323,20 @@ const CachedTileLayer = ({
       window.removeEventListener('offline', handleOffline);
       layer.removeFrom(map);
     };
-  }, [map, maxCacheBytes, maxNativeZoom, opacity, providerKey, subdomains, tileSize, urlTemplate, zIndex]);
+  }, [
+    errorTileUrl,
+    map,
+    maxCacheBytes,
+    maxNativeZoom,
+    opacity,
+    placeholderTileUrl,
+    providerKey,
+    subdomains,
+    tileBackgroundColor,
+    tileSize,
+    urlTemplate,
+    zIndex,
+  ]);
 
   return null;
 };

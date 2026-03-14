@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GeoJSON, ImageOverlay, MapContainer, Marker, Pane, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { GeoJSON, ImageOverlay, MapContainer, Marker, Pane, Polygon, Polyline, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { AlertTriangle } from "lucide-react";
@@ -1455,12 +1455,9 @@ const MapCanvas = ({
   const tileSize = platform.map.tileSize();
   const baseMaxNativeZoom = platform.map.maxNativeZoom();
   const overlayTileLayerUrl = platform.map.overlayTileLayerUrl();
-  const overlayTileLayerAttribution = platform.map.overlayTileLayerAttribution();
   const overlayMaxNativeZoom = platform.map.overlayMaxNativeZoom();
-  const overlayMaxZoom = platform.map.overlayMaxZoom();
   const overlayTileSubdomains = platform.map.overlayTileSubdomains();
   const overlayTileSize = platform.map.overlayTileSize();
-  const overlayDetectRetina = platform.map.overlayDetectRetina();
   const zoomSnap = platform.map.zoomSnap();
   const normalizedInitialZoom = normalizeZoomLevel(mapView?.zoom ?? 16, zoomSnap);
 
@@ -1498,16 +1495,17 @@ const MapCanvas = ({
             zIndex={1}
           />
         ) : null}
-        {layers.basemap && overlayTileLayerUrl && overlayTileLayerAttribution ? (
-          <TileLayer
-            url={overlayTileLayerUrl}
-            attribution={overlayTileLayerAttribution}
-            maxZoom={overlayMaxZoom ?? platform.map.maxZoom()}
+        {layers.basemap && overlayTileLayerUrl ? (
+          <CachedTileLayer
+            providerKey={overlayTileLayerUrl}
+            urlTemplate={overlayTileLayerUrl}
+            subdomains={overlayTileSubdomains}
+            tileSize={typeof overlayTileSize === 'number' ? overlayTileSize : 256}
+            maxNativeZoom={overlayMaxNativeZoom}
+            placeholderTileUrl={TRANSPARENT_TILE}
             errorTileUrl={TRANSPARENT_TILE}
-            {...(typeof overlayMaxNativeZoom === 'number' ? { maxNativeZoom: overlayMaxNativeZoom } : {})}
-            {...(overlayTileSubdomains ? { subdomains: overlayTileSubdomains } : {})}
-            {...(typeof overlayTileSize === 'number' ? { tileSize: overlayTileSize } : {})}
-            {...(typeof overlayDetectRetina === 'boolean' ? { detectRetina: overlayDetectRetina } : {})}
+            tileBackgroundColor="transparent"
+            zIndex={2}
           />
         ) : null}
 

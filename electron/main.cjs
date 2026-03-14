@@ -1768,8 +1768,11 @@ app.whenReady().then(async () => {
   session.defaultSession.webRequest.onBeforeSendHeaders(
     { urls: ['https://tile.openstreetmap.org/*', 'https://tiles.openseamap.org/*'] },
     (details, callback) => {
-      details.requestHeaders['User-Agent'] = APP_USER_AGENT;
-      callback({ requestHeaders: details.requestHeaders });
+      try {
+        callback({ requestHeaders: { ...details.requestHeaders, 'User-Agent': APP_USER_AGENT } });
+      } catch {
+        callback({});
+      }
     },
   );
 
