@@ -29,11 +29,11 @@ const DEFAULT_WHEEL_PX_PER_ZOOM_LEVEL = 120;
 
 const OSM_CONFIG: MapConfig = {
   provider: 'osm',
-  tileLayerUrl: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  tileLayerAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  tileLayerUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  tileLayerAttribution:
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   maxNativeZoom: 19,
   maxZoom: 22,
-  tileSubdomains: 'abc',
   tileSize: 256,
   detectRetina: true,
   zoomSnap: DEFAULT_ZOOM_SNAP,

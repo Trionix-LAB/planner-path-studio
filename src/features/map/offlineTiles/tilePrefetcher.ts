@@ -21,6 +21,8 @@ export type PrefetchOptions = {
   zoomMin: number;
   zoomMax: number;
   concurrency?: number;
+  /** Minimum delay between consecutive fetches per worker (ms). Default 200. */
+  throttleMs?: number;
   retryCount?: number;
   retryDelayMs?: number;
   signal?: AbortSignal;
@@ -139,7 +141,8 @@ const fetchTileWithRetry = async (
 };
 
 export const prefetchTiles = async (options: PrefetchOptions): Promise<PrefetchProgress> => {
-  const concurrency = Math.max(1, Math.min(16, options.concurrency ?? 6));
+  const concurrency = Math.max(1, Math.min(2, options.concurrency ?? 2));
+  const throttleMs = Math.max(100, Math.min(2000, Math.trunc(options.throttleMs ?? 200)));
   const retryCount = Math.max(0, Math.min(5, Math.trunc(options.retryCount ?? 2)));
   const retryDelayMs = Math.max(0, Math.min(5000, Math.trunc(options.retryDelayMs ?? 250)));
   const tasks = buildTasks(options.bbox, options.zoomMin, options.zoomMax);
@@ -205,6 +208,9 @@ export const prefetchTiles = async (options: PrefetchOptions): Promise<PrefetchP
         progress.completed += 1;
         options.onProgress?.({ ...progress });
       }
+
+      // Throttle to avoid overwhelming tile servers (OSM policy compliance).
+      await wait(throttleMs, options.signal).catch(() => {});
     }
   };
 

@@ -54,7 +54,7 @@ describe('tile prefetcher', () => {
     const progress = await prefetchTiles({
       cache,
       providerKey: 'osm',
-      tileUrlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      tileUrlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       subdomains: 'abc',
       bbox: { north: 10, south: -10, west: -10, east: 10 },
       zoomMin: 0,
@@ -74,7 +74,7 @@ describe('tile prefetcher', () => {
     const key = cache.makeKey('osm', 0, 0, 0);
     await cache.put(key, {
       provider: 'osm',
-      url: 'https://a.tile.openstreetmap.org/0/0/0.png',
+      url: 'https://tile.openstreetmap.org/0/0/0.png',
       z: 0,
       x: 0,
       y: 0,
@@ -87,7 +87,7 @@ describe('tile prefetcher', () => {
     const progress = await prefetchTiles({
       cache,
       providerKey: 'osm',
-      tileUrlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      tileUrlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       subdomains: 'abc',
       bbox: { north: 20, south: -20, west: -20, east: 20 },
       zoomMin: 0,
@@ -114,7 +114,7 @@ describe('tile prefetcher', () => {
     const progress = await prefetchTiles({
       cache,
       providerKey: 'osm',
-      tileUrlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      tileUrlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       subdomains: 'abc',
       bbox: { north: 10, south: -10, west: -10, east: 10 },
       zoomMin: 0,
@@ -141,7 +141,7 @@ describe('tile prefetcher', () => {
     const progress = await prefetchTiles({
       cache,
       providerKey: 'osm',
-      tileUrlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      tileUrlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       subdomains: 'abc',
       bbox: { north: 10, south: -10, west: -10, east: 10 },
       zoomMin: 0,
@@ -170,7 +170,7 @@ describe('tile prefetcher', () => {
     const progress = await prefetchTiles({
       cache,
       providerKey: 'osm',
-      tileUrlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      tileUrlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       subdomains: 'abc',
       bbox: { north: 10, south: -10, west: -10, east: 10 },
       zoomMin: 0,
@@ -193,7 +193,7 @@ describe('tile prefetcher', () => {
     const key = cache.makeKey('osm', 0, 0, 0);
     await cache.put(key, {
       provider: 'osm',
-      url: 'https://a.tile.openstreetmap.org/0/0/0.png',
+      url: 'https://tile.openstreetmap.org/0/0/0.png',
       z: 0,
       x: 0,
       y: 0,
@@ -210,7 +210,7 @@ describe('tile prefetcher', () => {
     const progress = await prefetchTiles({
       cache,
       providerKey: 'osm',
-      tileUrlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      tileUrlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       subdomains: 'abc',
       bbox: { north: 10, south: -10, west: -10, east: 10 },
       zoomMin: 0,

@@ -1,9 +1,11 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeImage, session } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 const dgram = require('dgram');
 const os = require('os');
 const { decodeTiffToPngAsync } = require('./tiff-decoder.cjs');
+
+const APP_USER_AGENT = `PlannerPathStudio/${app.getVersion()} (+https://github.com/Trionix-LAB; contact: info@trionixlab.com)`;
 
 let sharpCached = undefined;
 
@@ -1761,6 +1763,16 @@ const registerIpcHandlers = () => {
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+
+  // Set custom User-Agent for tile server requests (OSM tile usage policy compliance).
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['https://tile.openstreetmap.org/*', 'https://tiles.openseamap.org/*'] },
+    (details, callback) => {
+      details.requestHeaders['User-Agent'] = APP_USER_AGENT;
+      callback({ requestHeaders: details.requestHeaders });
+    },
+  );
+
   registerIpcHandlers();
   await createMainWindow();
 
