@@ -4,6 +4,8 @@ const fs = require('fs/promises');
 const dgram = require('dgram');
 const os = require('os');
 const { decodeTiffToPngAsync } = require('./tiff-decoder.cjs');
+const { LicenseValidator } = require('./license-validator.cjs');
+const { PUBLIC_KEY } = require('./license-config.cjs');
 
 const APP_USER_AGENT = `PlannerPathStudio/${app.getVersion()} (+https://github.com/Trionix-LAB; contact: info@trionixlab.com)`;
 
@@ -1761,7 +1763,93 @@ const registerIpcHandlers = () => {
   });
 };
 
+const validator = new LicenseValidator(PUBLIC_KEY);
+
+/**
+ * Get paths where license key can be stored.
+ */
+function getLicensePaths() {
+  const appDir = app.getPath('userData');
+  const exeDir = path.dirname(app.getPath('exe'));
+  return [
+    path.join(appDir, 'license.key'),
+    path.join(exeDir, 'license.key'),
+    path.join(process.cwd(), 'license.key'),
+  ];
+}
+
+/**
+ * Check license on application startup.
+ */
+async function checkLicense() {
+  const paths = getLicensePaths();
+
+  for (const licensePath of paths) {
+    const result = await validator.validateFile(licensePath).catch(() => null);
+    if (result && result.valid) {
+      return result;
+    }
+
+    if (result && result.expired) {
+      await dialog.showMessageBox({
+        type: 'error',
+        title: 'Лицензия истекла',
+        message: `Ваша лицензия истекла ${result.expiresAt}.\nОбратитесь к разработчику для продления.`,
+      });
+      app.quit();
+      return null;
+    }
+  }
+
+  // Not found - ask user
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    title: 'Лицензия не обнаружена',
+    message: 'Для запуска приложения Planner Path Studio требуется действующая лицензия. Пожалуйста, выберите файл лицензии (.key).',
+    buttons: ['Выбрать файл лицензии', 'Отмена'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+
+  if (response === 1) {
+    app.quit();
+    return null;
+  }
+
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Выберите файл лицензии',
+    filters: [{ name: 'License', extensions: ['key', 'lic'] }],
+    properties: ['openFile'],
+  });
+
+  if (canceled || filePaths.length === 0) {
+    return checkLicense(); // Loop back to the info dialog
+  }
+
+  const result = await validator.validateFile(filePaths[0]).catch(() => null);
+  if (result && result.valid) {
+    try {
+      const targetPath = path.join(app.getPath('userData'), 'license.key');
+      const content = await fs.readFile(filePaths[0], 'utf-8');
+      await fs.writeFile(targetPath, content, 'utf-8');
+    } catch (err) {
+      console.error('Failed to copy license file:', err);
+    }
+    return result;
+  }
+
+  await dialog.showMessageBox({
+    type: 'error',
+    title: 'Недействительная лицензия',
+    message: result?.error || 'Файл лицензии повреждён или недействителен.',
+  });
+  return checkLicense();
+}
+
 app.whenReady().then(async () => {
+  const license = await checkLicense();
+  if (!license) return;
+
   Menu.setApplicationMenu(null);
 
   // Set custom User-Agent for tile server requests (OSM tile usage policy compliance).
