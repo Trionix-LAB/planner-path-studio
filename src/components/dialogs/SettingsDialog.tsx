@@ -53,6 +53,7 @@ interface SettingsDialogProps {
   value: AppUiDefaults;
   missionDivers: DiverUiConfig[];
   isZimaAssignedInProfile: boolean;
+  isRwltAssignedInProfile: boolean;
   baseStationNavigationSource: NavigationSourceId | null;
   baseStationTrackColor: string;
   baseStationMarkerSizePx: number;
@@ -97,6 +98,7 @@ const SettingsDialog = ({
   value,
   missionDivers,
   isZimaAssignedInProfile,
+  isRwltAssignedInProfile,
   baseStationNavigationSource,
   baseStationTrackColor,
   baseStationMarkerSizePx,
@@ -822,11 +824,13 @@ const SettingsDialog = ({
                       navigationSourceSchemaById.get(diver.navigation_source) ??
                       (diver.navigation_source === 'zima2r' ||
                         diver.navigation_source === 'gnss-udp' ||
-                        diver.navigation_source === 'gnss-com'
+                        diver.navigation_source === 'gnss-com' ||
+                        diver.navigation_source === 'rwlt-com'
                         ? diver.navigation_source
                         : null);
                     const isBeaconIdEnabled =
-                      isZimaAssignedInProfile && selectedSourceSchemaId === 'zima2r';
+                      (isZimaAssignedInProfile && selectedSourceSchemaId === 'zima2r') ||
+                      (isRwltAssignedInProfile && selectedSourceSchemaId === 'rwlt-com');
                     return (
                       <div key={diver.uid} className="border border-border rounded-md p-3 space-y-3">
                         <div className="flex items-center justify-between">
@@ -891,8 +895,8 @@ const SettingsDialog = ({
                           </Select>
                           {!isBeaconIdEnabled && (
                             <div className="text-xs text-muted-foreground">
-                              ID маяка доступен только при назначенном оборудовании Zima2R и выбранном
-                              источнике Zima2R.
+                              ID маяка доступен только при назначенном оборудовании Zima2R/RWLT и
+                              выбранном источнике Zima2R/RWLT.
                             </div>
                           )}
                         </div>

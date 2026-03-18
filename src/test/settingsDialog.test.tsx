@@ -19,9 +19,11 @@ const buildDiver = (navigationSource: DiverUiConfig['navigation_source']): Diver
 
 const renderDialog = async ({
   isZimaAssignedInProfile,
+  isRwltAssignedInProfile,
   diver,
 }: {
   isZimaAssignedInProfile: boolean;
+  isRwltAssignedInProfile: boolean;
   diver: DiverUiConfig;
 }) => {
   render(
@@ -31,6 +33,7 @@ const renderDialog = async ({
       value={baseDefaults}
       missionDivers={[diver]}
       isZimaAssignedInProfile={isZimaAssignedInProfile}
+      isRwltAssignedInProfile={isRwltAssignedInProfile}
       baseStationNavigationSource={null}
       baseStationTrackColor="#a855f7"
       baseStationMarkerSizePx={34}
@@ -43,6 +46,7 @@ const renderDialog = async ({
       onResetDivers={vi.fn()}
       navigationSourceOptions={[
         { id: 'instance-zima-1', label: 'Zima2R #1', schemaId: 'zima2r' },
+        { id: 'instance-rwlt-1', label: 'RWLT #1', schemaId: 'rwlt-com' },
         { id: 'instance-gnss-1', label: 'GNSS-UDP #1', schemaId: 'gnss-udp' },
       ]}
     />,
@@ -82,6 +86,7 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
   it('disables beacon id input when zima profile is not assigned', async () => {
     await renderDialog({
       isZimaAssignedInProfile: false,
+      isRwltAssignedInProfile: false,
       diver: buildDiver('zima2r'),
     });
 
@@ -91,6 +96,7 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
   it('enables beacon id input when zima profile is assigned and selected as source', async () => {
     await renderDialog({
       isZimaAssignedInProfile: true,
+      isRwltAssignedInProfile: false,
       diver: buildDiver('zima2r'),
     });
 
@@ -100,6 +106,7 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
   it('enables beacon id input for zima instance source id', async () => {
     await renderDialog({
       isZimaAssignedInProfile: true,
+      isRwltAssignedInProfile: false,
       diver: buildDiver('instance-zima-1'),
     });
 
@@ -109,7 +116,28 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
   it('disables beacon id input for non-zima source even with assigned zima profile', async () => {
     await renderDialog({
       isZimaAssignedInProfile: true,
+      isRwltAssignedInProfile: false,
       diver: buildDiver('gnss-udp'),
+    });
+
+    expect(getBeaconIdInput()).toBeDisabled();
+  });
+
+  it('enables beacon id input for rwlt source when rwlt equipment is assigned', async () => {
+    await renderDialog({
+      isZimaAssignedInProfile: false,
+      isRwltAssignedInProfile: true,
+      diver: buildDiver('instance-rwlt-1'),
+    });
+
+    expect(getBeaconIdInput()).toBeEnabled();
+  });
+
+  it('disables beacon id input for rwlt source when rwlt equipment is not assigned', async () => {
+    await renderDialog({
+      isZimaAssignedInProfile: false,
+      isRwltAssignedInProfile: false,
+      diver: buildDiver('instance-rwlt-1'),
     });
 
     expect(getBeaconIdInput()).toBeDisabled();
@@ -124,6 +152,7 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
         value={baseDefaults}
         missionDivers={[buildDiver('zima2r')]}
         isZimaAssignedInProfile={true}
+        isRwltAssignedInProfile={false}
         baseStationNavigationSource={null}
         baseStationTrackColor="#a855f7"
         baseStationMarkerSizePx={34}
@@ -136,6 +165,7 @@ describe('SettingsDialog beacon id availability (R-017)', () => {
         onResetDivers={vi.fn()}
         navigationSourceOptions={[
           { id: 'instance-zima-1', label: 'Zima2R #1', schemaId: 'zima2r' },
+          { id: 'instance-rwlt-1', label: 'RWLT #1', schemaId: 'rwlt-com' },
           { id: 'instance-gnss-1', label: 'GNSS-UDP #1', schemaId: 'gnss-udp' },
         ]}
       />,
@@ -173,6 +203,7 @@ describe('SettingsDialog theme toggle (T-90)', () => {
       value: baseDefaults,
       missionDivers: [buildDiver('zima2r')],
       isZimaAssignedInProfile: true,
+      isRwltAssignedInProfile: false,
       baseStationNavigationSource: null,
       baseStationTrackColor: '#a855f7',
       baseStationMarkerSizePx: 34,
@@ -185,6 +216,7 @@ describe('SettingsDialog theme toggle (T-90)', () => {
       onResetDivers: vi.fn(),
       navigationSourceOptions: [
         { id: 'instance-zima-1', label: 'Zima2R #1', schemaId: 'zima2r' },
+        { id: 'instance-rwlt-1', label: 'RWLT #1', schemaId: 'rwlt-com' },
         { id: 'instance-gnss-1', label: 'GNSS-UDP #1', schemaId: 'gnss-udp' },
       ],
     };

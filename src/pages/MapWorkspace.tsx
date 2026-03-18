@@ -59,6 +59,7 @@ import {
   isConvexZonePolygon,
   markZoneLanesOutdated,
   buildMissionBundle,
+  normalizeIncomingBeaconBindingKey,
   normalizeDivers,
   prepareZoneRegeneration,
   toConvexZonePolygon,
@@ -813,17 +814,6 @@ const normalizeConfiguredBeaconBindingKey = (value: unknown): string | null => {
   return String(n);
 };
 
-const normalizeZimaTelemetryBeaconBindingKey = (value: unknown): string | null => {
-  if (typeof value !== 'string' && typeof value !== 'number') return null;
-  const normalized = String(value).trim();
-  if (!normalized) return null;
-  const n = Number(normalized);
-  if (!Number.isInteger(n)) return null;
-  if (n >= 0 && n <= 15) return String(n + 1);
-  if (n >= DIVER_BEACON_ID_MIN && n <= DIVER_BEACON_ID_MAX) return String(n);
-  return null;
-};
-
 const inferRwltBuoyIdMode = (mode: RwltIdMode, rawBuoyId: number): RwltIdMode => {
   if (mode !== 'unknown') return mode;
   if (rawBuoyId === 0) return 'zero-based';
@@ -1198,7 +1188,6 @@ const MapWorkspace = () => {
   const rwltPingerAgentFixRef = useRef<DiverTelemetryState | null>(null);
   const rwltDiverFixByIdRef = useRef<Record<string, DiverTelemetryState>>({});
   const rwltBuoyIdModeRef = useRef<RwltIdMode>('unknown');
-  const rwltDiverIdOffsetRef = useRef<0 | 1>(0);
   const simulationFixRef = useRef<DiverTelemetryState | null>(null);
   const lastRecordedPrimaryFixAtRef = useRef<number>(0);
   const lastRecordedFixByAgentRef = useRef<Record<string, number>>({});
@@ -1253,22 +1242,11 @@ const MapWorkspace = () => {
         timeoutMs: CONNECTION_TIMEOUT_MS,
         readConfig: readElectronRwltComConfig,
         resolveDiver: (tId) => {
-          const tid = Number(tId);
-          if (!Number.isInteger(tid)) return null;
-
-          if (rwltDiverIdOffsetRef.current === 0 && tid === 0) {
-            rwltDiverIdOffsetRef.current = 1;
-          }
-
-          const preferredBeaconId = String(rwltDiverIdOffsetRef.current === 1 ? tid + 1 : tid);
-          let match = missionDiversRef.current.find((diver) => diver.beacon_id === preferredBeaconId);
-
-          // Compatibility for streams that send IDs offset by -1 but start from 1.
-          if (!match && rwltDiverIdOffsetRef.current === 0 && tid >= 1 && tid <= 15) {
-            const fallbackBeaconId = String(tid + 1);
-            match = missionDiversRef.current.find((diver) => diver.beacon_id === fallbackBeaconId);
-          }
-
+          const beaconKey = normalizeIncomingBeaconBindingKey(tId);
+          if (!beaconKey) return null;
+          const match = missionDiversRef.current.find(
+            (diver) => normalizeConfiguredBeaconBindingKey(diver.beacon_id ?? diver.id) === beaconKey,
+          );
           return match ? { uid: match.uid, id: match.id } : null;
         },
         onBuoyUpdate: handleRwltBuoyUpdate,
@@ -2793,7 +2771,6 @@ const MapWorkspace = () => {
     rwltPingerAgentFixRef.current = null;
     rwltDiverFixByIdRef.current = {};
     rwltBuoyIdModeRef.current = 'unknown';
-    rwltDiverIdOffsetRef.current = 0;
     simulationFixRef.current = null;
     setRwltBuoys({});
     lastRecordedPrimaryFixAtRef.current = 0;
@@ -3444,7 +3421,7 @@ const MapWorkspace = () => {
         if (fix.source === 'AZMLOC') {
           zimaAzmLocFixRef.current = telemetryState;
         } else if (fix.source === 'AZMREM') {
-          const beaconKey = normalizeZimaTelemetryBeaconBindingKey(fix.beaconId ?? fix.remoteAddress);
+          const beaconKey = normalizeIncomingBeaconBindingKey(fix.beaconId ?? fix.remoteAddress);
           if (beaconKey) {
             zimaRemFixByBeaconRef.current[beaconKey] = telemetryState;
           }
@@ -3631,7 +3608,6 @@ const MapWorkspace = () => {
         rwltPingerAgentFixRef.current = null;
         rwltDiverFixByIdRef.current = {};
         rwltBuoyIdModeRef.current = 'unknown';
-        rwltDiverIdOffsetRef.current = 0;
       }
       return;
     }
@@ -3642,7 +3618,6 @@ const MapWorkspace = () => {
       rwltPingerAgentFixRef.current = null;
       rwltDiverFixByIdRef.current = {};
       rwltBuoyIdModeRef.current = 'unknown';
-      rwltDiverIdOffsetRef.current = 0;
     }
   }, [
     equipmentEnabledBySource,
@@ -4988,6 +4963,7 @@ const MapWorkspace = () => {
         value={settingsValue}
         missionDivers={missionDivers}
         isZimaAssignedInProfile={navigationSourceOptions.some((option) => option.schemaId === 'zima2r')}
+        isRwltAssignedInProfile={navigationSourceOptions.some((option) => option.schemaId === 'rwlt-com')}
         baseStationNavigationSource={baseStationNavigationSource}
         onApply={handleSettingsApply}
         onApplyDivers={handleDiversApply}

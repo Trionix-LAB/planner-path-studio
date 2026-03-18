@@ -54,6 +54,7 @@ export {
   DIVER_BEACON_ID_MIN,
   DIVER_BEACON_ID_MAX,
 } from './model/divers';
+export { normalizeIncomingBeaconBindingKey } from './model/beaconBinding';
 export {
   MISSION_SCHEMA_VERSION,
   type CreateMissionInput,
